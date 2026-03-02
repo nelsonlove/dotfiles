@@ -1,5 +1,5 @@
 final: prev: {
-  emacs-mac-custom = prev.emacsMacport.overrideAttrs (old: {
+  emacs-mac-custom = prev.emacs-macport.overrideAttrs (old: {
     pname = "emacs-mac-custom";
     version = "30.1-jdtsmith";
 
