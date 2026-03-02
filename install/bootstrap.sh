@@ -39,9 +39,13 @@ fi
 
 # 4. Install Homebrew
 if ! command -v brew &>/dev/null; then
-  echo "==> Installing Homebrew..."
-  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-  eval "$(/opt/homebrew/bin/brew shellenv zsh)"
+  if [ -x /opt/homebrew/bin/brew ]; then
+    eval "$(/opt/homebrew/bin/brew shellenv zsh)"
+  else
+    echo "==> Installing Homebrew..."
+    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    eval "$(/opt/homebrew/bin/brew shellenv zsh)"
+  fi
 fi
 
 # 5. Authenticate with GitHub
@@ -62,9 +66,9 @@ fi
 echo "==> Running darwin-rebuild switch for $HOSTNAME..."
 cd "$DOTFILES"
 if command -v darwin-rebuild &>/dev/null; then
-  sudo HOME="$HOME" darwin-rebuild switch --flake ".#$HOSTNAME"
+  sudo home="$HOME" darwin-rebuild switch --flake ".#$HOSTNAME"
 else
-  sudo HOME="$HOME" nix run nix-darwin -- switch --flake ".#$HOSTNAME"
+  sudo home="$HOME" nix run nix-darwin -- switch --flake ".#$HOSTNAME"
 fi
 
 echo "==> Done. System is configured."
