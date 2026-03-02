@@ -14,7 +14,15 @@ HOSTNAME=$(scutil --get LocalHostName)
 
 echo "==> Bootstrapping $HOSTNAME"
 
-# 1. Install Nix (Determinate Systems — flakes enabled out of the box)
+# 1. Xcode Command Line Tools (provides git, clang, etc.)
+if ! xcode-select -p &>/dev/null; then
+  echo "==> Installing Xcode Command Line Tools..."
+  xcode-select --install
+  echo "==> Follow the prompt to install, then rerun this script."
+  exit 0
+fi
+
+# 3. Install Nix (Determinate Systems — flakes enabled out of the box)
 if ! command -v nix &>/dev/null; then
   echo "==> Installing Nix..."
   curl --proto '=https' --tlsv1.2 -sSf -L \
@@ -23,27 +31,27 @@ if ! command -v nix &>/dev/null; then
   exit 0
 fi
 
-# 2. Install Homebrew
+# 4. Install Homebrew
 if ! command -v brew &>/dev/null; then
   echo "==> Installing Homebrew..."
   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 fi
 
-# 3. Authenticate with GitHub
+# 5. Authenticate with GitHub
 if ! gh auth status &>/dev/null; then
   echo "==> Authenticating with GitHub..."
   command -v gh &>/dev/null || brew install gh
   gh auth login --web
 fi
 
-# 4. Clone dotfiles
+# 6. Clone dotfiles
 if [ ! -d "$DOTFILES" ]; then
   echo "==> Cloning dotfiles..."
   mkdir -p "$HOME/repos"
   git clone "$REPO" "$DOTFILES"
 fi
 
-# 5. First nix-darwin build
+# 7. First nix-darwin build
 echo "==> Running darwin-rebuild switch for $HOSTNAME..."
 cd "$DOTFILES"
 if command -v darwin-rebuild &>/dev/null; then
