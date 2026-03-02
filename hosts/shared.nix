@@ -45,7 +45,11 @@
       "obsidian"
     ];
     masApps = {
+      "Day One" = 1055511498;
+      "Gemini 2" = 1090488118;
+      "Numbers" = 409203825;
       "OmniFocus 4" = 1542143627;
+      "Pages" = 409201541;
     };
   };
 
