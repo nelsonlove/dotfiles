@@ -7,7 +7,7 @@ final: prev: {
       owner = "jdtsmith";
       repo = "emacs-mac";
       rev = "emacs-mac-30_1_exp";
-      hash = "";  # First build will fail — replace with hash from error output
+      hash = "sha256-jqj0rmVepGEcDKzvt6B3wYfvEFyum+ZMzkCf+M5gj2s=";
     };
 
     configureFlags = (old.configureFlags or []) ++ [
