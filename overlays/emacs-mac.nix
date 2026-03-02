@@ -15,7 +15,6 @@ final: prev: {
       "--with-tree-sitter"
       "--with-rsvg"
       "--enable-mac-app=${placeholder "out"}/Applications"
-      "--enable-mac-self-contained"
     ];
 
     buildInputs = (old.buildInputs or []) ++ (with prev; [
