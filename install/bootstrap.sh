@@ -29,21 +29,21 @@ if ! command -v brew &>/dev/null; then
   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 fi
 
-# 3. Clone dotfiles (requires SSH key or gh auth)
+# 3. Authenticate with GitHub
+if ! ssh -T git@github.com 2>&1 | grep -q "successfully authenticated"; then
+  echo "==> Authenticating with GitHub..."
+  command -v gh &>/dev/null || brew install gh
+  gh auth login --web --git-protocol ssh
+fi
+
+# 4. Clone dotfiles
 if [ ! -d "$DOTFILES" ]; then
-  if ! ssh -T git@github.com 2>&1 | grep -q "successfully authenticated"; then
-    echo "==> GitHub SSH auth required. Either:"
-    echo "      1. Add an SSH key:  ssh-keygen && cat ~/.ssh/id_ed25519.pub"
-    echo "      2. Use gh CLI:      brew install gh && gh auth login"
-    echo "    Then rerun this script."
-    exit 1
-  fi
   echo "==> Cloning dotfiles..."
   mkdir -p "$HOME/repos"
   git clone "$REPO" "$DOTFILES"
 fi
 
-# 4. First nix-darwin build
+# 5. First nix-darwin build
 echo "==> Running darwin-rebuild switch for $HOSTNAME..."
 cd "$DOTFILES"
 if command -v darwin-rebuild &>/dev/null; then
