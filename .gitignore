@@ -17,6 +17,16 @@
 !install/**
 !backlog/
 !backlog/**
+!hosts/
+!hosts/**
+!home/
+!home/**
+!overlays/
+!overlays/**
+
+# Nix
+!flake.nix
+!flake.lock
 
 # Exclude build artifacts even in whitelisted dirs
 *.elc
