@@ -1,0 +1,72 @@
+
+[bell]
+duration = 300
+
+[colors]
+draw_bold_text_with_bright_colors = true
+
+[colors.cursor]
+cursor = "CellForeground"
+text = "CellBackground"
+
+[colors.normal]
+black = "#282c34"
+blue = "#51afef"
+cyan = "#46d9ff"
+green = "#98be65"
+magenta = "#c678dd"
+red = "#ff6c6b"
+white = "#bbc2cf"
+yellow = "#ecbe7b"
+
+[colors.primary]
+background = "#282c34"
+foreground = "#bbc2cf"
+
+[colors.selection]
+background = "CellForeground"
+text = "CellBackground"
+
+[env]
+TERM = "alacritty-direct"
+
+[font]
+builtin_box_drawing = true
+size = 14.0
+
+[font.bold]
+family = "IosevkaTerm Nerd Font Mono"
+style = "Medium"
+
+[font.bold_italic]
+family = "IosevkaTerm Nerd Font Mono"
+style = "Medium Oblique"
+
+[font.italic]
+family = "IosevkaTerm Nerd Font Mono"
+style = "Light Oblique"
+
+[font.normal]
+family = "IosevkaTerm Nerd Font Mono"
+style = "Light"
+
+[scrolling]
+history = 100000
+
+[terminal.shell]
+args = ["--login"]
+program = "/bin/zsh"
+
+[window]
+decorations = "full"
+dynamic_padding = true
+opacity = 0.97
+
+[window.padding]
+x = 0
+y = 0
+
+[general]
+import = ["~/.config/alacritty/keys.toml"]
+
+[terminal]

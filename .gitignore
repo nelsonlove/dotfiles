@@ -1,0 +1,33 @@
+# Ignore everything by default
+*
+
+# Then whitelist what we want
+!.gitignore
+!README.md
+!CLAUDE.md
+
+# Config directories
+!alacritty/
+!alacritty/**
+!emacs/
+!emacs/**
+!docs/
+!docs/**
+!install/
+!install/**
+!backlog/
+!backlog/**
+
+# Exclude build artifacts even in whitelisted dirs
+*.elc
+*.eln
+eln-cache/
+*~
+emacs/custom.el
+emacs/elgrep-data.el
+
+# Exclude backlog drafts
+backlog/drafts/*
+
+# macOS
+.DS_Store

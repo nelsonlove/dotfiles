@@ -1,0 +1,27 @@
+# Manifest — repos to clone and symlinks to create on a fresh machine
+#
+# The bootstrap script reads this to set up the system.
+# Repos are cloned to ~/repos/<name>/.
+# Symlinks connect ~/.config/, JD tree, and ~/repos/.
+
+repos:
+  jd-cli:
+    url: git@github.com:nelsonlove/johnnydecimal.py.git
+    jd_link: "00-09 Meta/00 System/00.05 jd-cli"
+
+  # Add more repos here as they get JD IDs:
+  # my-project:
+  #   url: git@github.com:nelsonlove/my-project.git
+  #   jd_link: "60-69 Work/61 Projects/61.03 My Project/my-project"
+
+config_symlinks:
+  # Source (in this repo) → target (on the system)
+  emacs: ~/.config/emacs
+  alacritty: ~/.config/alacritty
+  zsh: ~/.config/zsh
+  tmux: ~/.config/tmux
+  git: ~/.config/git
+
+jd_symlinks:
+  # Source (on the system) → target (in JD tree, relative to ~/Documents/)
+  ~/repos/dotfiles: "00-09 Meta/06 Digital tools/06.03 Dotfiles"
