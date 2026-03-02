@@ -153,6 +153,12 @@
     };
   };
 
+  # User
+  users.users.nelson = {
+    name = "nelson";
+    home = "/Users/nelson";
+  };
+
   # Hostname
   networking.hostName = hostname;
 
