@@ -29,7 +29,7 @@
 
   # Homebrew (managed declaratively by nix-darwin)
   homebrew = {
-    enable = true;
+    enable = false;  # flip to true once base system builds
     onActivation = {
       autoUpdate = true;
       cleanup = "zap";
@@ -165,11 +165,11 @@
   # Touch ID for sudo (and Apple Watch)
   security.pam.services.sudo_local.touchIdAuth = true;
 
+  # Primary user (required for system.defaults, homebrew, etc.)
+  system.primaryUser = "nelson";
+
   # Shell
   programs.zsh.enable = true;
-
-  # Required for nix-darwin
-  services.nix-daemon.enable = true;
 
   # Backwards compatibility
   system.stateVersion = 6;
