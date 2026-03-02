@@ -18,6 +18,10 @@
     config.lib.file.mkOutOfStoreSymlink
       "${config.home.homeDirectory}/repos/dotfiles/alacritty";
 
+  home.file.".config/tmux".source =
+    config.lib.file.mkOutOfStoreSymlink
+      "${config.home.homeDirectory}/repos/dotfiles/tmux";
+
   # Let home-manager manage itself
   programs.home-manager.enable = true;
 }
