@@ -47,9 +47,9 @@ fi
 echo "==> Running darwin-rebuild switch for $HOSTNAME..."
 cd "$DOTFILES"
 if command -v darwin-rebuild &>/dev/null; then
-  darwin-rebuild switch --flake ".#$HOSTNAME"
+  sudo darwin-rebuild switch --flake ".#$HOSTNAME"
 else
-  nix run nix-darwin -- switch --flake ".#$HOSTNAME"
+  sudo nix run nix-darwin -- switch --flake ".#$HOSTNAME"
 fi
 
 echo "==> Done. System is configured."
