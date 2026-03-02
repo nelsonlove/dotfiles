@@ -204,26 +204,26 @@
 
   masApps = {
     # --- Active ---
+    # "Day One" = 1055511498;       [active] shared.nix
+    # "Gemini 2" = 1090488118;      [active] shared.nix
+    # "Numbers" = 409203825;        [active] shared.nix
     # "OmniFocus 4" = 1542143627;   [active] shared.nix
+    # "Pages" = 409201541;          [active] shared.nix
 
     # --- To review ---
     # "Actions For Obsidian" = 1659667937;
     # "Affinity Designer" = 824171161;
     # "Calca" = 635758264;
-    # "Day One" = 1055511498;
     # "Drafts" = 1435957248;
     # "FastVPN" = 1419729466;
     # "Final Cut Pro" = 424389933;
     # "GarageBand" = 682658836;
-    # "Gemini 2" = 1090488118;
     # "Infuse" = 1136220934;
     # "Keynote" = 409183694;
     # "Logic Pro" = 634148309;
     # "Marked 2" = 890031187;
     # "MindNode Classic" = 1289197285;
-    # "Numbers" = 409203825;
     # "OneDrive" = 823766827;
-    # "Pages" = 409201541;
     # "Paprika Recipe Manager 3" = 1303222628;
     # "Pixelmator Pro" = 1289583905;
     # "Scrivener" = 1310686187;

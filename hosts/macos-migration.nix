@@ -48,11 +48,14 @@
 
   # --- Nice to have (from commented section) ---
 
-  # Touch ID for sudo (needs SIP consideration)
-  # Finder: NewWindowTarget = "PfHm" (open home by default)
-  # Finder: FXPreferredViewStyle = "Nlsv" (list view)
   # Hot corners (currently unused)
-  # Secure keyboard entry in Terminal
+  # Secure keyboard entry in Terminal (irrelevant if using Alacritty)
   # Hide /opt
   # Time Machine: DoNotOfferNewDisksForBackup
+
+  # --- Migrated (from nice-to-have) ---
+
+  # Touch ID for sudo → security.pam.services.sudo_local.touchIdAuth
+  # Finder: NewWindowTarget → finder.NewWindowTarget
+  # Finder: FXPreferredViewStyle → finder.FXPreferredViewStyle
 }

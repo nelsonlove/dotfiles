@@ -62,6 +62,7 @@
     dock.launchanim = false;
     dock.mru-spaces = false;
     dock.show-recents = false;
+    dock.showAppExposeGestureEnabled = true;
     dock.expose-animation-duration = 0.1;
     dock.persistent-apps = [
       "/System/Applications/Launchpad.app"
@@ -82,6 +83,8 @@
     finder.AppleShowAllExtensions = true;
     finder.FXEnableExtensionChangeWarning = false;
     finder.FXDefaultSearchScope = "SCcf";
+    finder.FXPreferredViewStyle = "Nlsv";
+    finder.NewWindowTarget = "PfHm";
     finder._FXSortFoldersFirst = true;
     finder._FXShowPosixPathInTitle = true;
     finder.QuitMenuItem = true;
@@ -152,6 +155,9 @@
 
   # Hostname
   networking.hostName = hostname;
+
+  # Touch ID for sudo (and Apple Watch)
+  security.pam.services.sudo_local.touchIdAuth = true;
 
   # Shell
   programs.zsh.enable = true;
