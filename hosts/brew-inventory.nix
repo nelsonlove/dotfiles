@@ -201,4 +201,38 @@
     # --- Dependencies (pulled in automatically, don't add) ---
     # Everything else (libpng, cairo, glib, protobuf, qt, etc.)
   ];
+
+  masApps = {
+    # --- Active ---
+    # "OmniFocus 4" = 1542143627;   [active] shared.nix
+
+    # --- To review ---
+    # "Actions For Obsidian" = 1659667937;
+    # "Affinity Designer" = 824171161;
+    # "Calca" = 635758264;
+    # "Day One" = 1055511498;
+    # "Drafts" = 1435957248;
+    # "FastVPN" = 1419729466;
+    # "Final Cut Pro" = 424389933;
+    # "GarageBand" = 682658836;
+    # "Gemini 2" = 1090488118;
+    # "Infuse" = 1136220934;
+    # "Keynote" = 409183694;
+    # "Logic Pro" = 634148309;
+    # "Marked 2" = 890031187;
+    # "MindNode Classic" = 1289197285;
+    # "Numbers" = 409203825;
+    # "OneDrive" = 823766827;
+    # "Pages" = 409201541;
+    # "Paprika Recipe Manager 3" = 1303222628;
+    # "Pixelmator Pro" = 1289583905;
+    # "Scrivener" = 1310686187;
+    # "Soulver 3" = 1508732804;
+    # "Streaks" = 963034692;
+    # "StuffIt Expander" = 919269455;
+    # "Telegram" = 747648890;
+    # "Tot" = 1491071483;
+    # "Under My Roof" = 1524335878;
+    # "Xcode" = 497799835;
+  };
 }
