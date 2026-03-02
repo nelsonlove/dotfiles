@@ -22,6 +22,12 @@ if ! xcode-select -p &>/dev/null; then
   exit 0
 fi
 
+# 2. Rosetta 2 (for x86 binaries on Apple Silicon)
+if [ "$(uname -m)" = "arm64" ] && ! /usr/bin/pgrep -q oahd; then
+  echo "==> Installing Rosetta..."
+  softwareupdate --install-rosetta --agree-to-license
+fi
+
 # 3. Install Nix (Determinate Systems — flakes enabled out of the box)
 if ! command -v nix &>/dev/null; then
   echo "==> Installing Nix..."
