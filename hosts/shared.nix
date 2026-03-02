@@ -84,7 +84,7 @@
     finder.FXEnableExtensionChangeWarning = false;
     finder.FXDefaultSearchScope = "SCcf";
     finder.FXPreferredViewStyle = "Nlsv";
-    finder.NewWindowTarget = "PfHm";
+    finder.NewWindowTarget = "Home";
     finder._FXSortFoldersFirst = true;
     finder._FXShowPosixPathInTitle = true;
     finder.QuitMenuItem = true;
