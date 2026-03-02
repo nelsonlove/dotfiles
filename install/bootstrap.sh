@@ -2,7 +2,11 @@
 set -euo pipefail
 
 # Bootstrap a fresh macOS machine.
-# Installs Nix + Homebrew, clones dotfiles, runs first darwin-rebuild.
+# Installs Nix + Homebrew, clones dotfiles, runs darwin-rebuild switch.
+#
+# Usage:
+#   curl -O https://raw.githubusercontent.com/nelsonlove/dotfiles/main/install/bootstrap.sh
+#   bash bootstrap.sh
 
 REPO="git@github.com:nelsonlove/dotfiles.git"
 DOTFILES="$HOME/repos/dotfiles"
@@ -25,8 +29,15 @@ if ! command -v brew &>/dev/null; then
   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 fi
 
-# 3. Clone dotfiles
+# 3. Clone dotfiles (requires SSH key or gh auth)
 if [ ! -d "$DOTFILES" ]; then
+  if ! ssh -T git@github.com 2>&1 | grep -q "successfully authenticated"; then
+    echo "==> GitHub SSH auth required. Either:"
+    echo "      1. Add an SSH key:  ssh-keygen && cat ~/.ssh/id_ed25519.pub"
+    echo "      2. Use gh CLI:      brew install gh && gh auth login"
+    echo "    Then rerun this script."
+    exit 1
+  fi
   echo "==> Cloning dotfiles..."
   mkdir -p "$HOME/repos"
   git clone "$REPO" "$DOTFILES"
