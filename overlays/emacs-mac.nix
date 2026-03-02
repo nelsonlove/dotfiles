@@ -14,7 +14,7 @@ final: prev: {
       "--with-native-compilation"
       "--with-tree-sitter"
       "--with-rsvg"
-      "--enable-mac-app=yes"
+      "--enable-mac-app=${placeholder "out"}/Applications"
       "--enable-mac-self-contained"
     ];
 
