@@ -8,7 +8,7 @@ set -euo pipefail
 #   curl -O https://raw.githubusercontent.com/nelsonlove/dotfiles/main/install/bootstrap.sh
 #   bash bootstrap.sh
 
-REPO="git@github.com:nelsonlove/dotfiles.git"
+REPO="https://github.com/nelsonlove/dotfiles.git"
 DOTFILES="$HOME/repos/dotfiles"
 HOSTNAME=$(scutil --get LocalHostName)
 
@@ -30,10 +30,10 @@ if ! command -v brew &>/dev/null; then
 fi
 
 # 3. Authenticate with GitHub
-if ! ssh -T git@github.com 2>&1 | grep -q "successfully authenticated"; then
+if ! gh auth status &>/dev/null; then
   echo "==> Authenticating with GitHub..."
   command -v gh &>/dev/null || brew install gh
-  gh auth login --web --git-protocol ssh
+  gh auth login --web
 fi
 
 # 4. Clone dotfiles
