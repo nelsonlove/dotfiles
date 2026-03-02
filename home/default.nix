@@ -1,6 +1,8 @@
 { config, pkgs, ... }:
 
 {
+  home.username = "nelson";
+  home.homeDirectory = "/Users/nelson";
   home.stateVersion = "24.11";
 
   # User packages
