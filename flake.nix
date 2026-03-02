@@ -42,6 +42,14 @@
           system = "aarch64-darwin";
           hostname = "Nelsons-MacBook-Pro";
         };
+        Nelsons-MacBook-Air = mkDarwinHost {
+          system = "aarch64-darwin";
+          hostname = "Nelsons-MacBook-Air";
+        };
+        Nelsons-Virtual-Machine = mkDarwinHost {
+          system = "aarch64-darwin";
+          hostname = "Nelsons-Virtual-Machine";
+        };
       };
     };
 }

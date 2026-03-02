@@ -28,8 +28,8 @@
     };
     casks = [
       "alacritty"
-      "1password"
       "claude"
+      "karabiner-elements"
     ];
   };
 
@@ -38,7 +38,6 @@
     dock.autohide = true;
     dock.show-recents = false;
     finder.AppleShowAllExtensions = true;
-    NSGlobalDomain.AppleInterfaceStyle = "Dark";
     NSGlobalDomain.AppleShowAllExtensions = true;
   };
 

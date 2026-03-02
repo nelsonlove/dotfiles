@@ -1,0 +1,11 @@
+.DS_Store
+.dir-locals.el
+.projectile
+.envrc
+.idea
+__pycache__
+.stignore
+.stversions
+.stfolder
+
+**/.claude/settings.local.json

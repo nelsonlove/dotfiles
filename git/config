@@ -1,0 +1,47 @@
+[alias]
+    lg = log --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset' --abbrev-commit --date=relative
+
+[core]
+    autocrlf = input
+	editor = micro
+	# pager = delta
+    ignorecase = false
+    # excludesFile = /Users/nelson/.gitignore
+
+[credential]
+	helper = osxkeychain
+
+[credential "https://github.com"]
+	helper = !/opt/homebrew/bin/gh auth git-credential
+
+# [delta]
+#     navigate = true    # use n and N to move between diff sections
+#     light = false      # set to true if you're in a terminal w/ a light background color (e.g. the default macOS terminal)
+
+[diff]
+    colorMoved = default
+
+[fetch]
+	prune = true
+
+[merge]
+    conflictstyle = diff3
+
+[filter "lfs"]
+    required = true
+    clean = git-lfs clean -- %f
+    smudge = git-lfs smudge -- %f
+    process = git-lfs filter-process
+
+[github]
+	user = nelsonlove
+
+[init]
+    defaultBranch = main
+
+[interactive]
+    diffFilter = delta --color-only
+
+[user]
+	name = Nelson Love
+	email = nelson@nelson.love

@@ -17,6 +17,10 @@
 !install/**
 !tmux/
 !tmux/**
+!git/
+!git/**
+!karabiner/
+!karabiner/**
 !backlog/
 !backlog/**
 !hosts/

@@ -22,6 +22,14 @@
     config.lib.file.mkOutOfStoreSymlink
       "${config.home.homeDirectory}/repos/dotfiles/tmux";
 
+  home.file.".config/git".source =
+    config.lib.file.mkOutOfStoreSymlink
+      "${config.home.homeDirectory}/repos/dotfiles/git";
+
+  home.file.".config/karabiner".source =
+    config.lib.file.mkOutOfStoreSymlink
+      "${config.home.homeDirectory}/repos/dotfiles/karabiner";
+
   # Let home-manager manage itself
   programs.home-manager.enable = true;
 }
