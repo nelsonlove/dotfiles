@@ -70,10 +70,11 @@
       "/System/Applications/Notes.app"
       "/System/Applications/Music.app"
       "/System/Applications/System Settings.app"
-      "/Applications/Alacritty.app"
-      "/Applications/Emacs.app"
-      "/Applications/Obsidian.app"
-      "/Applications/OmniFocus.app"
+      # Enable after homebrew.enable = true and emacs builds:
+      # "/Applications/Alacritty.app"
+      # "/Applications/Emacs.app"
+      # "/Applications/Obsidian.app"
+      # "/Applications/OmniFocus.app"
     ];
 
     # Finder
