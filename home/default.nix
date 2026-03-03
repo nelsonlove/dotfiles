@@ -28,9 +28,13 @@
     config.lib.file.mkOutOfStoreSymlink
       "${config.home.homeDirectory}/repos/dotfiles/git";
 
-  home.file.".config/karabiner".source =
+  home.file.".config/micro".source =
     config.lib.file.mkOutOfStoreSymlink
-      "${config.home.homeDirectory}/repos/dotfiles/karabiner";
+      "${config.home.homeDirectory}/repos/dotfiles/micro";
+
+  home.file.".config/karabiner/karabiner.json".source =
+    config.lib.file.mkOutOfStoreSymlink
+      "${config.home.homeDirectory}/repos/dotfiles/karabiner/karabiner.json";
 
   # Secrets — symlinked from iCloud Drive (06.04 Secrets)
   home.file.".config/gh/hosts.yml".source =
@@ -41,7 +45,11 @@
     config.lib.file.mkOutOfStoreSymlink
       "${config.home.homeDirectory}/Documents/00-09 Meta/06 Digital tools/06.04 Secrets/ssh";
 
-  home.file.".aws/credentials".source =
+  home.file.".config/aws/config".source =
+    config.lib.file.mkOutOfStoreSymlink
+      "${config.home.homeDirectory}/repos/dotfiles/aws/config";
+
+  home.file.".config/aws/credentials".source =
     config.lib.file.mkOutOfStoreSymlink
       "${config.home.homeDirectory}/Documents/00-09 Meta/06 Digital tools/06.04 Secrets/aws/credentials";
 

@@ -18,6 +18,7 @@
     gnused
     jq
     mas
+    micro
     ripgrep
     tmux
     tree

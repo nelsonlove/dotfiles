@@ -21,8 +21,12 @@
 !git/**
 !karabiner/
 !karabiner/**
+!aws/
+!aws/**
 !backlog/
 !backlog/**
+!micro/
+!micro/**
 !hosts/
 !hosts/**
 !home/
