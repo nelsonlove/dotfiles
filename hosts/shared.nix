@@ -142,6 +142,7 @@
       "com.apple.TextEdit" = {
         RichText = 0;
       };
+      # Requires Full Disk Access for Terminal to write to Safari's container
       "com.apple.Safari" = {
         IncludeDevelopMenu = true;
         ShowFullURLInSmartSearchField = true;

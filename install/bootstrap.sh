@@ -62,13 +62,19 @@ if [ ! -d "$DOTFILES" ]; then
   git clone "$REPO" "$DOTFILES"
 fi
 
-# 7. First nix-darwin build
+# 7. Check Full Disk Access (needed for sandboxed prefs like Safari)
+if ! plutil -lint /Library/Preferences/com.apple.TimeMachine.plist &>/dev/null; then
+  echo "WARNING: Terminal lacks Full Disk Access — some preferences (Safari) won't apply."
+  echo "  Grant it in: System Settings → Privacy & Security → Full Disk Access"
+fi
+
+# 8. First nix-darwin build
 echo "==> Running darwin-rebuild switch for $HOSTNAME..."
 cd "$DOTFILES"
 if command -v darwin-rebuild &>/dev/null; then
-  sudo home="$HOME" darwin-rebuild switch --flake ".#$HOSTNAME"
+  sudo HOME="$HOME" darwin-rebuild switch --flake ".#$HOSTNAME"
 else
-  sudo home="$HOME" nix run nix-darwin -- switch --flake ".#$HOSTNAME"
+  sudo HOME="$HOME" nix run nix-darwin -- switch --flake ".#$HOSTNAME"
 fi
 
 echo "==> Done. System is configured."
