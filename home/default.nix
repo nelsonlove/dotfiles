@@ -76,6 +76,20 @@
     };
   };
 
+  # Emacs daemon
+  launchd.agents.emacs-daemon = {
+    enable = true;
+    config = {
+      ProgramArguments = [
+        "/Applications/Emacs.app/Contents/MacOS/Emacs"
+        "--daemon"
+      ];
+      RunAtLoad = true;
+      KeepAlive = true;
+      Label = "org.gnu.emacs.daemon";
+    };
+  };
+
   # Let home-manager manage itself
   programs.home-manager.enable = true;
 }

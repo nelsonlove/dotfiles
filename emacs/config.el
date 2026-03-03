@@ -43,7 +43,8 @@
         ;; Apps
         obsidian
         docker
-        gptel))
+        gptel
+))
 
 ;; Install missing packages
 (when (seq-remove #'package-installed-p package-selected-packages)
@@ -409,6 +410,7 @@
 (require 'server)
 (unless (server-running-p)
   (server-start))
+
 
 ;;;; ========================================================================
 ;;;; straight.el — packages not on MELPA

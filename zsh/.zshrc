@@ -56,6 +56,8 @@ fi
 source "${ZSH}/oh-my-zsh.sh"
 
 # Aliases
+alias emacsclient="/Applications/Emacs.app/Contents/MacOS/bin/emacsclient"
+alias ec="emacsclient -c"
 alias gcon="git -c core.hooksPath=/dev/null checkout"
 alias karabiner="/Library/Application\ Support/org.pqrs/Karabiner-Elements/bin/karabiner_cli"
 alias pxi='pipx install'
