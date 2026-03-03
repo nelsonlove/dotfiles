@@ -1,0 +1,43 @@
+# Johnny Decimal — Root Policy
+# See 00.00/POLICY.md for full documentation.
+# Patterns match directory names: *.00, *.01, x0, etc.
+
+conventions:
+  meta_category: true        # x0 = "Meta - [Area]"
+  meta_id: true              # xx.00 = category meta
+  unsorted_id: true          # xx.01 = "Unsorted"
+  ids_files_only: false      # default: allow subdirs in IDs
+  capture_category: "01"     # 01 Capture is the system inbox
+  naming:
+    separator: "-"
+    case: sentence
+    no_trailing_spaces: true
+    no_special_chars: true
+
+patterns:
+  "*.00":
+    purpose: meta
+    ids_files_only: false
+    description: "Category meta — agent workspace, config, templates"
+  "*.01":
+    purpose: capture
+    ids_files_only: false
+    description: "Category unsorted — triage inbox"
+  "x0":
+    purpose: area-meta
+    description: "Area meta — area-level reference and conventions"
+
+volumes:
+  LaCie SSD:
+    mount: /Volumes/LaCie SSD
+    root: Documents
+  Extreme SSD:
+    mount: /Volumes/Extreme SSD
+    root: Documents
+
+ignore:
+  - .DS_Store
+  - .git
+  - __pycache__
+  - .Trash
+  - "*.pyc"
