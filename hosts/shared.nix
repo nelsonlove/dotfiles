@@ -26,7 +26,7 @@
 
   # Homebrew (managed declaratively by nix-darwin)
   homebrew = {
-    enable = false;  # flip to true once base system builds
+    enable = true;
     onActivation = {
       autoUpdate = true;
       cleanup = "zap";
