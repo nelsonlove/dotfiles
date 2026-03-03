@@ -3,7 +3,6 @@ source "${HOME}/.config/zsh/includes.zsh"
 if [[ "$(system_type)" == "darwin" ]]; then
     init_brew
     export PATH="$(brew --prefix gnu-getopt)/libexec/gnubin:$PATH"
-    export PATH="$(brew --prefix gnu-indent)/libexec/gnubin:$PATH"
     export PATH="$(brew --prefix gnu-tar)/libexec/gnubin:$PATH"
     export PATH="$(brew --prefix gnu-sed)/libexec/gnubin:$PATH"
     export PATH="$(brew --prefix grep)/libexec/gnubin:$PATH"

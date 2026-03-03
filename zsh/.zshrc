@@ -32,6 +32,7 @@ plugins=(
     sudo
     tmux
     web-search
+    z
     zsh-syntax-highlighting  # must be last
 )
 

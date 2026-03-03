@@ -8,7 +8,7 @@ touch_and_execute() {
     if [[ ! -f "${filepath}" ]]; then
         touch "${filepath}"
     fi
-    eval "source ${filepath}"
+    source "${filepath}"
 }
 
 
