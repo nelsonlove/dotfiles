@@ -66,7 +66,7 @@ alias pxl='pipx list'
 alias pxu='pipx upgrade'
 alias pxun='pipx uninstall'
 alias pxe='pipx environment'
-alias claude="/Users/nelson/.claude/local/claude"
+alias claude="$HOME/.claude/local/claude"
 
 # Functions
 function vrun() {
@@ -102,9 +102,9 @@ touch_and_execute "${XDG_CONFIG_HOME}/zsh/zshrc.local"
 [[ ! -f $POWERLEVEL9K_CONFIG_FILE ]] || source "$POWERLEVEL9K_CONFIG_FILE"
 
 # Completions
-source "/Users/nelson/.openclaw/completions/openclaw.zsh"
+source "$HOME/.openclaw/completions/openclaw.zsh"
 fpath=(~/.zfunc ~/.zsh/completions $fpath)
 autoload -Uz compinit && compinit
 
 # Bun
-export PATH="/Users/nelson/.bun/bin:$PATH"
+export PATH="$HOME/.bun/bin:$PATH"
