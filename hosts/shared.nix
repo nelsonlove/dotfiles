@@ -1,11 +1,8 @@
 { pkgs, hostname, ... }:
 
 {
-  # Nix settings
-  nix.settings = {
-    experimental-features = [ "nix-command" "flakes" ];
-    trusted-users = [ "root" "nelson" ];
-  };
+  # Determinate Nix manages its own daemon — don't let nix-darwin conflict
+  nix.enable = false;
 
   # Allow unfree packages
   nixpkgs.config.allowUnfree = true;
