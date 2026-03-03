@@ -31,6 +31,9 @@
       autoUpdate = true;
       cleanup = "zap";
     };
+    brews = [
+      "terminal-notifier"
+    ];
     casks = [
       "alacritty"
       "claude"

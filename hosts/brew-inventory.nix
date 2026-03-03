@@ -66,6 +66,7 @@
     # "inform"
     # "jetbrains-toolbox"
     # "kegworks"
+    # "kindle"
     # "knockknock"
     # "little-snitch"
     # "loopback"
@@ -82,6 +83,7 @@
     # "openclaw"
     # "pearcleaner"
     # "powerphotos"
+    # "pycharm"
     # "qflipper"
     # "qlmarkdown"
     # "raspberry-pi-imager"
@@ -170,10 +172,12 @@
     # "pipx"
     # "pnpm"
     # "poetry"
+    # "poppler"
     # "pre-commit"
     # "prettier"
     # "proselint"
     # "pyenv"
+    # "pygments"
     # "pylint"
     # "pyright"
     # "python-lsp-server"
@@ -219,13 +223,16 @@
     # "Final Cut Pro" = 424389933;
     # "GarageBand" = 682658836;
     # "Infuse" = 1136220934;
+    # "Just Press Record" = 1033342465;
     # "Keynote" = 409183694;
     # "Logic Pro" = 634148309;
     # "Marked 2" = 890031187;
     # "MindNode Classic" = 1289197285;
+    # "MindNode Next" = 6446116532;
     # "OneDrive" = 823766827;
     # "Paprika Recipe Manager 3" = 1303222628;
     # "Pixelmator Pro" = 1289583905;
+    # "Scapple" = 568020055;
     # "Scrivener" = 1310686187;
     # "Soulver 3" = 1508732804;
     # "Streaks" = 963034692;
@@ -233,6 +240,8 @@
     # "Telegram" = 747648890;
     # "Tot" = 1491071483;
     # "Under My Roof" = 1524335878;
+    # "WhatsApp" = 310633997;
     # "Xcode" = 497799835;
+    # "Xmind" = 1327661892;
   };
 }

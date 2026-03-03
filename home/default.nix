@@ -32,6 +32,30 @@
     config.lib.file.mkOutOfStoreSymlink
       "${config.home.homeDirectory}/repos/dotfiles/karabiner";
 
+  # Secrets — symlinked from iCloud Drive (06.04 Secrets)
+  home.file.".config/gh/hosts.yml".source =
+    config.lib.file.mkOutOfStoreSymlink
+      "${config.home.homeDirectory}/Documents/00-09 Meta/06 Digital tools/06.04 Secrets/gh/hosts.yml";
+
+  home.file.".ssh".source =
+    config.lib.file.mkOutOfStoreSymlink
+      "${config.home.homeDirectory}/Documents/00-09 Meta/06 Digital tools/06.04 Secrets/ssh";
+
+  home.file.".aws/credentials".source =
+    config.lib.file.mkOutOfStoreSymlink
+      "${config.home.homeDirectory}/Documents/00-09 Meta/06 Digital tools/06.04 Secrets/aws/credentials";
+
+  # GitHub CLI
+  programs.gh = {
+    enable = true;
+    settings = {
+      git_protocol = "https";
+      editor = "emacsclient";
+      prompt = "enabled";
+      aliases = { co = "pr checkout"; };
+    };
+  };
+
   # Let home-manager manage itself
   programs.home-manager.enable = true;
 }
