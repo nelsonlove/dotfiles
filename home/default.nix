@@ -36,6 +36,18 @@
     config.lib.file.mkOutOfStoreSymlink
       "${config.home.homeDirectory}/repos/dotfiles/karabiner/karabiner.json";
 
+  home.file.".config/zsh".source =
+    config.lib.file.mkOutOfStoreSymlink
+      "${config.home.homeDirectory}/repos/dotfiles/zsh";
+
+  home.file.".zshrc".source =
+    config.lib.file.mkOutOfStoreSymlink
+      "${config.home.homeDirectory}/repos/dotfiles/zsh/.zshrc";
+
+  home.file.".zprofile".source =
+    config.lib.file.mkOutOfStoreSymlink
+      "${config.home.homeDirectory}/repos/dotfiles/zsh/.zprofile";
+
   # Secrets — symlinked from iCloud Drive (06.04 Secrets)
   home.file.".config/gh/hosts.yml".source =
     config.lib.file.mkOutOfStoreSymlink

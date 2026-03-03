@@ -33,6 +33,7 @@
       cleanup = "zap";
     };
     brews = [
+      "fzf"
       "terminal-notifier"
     ];
     casks = [

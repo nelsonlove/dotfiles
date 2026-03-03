@@ -27,6 +27,8 @@
 !backlog/**
 !micro/
 !micro/**
+!zsh/
+!zsh/**
 !hosts/
 !hosts/**
 !home/
@@ -45,6 +47,9 @@ eln-cache/
 *~
 emacs/custom.el
 emacs/elgrep-data.el
+
+# Exclude local overrides
+zsh/*.local
 
 # Exclude backlog drafts
 backlog/drafts/*
