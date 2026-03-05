@@ -1,0 +1,249 @@
+#+title: Doom Emacs Config
+#+property: header-args:emacs-lisp :tangle config.el
+
+* Preamble
+
+#+begin_src emacs-lisp
+;;; $DOOMDIR/config.el -*- lexical-binding: t; -*-
+#+end_src
+
+#+begin_src emacs-lisp :tangle packages.el
+;; -*- no-byte-compile: t; -*-
+;;; $DOOMDIR/packages.el
+#+end_src
+
+To install a package:
+
+1. Declare them here in a =package!= statement,
+2. Run =doom sync= in the shell,
+3. Restart Emacs.
+
+Use =C-h f package\!= to look up documentation for the =package!= macro.
+
+To install =SOME-PACKAGE= from MELPA, ELPA or emacsmirror:
+
+#+begin_src emacs-lisp :tangle no
+(package! some-package)
+#+end_src
+
+To install a package directly from a remote git repo, you must specify a
+=:recipe=. You'll find documentation on what =:recipe= accepts here:
+https://github.com/radian-software/straight.el#the-recipe-format
+
+#+begin_src emacs-lisp :tangle no
+(package! another-package
+  :recipe (:host github :repo "username/repo"))
+#+end_src
+
+If the package you are trying to install does not contain a =PACKAGENAME.el=
+file, or is located in a subdirectory of the repo, you'll need to specify
+=:files= in the =:recipe=:
+
+#+begin_src emacs-lisp :tangle no
+(package! this-package
+  :recipe (:host github :repo "username/repo"
+           :files ("some-file.el" "src/lisp/*.el")))
+#+end_src
+
+If you'd like to disable a package included with Doom, you can do so here with
+the =:disable= property:
+
+#+begin_src emacs-lisp :tangle no
+(package! builtin-package :disable t)
+#+end_src
+
+You can override the recipe of a built in package without having to specify all
+the properties for =:recipe=. These will inherit the rest of its recipe from Doom
+or MELPA/ELPA/Emacsmirror:
+
+#+begin_src emacs-lisp :tangle no
+(package! builtin-package :recipe (:nonrecursive t))
+(package! builtin-package-2 :recipe (:repo "myfork/package"))
+#+end_src
+
+Specify a =:branch= to install a package from a particular branch or tag. This is
+required for some packages whose default branch isn't =master= (which our package
+manager can't deal with; see radian-software/straight.el#279):
+
+#+begin_src emacs-lisp :tangle no
+(package! builtin-package :recipe (:branch "develop"))
+#+end_src
+
+Use =:pin= to specify a particular commit to install:
+
+#+begin_src emacs-lisp :tangle no
+(package! builtin-package :pin "1a2b3c4d5e")
+#+end_src
+
+Doom's packages are pinned to a specific commit and updated from release to
+release. The =unpin!= macro allows you to unpin single packages...
+
+#+begin_src emacs-lisp :tangle no
+(unpin! pinned-package)
+#+end_src
+
+...or multiple packages:
+
+#+begin_src emacs-lisp :tangle no
+(unpin! pinned-package another-pinned-package)
+#+end_src
+
+...Or *all* packages (NOT RECOMMENDED; will likely break things):
+
+#+begin_src emacs-lisp :tangle no
+(unpin! t)
+#+end_src
+
+* Identity
+
+#+begin_src emacs-lisp
+(setq user-full-name "Nelson Love"
+      user-mail-address "nelson@nelson.love")
+#+end_src
+
+* Appearance
+** Fonts
+
+Using the [[https://typeof.net/Iosevka/][Iosevka]] family throughout:
+- *IosevkaTerm Nerd Font Mono* for code (includes Nerd Font icons)
+- *Iosevka Aile* (quasi-proportional) for variable-pitch text
+- *Symbola* for Unicode symbols not covered by Iosevka
+
+#+begin_src emacs-lisp
+(setq doom-font
+      (font-spec
+       :family "IosevkaTerm Nerd Font Mono"
+       :size 14
+       :weight 'light)
+      doom-variable-pitch-font
+      (font-spec
+       :family "Iosevka Aile"
+       :size 14
+       :weight 'light)
+      doom-big-font
+      (font-spec
+       :family "IosevkaTerm Nerd Font Mono"
+       :size 20
+       :weight 'light)
+      doom-serif-font
+      (font-spec
+       :family "Iosevka"
+       :weight 'light)
+      doom-symbol-font
+      (font-spec
+       :family "Symbola"))
+#+end_src
+
+** Theme
+
+#+begin_src emacs-lisp
+(setq doom-theme 'doom-one)
+#+end_src
+
+** Line numbers
+
+=t= for absolute, =relative= for relative, =nil= to disable.
+
+#+begin_src emacs-lisp
+(setq display-line-numbers-type t)
+#+end_src
+
+* Org
+
+Set =org-directory= before org loads.
+
+#+begin_src emacs-lisp
+(setq org-directory "/Users/nelson/Documents/00-09 System/02 Notes")
+#+end_src
+
+* Editing
+** repeat-mode
+
+Emacs 28+ built-in. After a repeatable command like =C-x o= (other-window),
+you can keep pressing just the last key (=o=) to repeat, without re-pressing the
+prefix. Works with =undo=, =other-window=, =enlarge-window=, =next-error=, etc.
+
+#+begin_src emacs-lisp
+(repeat-mode 1)
+#+end_src
+
+** Auto-chmod
+
+If a file starts with a shebang (=#!/bin/...=) and isn't already executable,
+automatically =chmod +x= it on save.
+
+#+begin_src emacs-lisp
+(add-hook 'after-save-hook #'executable-make-buffer-file-executable-if-script-p)
+#+end_src
+
+* LLM
+** gptel / Ollama
+
+Doom's =llm= module installs [[https://github.com/karthink/gptel][gptel]] and provides keybindings under =<leader> o l=
+(send, rewrite, add context, etc.). By default it points at OpenAI. This
+configures a local Ollama backend instead.
+
+#+begin_src emacs-lisp
+(after! gptel
+  (setq gptel-backend
+        (gptel-make-ollama "Ollama"
+          :host "localhost:11434"
+          :stream t
+          :models '("qwen2.5:14b"))
+        gptel-model "qwen2.5:14b"))
+#+end_src
+
+** claude-code-ide
+
+[[https://github.com/manzaltu/claude-code-ide.el][claude-code-ide]] runs Claude Code inside Emacs via a terminal backend.
+Uses [[https://codeberg.org/akib/emacs-eat][eat]] as the terminal emulator.
+
+#+begin_src emacs-lisp :tangle packages.el
+(package! claude-code-ide
+  :recipe (:host github :repo "manzaltu/claude-code-ide.el"))
+(package! eat)
+#+end_src
+
+#+begin_src emacs-lisp
+(use-package! claude-code-ide
+  :commands (claude-code-ide claude-code-ide-resume
+             claude-code-ide-stop claude-code-ide-switch-to-buffer
+             claude-code-ide-continue)
+  :config
+  (setq claude-code-ide-terminal-backend 'eat)
+  (map! :leader
+        (:prefix ("c" . "claude")
+         :desc "Start Claude"      "c" #'claude-code-ide
+         :desc "Resume"            "r" #'claude-code-ide-resume
+         :desc "Stop"              "s" #'claude-code-ide-stop
+         :desc "Switch to buffer"  "b" #'claude-code-ide-switch-to-buffer
+         :desc "Continue"          "n" #'claude-code-ide-continue)))
+#+end_src
+
+* Scrolling
+** Disable scroll interpolation in TTY
+
+Doom's =smooth-scroll +interpolate= module advises =scroll-up= / =scroll-down= to
+route through =good-scroll-move= for animated scrolling. But =good-scroll-mode= is
+global --- toggling it per-frame isn't possible. In a terminal, the animation
+just causes flickering and lag.
+
+Fix: remove Doom's advice and replace it with versions that also check
+=display-graphic-p=. In TTY frames the original =scroll-up= / =scroll-down= are
+called directly.
+
+#+begin_src emacs-lisp
+(after! good-scroll
+  (advice-remove #'scroll-up #'good-scroll--scroll-up)
+  (advice-remove #'scroll-down #'good-scroll--scroll-down)
+  (defadvice! +good-scroll-up-gui-only-a (fn &optional arg)
+    :around #'scroll-up
+    (if (and good-scroll-mode (display-graphic-p))
+        (good-scroll-move (good-scroll--convert-line-to-step arg))
+      (funcall fn arg)))
+  (defadvice! +good-scroll-down-gui-only-a (fn &optional arg)
+    :around #'scroll-down
+    (if (and good-scroll-mode (display-graphic-p))
+        (good-scroll-move (- (good-scroll--convert-line-to-step arg)))
+      (funcall fn arg))))
+#+end_src

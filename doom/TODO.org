@@ -1,0 +1,83 @@
+#+title: Doom Emacs TODO
+
+* TODO omnifocus-mode: OmniFocus ↔ Emacs integration
+** Concept
+Bidirectional sync between OmniFocus and Emacs buffers. OF remains
+source of truth; Emacs provides a fast, keyboard-driven interface for
+viewing and manipulating tasks.
+
+** Integration points
+- *AppleScript/JXA* — full read/write access to OF database, mature API
+- *Omni Automation (JS)* — newer, runs inside OF, supports plugins
+- AppleScript is probably the right choice for Emacs since we can shell out to ~osascript~
+
+** MVP features
+- [ ] Pull inbox/projects/tags into an org-agenda-style buffer
+- [ ] Complete/flag/defer tasks from Emacs
+- [ ] Capture to OF inbox from Emacs (~org-capture~ template that calls osascript)
+- [ ] Refresh on demand, not live sync
+
+** Stretch goals
+- [ ] Show custom perspectives as views
+- [ ] Edit task titles/notes inline, push changes back
+- [ ] Defer date picker with ~org-read-date~
+- [ ] Review mode (cycle through projects due for review)
+- [ ] Tag/context filtering
+
+** Open questions
+- Conflict resolution strategy — last-write-wins? OF always wins? Detect conflicts?
+- Performance with large databases — cache locally? Incremental sync?
+- How to map OF's model to buffer representation:
+  - OF action groups → org sub-headings?
+  - OF tags → org tags?
+  - OF defer/due → SCHEDULED/DEADLINE?
+  - OF projects vs single actions — separate buffers?
+- Package name: ~omnifocus-mode~, ~org-omnifocus~, ~of.el~?
+
+** Prior art to investigate
+- [[https://github.com/mgmarlow/org-omnifocus][org-omnifocus]] — one-way org→OF export (probably outdated)
+- [[https://github.com/swedishembedded/of2org][of2org]] — OF→org conversion
+- Doom's org module for patterns on agenda-style custom views
+
+* TODO Emacs MCP server for Claude Code
+** Concept
+MCP server that exposes the running Emacs daemon to Claude Code.
+Allows Claude to navigate buffers, read content, evaluate elisp, etc.
+Quick-and-dirty version: thin wrapper around ~emacsclient -e~.
+
+** MVP tools
+- [ ] ~switch-buffer~ — point a TTY pane at a specific buffer
+- [ ] ~list-buffers~ — list open buffers
+- [ ] ~read-buffer~ — read content of a buffer
+- [ ] ~eval~ — evaluate arbitrary elisp
+- [ ] ~open-file~ — visit a file
+
+** Notes
+- ~emacsclient -e~ already works from Bash, MCP just makes it structured
+- Could be a simple Node/Python MCP server that shells out to emacsclient
+- Consider security: eval is powerful, maybe scope it down for safety
+- Look into existing Emacs MCP servers before building
+
+* TODO Fix ecg/ect aliases in zsh config
+~ecg~ ("ec -c", GUI frame) and ~ect~ ("ec -nw", terminal) aliases aren't
+working. They depend on the ~ec~ function above them in ~~/.config/zsh/.zshrc~.
+Debug and re-enable.
+
+* TODO Doom config walkthrough
+Go through Doom's org config.el section by section:
+1. Read each ~+org-init-*-h~ hook
+2. Understand what it does
+3. Decide: keep, skip, or "already have this"
+4. Translate keepers to vanilla elisp or Doom config
+
+* TODO Migrate vanilla emacs config into Doom
+Files in ~doom/~ prefixed with ~vanilla-~:
+- ~vanilla-init.el~ — package management, load paths
+- ~vanilla-config.el~ — main config (keybindings, appearance, etc.)
+- ~vanilla-early-init.el~ — early init optimizations
+- ~lisp/~ — custom modules (my-org, my-buffers, my-editor, etc.)
+
+Review each and either:
+- Port into Doom's ~config.el~ / ~packages.el~
+- Keep as ~load!~ from Doom config
+- Discard (superseded by Doom module)
