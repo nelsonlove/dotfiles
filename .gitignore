@@ -6,6 +6,8 @@
 *.eln
 eln-cache/
 *~
+\#*\#
+.\#*
 emacs/custom.el
 emacs/elgrep-data.el
 
