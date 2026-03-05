@@ -1,46 +1,7 @@
-# Ignore everything by default
-*
+# macOS
+.DS_Store
 
-# Then whitelist what we want
-!.gitignore
-!README.md
-!CLAUDE.md
-
-# Config directories
-!alacritty/
-!alacritty/**
-!emacs/
-!emacs/**
-!docs/
-!docs/**
-!install/
-!install/**
-!tmux/
-!tmux/**
-!git/
-!git/**
-!karabiner/
-!karabiner/**
-!aws/
-!aws/**
-!backlog/
-!backlog/**
-!micro/
-!micro/**
-!zsh/
-!zsh/**
-!hosts/
-!hosts/**
-!home/
-!home/**
-!overlays/
-!overlays/**
-
-# Nix
-!flake.nix
-!flake.lock
-
-# Exclude build artifacts even in whitelisted dirs
+# Emacs generated
 *.elc
 *.eln
 eln-cache/
@@ -48,11 +9,14 @@ eln-cache/
 emacs/custom.el
 emacs/elgrep-data.el
 
-# Exclude local overrides
+# Local overrides
 zsh/*.local
 
-# Exclude backlog drafts
+# Backlog drafts
 backlog/drafts/*
 
-# macOS
-.DS_Store
+# Karabiner
+karabiner/automatic_backups
+
+# Inactive (legacy, kept for reference)
+inactive/post-nix.sh

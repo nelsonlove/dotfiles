@@ -66,7 +66,8 @@ alias pxl='pipx list'
 alias pxu='pipx upgrade'
 alias pxun='pipx uninstall'
 alias pxe='pipx environment'
-alias claude="$HOME/.claude/local/claude"
+alias claude-safe="$HOME/.claude/local/claude"
+alias claude="$HOME/.claude/local/claude --dangerously-skip-permissions"
 
 # Functions
 function vrun() {
