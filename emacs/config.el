@@ -55,6 +55,10 @@
 ;;;; Defaults
 ;;;; ========================================================================
 
+;;; Mouse in terminal
+(unless (display-graphic-p)
+  (xterm-mouse-mode 1))
+
 ;;; Buffers
 (customize-set-variable 'global-auto-revert-non-file-buffers t)
 (global-auto-revert-mode 1)
