@@ -88,7 +88,7 @@ The orphan detector skips `01 Capture` — unfiled items here are expected.
 ### External drives
 - Some IDs are symlinks/aliases to external drives (Seagate, LaCie, Extreme SSD).
 - If the drive is unplugged, the symlink is broken. This is expected — `jd validate` reports it but doesn't treat it as an error.
-- External drives have their own indices at `00.02`, `00.03`, `00.04`.
+- External drives have their own indices at `00.03 External drives`.
 - The `jd` CLI skips broken symlinks during indexing.
 
 ### macOS aliases
