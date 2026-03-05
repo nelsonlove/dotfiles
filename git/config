@@ -12,6 +12,7 @@
 	helper = osxkeychain
 
 [credential "https://github.com"]
+	helper = 
 	helper = !/opt/homebrew/bin/gh auth git-credential
 
 # [delta]
@@ -45,3 +46,6 @@
 [user]
 	name = Nelson Love
 	email = nelson@nelson.love
+[credential "https://gist.github.com"]
+	helper = 
+	helper = !/opt/homebrew/bin/gh auth git-credential
