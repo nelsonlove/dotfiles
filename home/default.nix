@@ -8,13 +8,14 @@
   # User packages
   home.packages = with pkgs; [
     emacs-mac-custom
+    symbola
   ];
 
   # Dotfile symlinks — mkOutOfStoreSymlink points directly to repo,
   # not the Nix store. Edits are live, no rebuild needed.
-  home.file.".config/emacs".source =
+  home.file.".config/doom".source =
     config.lib.file.mkOutOfStoreSymlink
-      "${config.home.homeDirectory}/repos/dotfiles/emacs";
+      "${config.home.homeDirectory}/repos/dotfiles/doom";
 
   home.file.".config/alacritty".source =
     config.lib.file.mkOutOfStoreSymlink
@@ -51,11 +52,11 @@
   # Secrets — symlinked from iCloud Drive (06.04 Secrets)
   home.file.".config/gh/hosts.yml".source =
     config.lib.file.mkOutOfStoreSymlink
-      "${config.home.homeDirectory}/Documents/00-09 Meta/06 Digital tools/06.04 Secrets/gh/hosts.yml";
+      "${config.home.homeDirectory}/Documents/00-09 System/06 Digital tools/06.04 Secrets/gh/hosts.yml";
 
   home.file.".ssh".source =
     config.lib.file.mkOutOfStoreSymlink
-      "${config.home.homeDirectory}/Documents/00-09 Meta/06 Digital tools/06.04 Secrets/ssh";
+      "${config.home.homeDirectory}/Documents/00-09 System/06 Digital tools/06.04 Secrets/ssh";
 
   home.file.".config/aws/config".source =
     config.lib.file.mkOutOfStoreSymlink
@@ -63,7 +64,7 @@
 
   home.file.".config/aws/credentials".source =
     config.lib.file.mkOutOfStoreSymlink
-      "${config.home.homeDirectory}/Documents/00-09 Meta/06 Digital tools/06.04 Secrets/aws/credentials";
+      "${config.home.homeDirectory}/Documents/00-09 System/06 Digital tools/06.04 Secrets/aws/credentials";
 
   # GitHub CLI
   programs.gh = {
@@ -75,6 +76,14 @@
       aliases = { co = "pr checkout"; };
     };
   };
+
+  # Doom Emacs — clone framework and install if not present
+  home.activation.doomEmacs = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    if [ ! -d "$HOME/.emacs.d/bin" ]; then
+      ${pkgs.git}/bin/git clone --depth 1 https://github.com/doomemacs/doomemacs "$HOME/.emacs.d"
+      "$HOME/.emacs.d/bin/doom" install --no-config
+    fi
+  '';
 
   # Emacs daemon
   launchd.agents.emacs-daemon = {
