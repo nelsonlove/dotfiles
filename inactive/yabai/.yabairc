@@ -1,0 +1,101 @@
+#!/usr/bin/env sh
+# the scripting-addition must be loaded manually if
+# you are running yabai on macOS Big Sur. Uncomment
+# the following line to have the injection performed
+# when the config is executed during startup.
+#
+# for this to work you must configure sudo such that
+# it will be able to run the command without password
+#
+# see this wiki page for information:
+#  - https://github.com/koekeishiya/yabai/wiki/Installing-yabai-(latest-release)
+#
+sudo yabai --load-sa
+yabai -m signal --add event=dock_did_restart action="sudo yabai --load-sa"
+
+# global settings
+yabai -m config mouse_follows_focus          off
+yabai -m config focus_follows_mouse          autoraise
+yabai -m config window_placement             second_child
+yabai -m config window_topmost               off
+yabai -m config window_shadow                off
+yabai -m config window_opacity               off
+yabai -m config window_opacity_duration      0.0
+yabai -m config active_window_opacity        1.0
+yabai -m config normal_window_opacity        0.90
+yabai -m config window_border                off
+yabai -m config window_border_width          1
+yabai -m config active_window_border_color   0xff775759
+yabai -m config normal_window_border_color   0xff775759
+yabai -m config insert_feedback_color        0xffd75f5f
+yabai -m config split_ratio                  0.50
+yabai -m config auto_balance                 off
+yabai -m config mouse_modifier               fn
+yabai -m config mouse_action1                move
+yabai -m config mouse_action2                resize
+yabai -m config mouse_drop_action            swap
+
+# general space settings
+yabai -m config layout                       bsp
+yabai -m config top_padding                  0
+yabai -m config bottom_padding               0
+yabai -m config left_padding                 0
+yabai -m config right_padding                0
+yabai -m config window_gap                   0
+
+# App-specific configuration
+yabai -m rule --add app="^System Preferences$" manage=off border=off
+yabai -m rule --add app="^System Settings$" manage=off border=off
+yabai -m rule --add app="^Karabiner-Elements$" manage=off border=off
+yabai -m rule --add app="^Finder$" manage=off border=off
+# yabai -m rule --add app="^iTerm2|Alacritty$" manage=off border=off
+yabai -m rule --add app="^Digital Colou?r Meter$" sticky=on
+
+
+## Displays
+
+### LG
+
+#yabai -m space 1 --label desktop --layout float
+# #### Emacs
+#yabai -m space 2 --label comm
+
+# #### Browser
+# yabai -m space 3 --label browse1
+# #### Calendar/Slack
+# yabai -m space 4 --label comm
+# <rows>:<cols>:<start-x>:<start-y>:<width>:<height>
+# rows: cols: start-x: star-y: width: height M rows: n columns: r:c:x:y:w:h
+#yabai -m rule --add app="^Slack$"    space=comm grid=3:4:0:1:1:1
+#yabai -m rule --add app="^Mail$"     space=comm grid=3:4:0:1:1:1
+#yabai -m rule --add app="^Calendar$" space=comm grid=3:4:0:2:1:1
+#yabai -m rule --add app="^Emacs$" space=comm grid=3:4:1:0:1:3
+# need rule for both
+#yabai -m rule --add app="^Google Chrome$" space=comm grid=3:4:2:0:3:2
+# title="(?!.*(^(L7 )?ESP:.*))"
+# yabai -m rule --add app="^Google Chrome$" title="(?!.*(^(L7 )?ESP:.*))" space=comm grid=3:5:3:0:2:3
+# yabai -m rule --add app="^Google Chrome$" title="^(L7 )?ESP:.*" space=8
+
+# displays
+
+# yabai -m space 3 --label tty
+# yabai -m rule --add app="^Alacritty$" space=3
+
+### Internal
+
+# yabai -m space 5 --label desktop2 --layout float
+
+#### Emacs
+# yabai -m space 6 --label emacs2
+# yabai -m rule --add app="^Emacs$" space=2 # need rule for both displays
+# yabai -m signal -add event=application_launched app="^Emacs$"
+
+#### Dash/Browser
+# yabai -m space 7 --label browse2
+# yabai -m rule --add app="^Dash$" space=7 grid=1:2:0:0:1:1
+
+#### ESP
+# yabai -m space 8 --label esp
+# yabai -m rule --add app="^Google Chrome$" title="^(L7 )?ESP:.*" space=8 native-fullscreen=on
+
+echo "yabai configuration loaded.."
