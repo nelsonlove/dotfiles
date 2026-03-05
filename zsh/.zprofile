@@ -20,6 +20,6 @@ if [[ -d "${HOME}/.local/bin" ]]; then
 fi
 
 # Source secrets from iCloud
-source "${HOME}/Documents/00-09 Meta/06 Digital tools/06.04 Secrets/zsh/env.zsh"
+source "${HOME}/Documents/00-09 System/06 Digital tools/06.04 Secrets/zsh/env.zsh"
 
 touch_and_execute "$XDG_CONFIG_HOME/zsh/zprofile.local"
