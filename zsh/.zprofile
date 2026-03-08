@@ -19,6 +19,9 @@ if [[ -d "${HOME}/.local/bin" ]]; then
     export PATH="${HOME}/.local/bin:${PATH}"
 fi
 
+# Emacs (emacs-mac port)
+export PATH="/Applications/Emacs.app/Contents/MacOS/bin:$PATH"
+
 # Source secrets from iCloud
 source "${HOME}/Documents/00-09 System/06 Digital tools/06.04 Secrets/zsh/env.zsh"
 

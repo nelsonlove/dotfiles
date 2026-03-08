@@ -68,9 +68,8 @@ function ec {
   [[ ${#args[@]} -eq 0 ]] && args+=("$PWD")
   command emacsclient "${flags[@]}" "${args[@]}"
 }
-# TODO: ecg/ect aliases not working — debug and re-enable
-# alias ecg="ec -c"        # open in GUI frame
-# alias ect="ec -nw"       # open in terminal
+alias ecg="ec -c"        # open in GUI frame
+alias ect="ec -nw"       # open in terminal
 export EDITOR="/Applications/Emacs.app/Contents/MacOS/bin/emacsclient"
 alias gcon="git -c core.hooksPath=/dev/null checkout"
 alias karabiner="/Library/Application\ Support/org.pqrs/Karabiner-Elements/bin/karabiner_cli"
