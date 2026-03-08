@@ -80,8 +80,9 @@ alias pxl='pipx list'
 alias pxu='pipx upgrade'
 alias pxun='pipx uninstall'
 alias pxe='pipx environment'
-alias claude-safe="$HOME/.claude/local/claude"
-alias claude="$HOME/.claude/local/claude --dangerously-skip-permissions"
+alias claude-safe="claude"
+alias claude="claude --dangerously-skip-permissions"
+alias claude-remote="claude remote-control"
 
 # Functions
 function vrun() {
@@ -116,10 +117,24 @@ touch_and_execute "${XDG_CONFIG_HOME}/zsh/zshrc.local"
 # Powerlevel10k config
 [[ ! -f $POWERLEVEL9K_CONFIG_FILE ]] || source "$POWERLEVEL9K_CONFIG_FILE"
 
+# jd-cli wrapper
+jd() {
+  if [[ "$1" == "cd" ]]; then
+    shift
+    local target
+    target=$(command jd cd "$@")
+    if [[ $? -eq 0 && -n "$target" ]]; then
+      builtin cd "$target"
+    fi
+  else
+    command jd "$@"
+  fi
+}
+
 # Completions
-source "$HOME/.openclaw/completions/openclaw.zsh"
+# source "$HOME/.openclaw/completions/openclaw.zsh"
 fpath=(~/.zfunc ~/.zsh/completions $fpath)
 autoload -Uz compinit && compinit
 
 # Bun
-export PATH="$HOME/.bun/bin:$PATH"
+# export PATH="$HOME/.bun/bin:$PATH"
