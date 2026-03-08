@@ -18,7 +18,57 @@ zsh/*.local
 backlog/drafts/*
 
 # Karabiner
+karabiner/automatic_baczkups
+
+# Inactive (legacy, kept for reference)
+inactive/post-nix.sh
+
+# macOS
+.DS_Store
+
+# Emacs generated
+*.elc
+*.eln
+eln-cache/
+*~
+\#*\#
+.\#*
+emacs/custom.el
+emacs/elgrep-data.el
+
+# Local overrides
+zsh/*.local
+
+# Backlog drafts
+backlog/drafts/*
+
+# Karabiner
 karabiner/automatic_backups
 
 # Inactive (legacy, kept for reference)
 inactive/post-nix.sh
+
+# Claude
+.claude/backups
+.claude/debug
+.claude/file-history
+.claude/local
+.claude/paste-cache
+.claude/plans
+.claude/projects
+.claude/shell-snapshots
+.claude/statsig
+.claude/tasks
+.claude/telemetry
+.claude/todos
+.claude/plugins
+.claude/stats-cache.json
+.claude/cache
+.claude/.checksums
+.claude/history.jsonl
+
+# Alacritty
+alacritty/alacritty.toml.*.bak
+
+# Micro
+micro/buffers/history
