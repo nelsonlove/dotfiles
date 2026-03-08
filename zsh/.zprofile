@@ -22,4 +22,7 @@ fi
 # Source secrets from iCloud
 source "${HOME}/Documents/00-09 System/06 Digital tools/06.04 Secrets/zsh/env.zsh"
 
+# GitHub (dynamic — uses keychain token via gh CLI)
+export GITHUB_PERSONAL_ACCESS_TOKEN="$(gh auth token)"
+
 touch_and_execute "$XDG_CONFIG_HOME/zsh/zprofile.local"

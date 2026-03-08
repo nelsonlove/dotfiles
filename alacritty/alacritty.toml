@@ -71,3 +71,8 @@ y = 0
 import = ["~/.config/alacritty/keys.toml"]
 
 [terminal]
+
+[[keyboard.bindings]]
+key = "Return"
+mods = "Shift"
+chars = "\u001B\r"
