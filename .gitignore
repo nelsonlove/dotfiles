@@ -18,31 +18,6 @@ zsh/*.local
 backlog/drafts/*
 
 # Karabiner
-karabiner/automatic_baczkups
-
-# Inactive (legacy, kept for reference)
-inactive/post-nix.sh
-
-# macOS
-.DS_Store
-
-# Emacs generated
-*.elc
-*.eln
-eln-cache/
-*~
-\#*\#
-.\#*
-emacs/custom.el
-emacs/elgrep-data.el
-
-# Local overrides
-zsh/*.local
-
-# Backlog drafts
-backlog/drafts/*
-
-# Karabiner
 karabiner/automatic_backups
 
 # Inactive (legacy, kept for reference)
