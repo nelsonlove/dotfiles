@@ -220,7 +220,627 @@ Uses [[https://codeberg.org/akib/emacs-eat][eat]] as the terminal emulator.
          :desc "Continue"          "n" #'claude-code-ide-continue)))
 #+end_src
 
+* Org (from vanilla config)
+
+Reference blocks from the pre-Doom standalone config. Not tangled --- review
+and migrate individually as needed.
+
+** Appearance
+
+Cosmetic tweaks for folded headings and list bullets.
+
+- =org-ellipsis=: Doom default is ~" ▾"~ (triangle). This uses ~"…"~ instead.
+- =org-startup-folded=: Doom default is ~'content~ (show all headings). This
+  uses ~'show2levels~ for a more focused initial view.
+- =org-log-into-drawer=: *Redundant* --- Doom already sets this to ~t~.
+- =org-list-demote-modify-bullet=: No Doom default. Cycles bullet styles on
+  demotion (A) → 1) → A. → 1. → a. → + → -).
+
+#+begin_src emacs-lisp :tangle no
+(after! org
+  (setq org-ellipsis "…"
+        org-startup-folded 'show2levels
+        org-list-demote-modify-bullet
+        '(("A)" . "1)")
+          ("1)" . "A.")
+          ("A." . "1.")
+          ("1." . "a.")
+          ("a." . "+")
+          ("+"  . "-")
+          ("*"  . "-"))))
+#+end_src
+
+** TODO keywords and tags
+
+Custom task workflow with three sequences:
+- Active: TODO → STRT → DONE
+- Deferred: HOLD / WAIT → CANC
+- Appointments: APPT (no done state)
+
+All transitions log timestamps (=/!=), HOLD/WAIT/CANC also prompt for a note
+(=@=). No Doom equivalent --- Doom only sets basic TODO/DONE.
+
+#+begin_src emacs-lisp :tangle no
+(after! org
+  (setq org-todo-keywords
+        '((sequence "TODO(t/!)" "STRT(s/!)" "|" "DONE(d/!)")
+          (sequence "HOLD(h@/!)" "WAIT(w@/!)" "|" "CANC(x@/!)")
+          (sequence "APPT(m/!)" "|"))
+        org-todo-keyword-faces
+        '(("TODO" . "orange red")
+          ("STRT" . "yellow")
+          ("HOLD" . "orange")
+          ("WAIT" . "LightSkyBlue2")
+          ("APPT" . "dark orange")
+          ("DONE" . "YellowGreen")
+          ("CANC" . "white"))
+        org-tag-alist
+        '(("FLAGGED" . ?!)
+          ("emacs" . ?e)
+          ("personal" . ?p)
+          ("test" . ?t)
+          ("bug" . ?b)
+          ("people" . ?@)
+          ("appt" . ?A))))
+#+end_src
+
+** Agenda
+
+Custom agenda display with Unicode separators, time grid from 8am--8pm, and a
+"now" indicator. Skips done items. No Doom equivalent --- Doom's org module
+doesn't configure the agenda view.
+
+#+begin_src emacs-lisp :tangle no
+(after! org
+  (setq org-agenda-block-separator ?─
+        org-agenda-time-grid
+        '((daily today require-timed)
+          (800 1000 1200 1400 1600 1800 2000)
+          " ┄┄┄┄┄ " "┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄")
+        org-agenda-current-time-string
+        "⭠ now ─────────────────────────────────────────────────"
+        org-agenda-tags-todo-honor-ignore-options t
+        org-agenda-skip-deadline-if-done t
+        org-agenda-skip-scheduled-if-done t
+        org-agenda-skip-timestamp-if-done t))
+#+end_src
+
+** Capture templates
+
+Four capture templates filing into =inbox.org= and =someday.org= (relative to
+=org-directory=). All clock in on capture and prepend. Doom provides its own
+templates via =+org-capture-*= but doesn't override =org-capture-templates=
+directly.
+
+#+begin_src emacs-lisp :tangle no
+(after! org
+  (setq org-capture-templates
+        '(("t" "Todo" entry (file "inbox.org")
+           "* TODO %?\n%U\n%a" :clock-in t :clock-resume t :prepend t)
+          ("n" "Note" entry (file "inbox.org")
+           "* %?\n%U\n%a" :clock-in t :clock-resume t :prepend t)
+          ("s" "Someday/Maybe" entry (file "someday.org")
+           "* TODO %?\n%U\n%a" :clock-in t :clock-resume t :prepend t)
+          ("e" "Emacs todo" entry (file "someday.org")
+           "* TODO %? :emacs:\n%U\n%a" :clock-in t :clock-resume t :prepend t))))
+#+end_src
+
+** Refile
+
+Refile to any heading (up to 9 levels deep) in current file or agenda files.
+Can create new parent nodes with confirmation. Excludes done headings as refile
+targets. Doom doesn't configure refile.
+
+#+begin_src emacs-lisp :tangle no
+(after! org
+  (setq org-refile-targets
+        '((nil :maxlevel . 9)
+          (org-agenda-files :maxlevel . 9))
+        org-refile-allow-creating-parent-nodes 'confirm
+        org-refile-target-verify-function
+        (lambda () (not (member (nth 2 (org-heading-components))
+                                org-done-keywords)))))
+#+end_src
+
+** Editing behavior
+
+Org editing preferences. Most are not set by Doom.
+
+- =org-special-ctrl-k=: =C-k= at heading kills the headline text, not the whole line
+- =org-yank-adjusted-subtrees=: yanked subtrees adjust their level to fit
+- =org-use-speed-commands=: single-key commands when cursor is at a heading star
+- =org-fold-catch-invisible-edits=: Doom default is ~'smart~ (silently unfolds).
+  The vanilla config used ~'error~. Doom's ~'smart~ is probably better.
+
+#+begin_src emacs-lisp :tangle no
+(after! org
+  (setq org-special-ctrl-k t
+        org-yank-adjusted-subtrees t
+        org-M-RET-may-split-line t
+        org-insert-heading-respect-content nil
+        org-treat-S-cursor-todo-selection-as-state-change nil
+        org-use-speed-commands t
+        org-fast-tag-selection-single-key t
+        org-read-date-prefer-future 'time
+        org-cycle-separator-lines 0
+        org-blank-before-new-entry '((heading) (plain-list-item . auto))))
+#+end_src
+
+** Export
+
+HTML export with Unicode chars, no smart quotes or timestamps.
+Not set by Doom.
+
+#+begin_src emacs-lisp :tangle no
+(after! org
+  (setq org-html-use-unicode-chars t
+        org-export-with-smart-quotes nil
+        org-export-with-timestamps nil))
+#+end_src
+
+** Babel defaults
+
+Default header args for shell and Python source blocks: output results,
+replacing previous output. Also adds =<sh= and =<py= structure templates.
+Not set by Doom.
+
+#+begin_src emacs-lisp :tangle no
+(after! org
+  (setq org-babel-results-keyword "results"
+        org-babel-default-header-args:sh     '((:results . "output replace"))
+        org-babel-default-header-args:bash   '((:results . "output replace"))
+        org-babel-default-header-args:python '((:results . "output replace")))
+  (dolist (tmpl '(("sh" . "src sh")
+                  ("py" . "src python")))
+    (add-to-list 'org-structure-template-alist tmpl)))
+#+end_src
+
+** Crypt
+
+Encrypt subtrees tagged =:crypt:= with =org-crypt=. Auto-save is set to encrypt
+(not disable) so you don't leak plaintext to disk. Not enabled by Doom.
+
+#+begin_src emacs-lisp :tangle no
+(after! org
+  (require 'org-crypt)
+  (setq org-crypt-disable-auto-save 'encrypt)
+  (add-to-list 'org-tag-alist '("crypt" . ?k)))
+#+end_src
+
+** Archive
+
+Archive to =archive/FILENAME_archive= under an "Archived Tasks" heading.
+Don't mark items as DONE on archive. Also opens =.org_archive= files in
+org-mode. Doom doesn't configure archive location.
+
+#+begin_src emacs-lisp :tangle no
+(after! org
+  (setq org-archive-mark-done nil
+        org-archive-location
+        (expand-file-name "archive/%s_archive::* Archived Tasks" org-directory))
+  (add-to-list 'auto-mode-alist '("\\.org_archive\\'" . org-mode)))
+#+end_src
+
+** ID links
+
+Use =org-id= for links when creating them interactively (more stable than
+file+headline links). Custom face for =id:= links to visually distinguish
+internal links. Not set by Doom.
+
+#+begin_src emacs-lisp :tangle no
+(after! org
+  (setq org-id-link-to-org-use-id 'create-if-interactive-and-no-custom-id)
+  (defface my/org-link-id
+    `((t (:inherit org-link
+          :foreground ,(face-foreground 'diary))))
+    "Face for internal org id/roam links."
+    :group 'org-faces)
+  (org-link-set-parameters "id" :face 'my/org-link-id))
+#+end_src
+
+** Miscellaneous
+
+- =org-checklist=: Resets checkboxes when a repeating task is marked DONE
+- Auto-save all org buffers every hour
+- =C-c t C-l= toggles link display (raw vs descriptive)
+
+#+begin_src emacs-lisp :tangle no
+(after! org
+  (add-to-list 'org-modules 'org-checklist)
+  (run-at-time "00:59" 3600 'org-save-all-org-buffers)
+  (define-key org-mode-map (kbd "C-c t C-l") #'org-toggle-link-display))
+#+end_src
+
+* Auto theme (from vanilla config)
+
+Automatic light/dark theme switching with three strategies: fixed light/dark,
+solar-based (sunrise/sunset from =calendar=), or macOS appearance hooks
+(emacs-mac's =mac-effective-appearance-change-hook=). Falls back from macOS →
+solar if not running the emacs-mac port.
+
+Doom has no built-in auto theme switching --- =doom-theme= is a single static
+theme. This would replace that with dynamic switching.
+
+** Configuration
+
+Customizable light/dark themes and switching mode. Defaults to =modus-operandi=
+/ =modus-vivendi= with macOS appearance tracking.
+
+#+begin_src emacs-lisp :tangle no
+(defcustom my/autotheme-light-theme 'modus-operandi
+  "Preferred light theme."
+  :type 'symbol :group 'my-autotheme)
+
+(defcustom my/autotheme-dark-theme 'modus-vivendi
+  "Preferred dark theme."
+  :type 'symbol :group 'my-autotheme)
+
+(defcustom my/autotheme-mode 'macos
+  "Theme switching mode.
+`light' or `dark' for fixed theme. `native' for solar-based switching.
+`macos' for macOS appearance hooks (falls back to native)."
+  :type '(choice (const light) (const dark) (const native) (const macos))
+  :group 'my-autotheme)
+#+end_src
+
+** Solar detection
+
+Uses Emacs's built-in =solar= library to compute sunrise/sunset for the current
+location (set via =calendar-latitude= / =calendar-longitude=). Returns whether
+it's currently daytime.
+
+#+begin_src emacs-lisp :tangle no
+(defun my/autotheme--sunrise-sunset ()
+  "Return (sunrise sunset) in minutes for today."
+  (require 'solar)
+  (let ((hours (solar-sunrise-sunset (calendar-current-date))))
+    (mapcar (lambda (s) (* 60 s))
+            (list (caar hours) (caadr hours)))))
+
+(defun my/autotheme--now-minutes ()
+  "Return current time in minutes since midnight."
+  (let ((ct (decode-time)))
+    (+ (* 60 (decoded-time-hour ct))
+       (decoded-time-minute ct))))
+
+(defun my/autotheme--day-p ()
+  "Return t if the sun has risen."
+  (let ((ss (my/autotheme--sunrise-sunset)))
+    (<= (car ss) (my/autotheme--now-minutes) (cadr ss))))
+#+end_src
+
+** System detection and theme resolution
+
+Detects whether emacs-mac is available for native appearance hooks. Resolves
+the effective mode and returns =dark= or =light= accordingly.
+
+#+begin_src emacs-lisp :tangle no
+(defun my/autotheme--emacs-mac-p ()
+  "Return t if using railwaycat's emacs-mac build."
+  (and (eq system-type 'darwin) (featurep 'mac-win)))
+
+(defun my/autotheme--effective-mode ()
+  "Return the effective mode after system detection."
+  (if (and (eq my/autotheme-mode 'macos) (not (my/autotheme--emacs-mac-p)))
+      'native
+    my/autotheme-mode))
+
+(defun my/autotheme--dark-or-light ()
+  "Return `dark' or `light' based on mode."
+  (let ((mode (my/autotheme--effective-mode)))
+    (cond ((memq mode '(dark light)) mode)
+          ((eq mode 'macos)
+           (let ((appearance (plist-get (mac-application-state) :appearance)))
+             (if (string= appearance "NSAppearanceNameDarkAqua") 'dark 'light)))
+          ((eq mode 'native)
+           (if (my/autotheme--day-p) 'light 'dark)))))
+
+(defun my/autotheme--preferred-theme ()
+  "Return the preferred theme."
+  (if (eq (my/autotheme--dark-or-light) 'light)
+      my/autotheme-light-theme
+    my/autotheme-dark-theme))
+#+end_src
+
+** Theme loading and toggle
+
+Loads a theme with an optional dissolve animation (emacs-mac). Only switches if
+the theme actually changed. =my/autotheme-toggle= manually flips between light
+and dark.
+
+#+begin_src emacs-lisp :tangle no
+(defun my/autotheme-load (&optional theme)
+  "Load THEME or the preferred theme. Animate on macOS if available."
+  (let ((theme (or theme (my/autotheme--preferred-theme))))
+    (unless (equal (car custom-enabled-themes) theme)
+      (when (fboundp 'mac-start-animation)
+        (mac-start-animation nil :type 'dissolve :duration 0.5))
+      (mapc #'disable-theme custom-enabled-themes)
+      (load-theme theme t))))
+
+(defun my/autotheme-toggle ()
+  "Toggle between light and dark themes."
+  (interactive)
+  (my/autotheme-load
+   (if (equal (car custom-enabled-themes) my/autotheme-dark-theme)
+       my/autotheme-light-theme
+     my/autotheme-dark-theme)))
+#+end_src
+
+** Initialization
+
+Call =my/autotheme-init= after startup. On macOS with emacs-mac, hooks into
+=mac-effective-appearance-change-hook= for instant switching when System
+Preferences changes. On other systems, polls every 5 minutes using solar time.
+
+#+begin_src emacs-lisp :tangle no
+(defvar my/autotheme--timer nil)
+
+(defun my/autotheme-init ()
+  "Load preferred theme and set up automatic switching."
+  (my/autotheme-load)
+  (let ((mode (my/autotheme--effective-mode)))
+    (cond ((eq mode 'native)
+           (setq my/autotheme--timer
+                 (run-with-timer 300 300 #'my/autotheme-load)))
+          ((eq mode 'macos)
+           (add-hook 'mac-effective-appearance-change-hook
+                     #'my/autotheme-load)))))
+#+end_src
+
+* Buffer management (from vanilla config)
+
+Utilities for cleaning up stale buffers in ibuffer. Doom uses its own buffer
+management but doesn't provide stale-buffer detection.
+
+** Dired behavior
+
+Kill the previous dired buffer when opening a new directory. Prevents dired
+buffer accumulation. Doom's =:emacs dired= doesn't set this.
+
+#+begin_src emacs-lisp :tangle no
+(setq dired-kill-when-opening-new-dired-buffer t)
+#+end_src
+
+** Stale buffer detection and marking
+
+Marks buffers in ibuffer that are either:
+- *Old*: not viewed in 6+ hours (configurable via =my/buffer-old-time=)
+- *Dissociated*: visiting a file or directory that no longer exists
+
+Bound to =* t= in ibuffer. With prefix arg, marks all saved buffers regardless
+of age.
+
+#+begin_src emacs-lisp :tangle no
+(defvar my/buffer-old-time 6
+  "Number of hours before a buffer is considered old.")
+
+(defun my/buffer-old-p (buf)
+  "Return non-nil if BUF hasn't been viewed in `my/buffer-old-time' hours."
+  (with-current-buffer buf
+    (when buffer-display-time
+      (time-less-p
+       (* 60 60 my/buffer-old-time)
+       (time-since buffer-display-time)))))
+
+(defun my/buffer-dissociated-p (buf)
+  "Return non-nil if BUF visits a file/dir that no longer exists."
+  (with-current-buffer buf
+    (or
+     (and buffer-file-name
+          (not (file-exists-p buffer-file-name)))
+     (and (eq major-mode 'dired-mode)
+          (boundp 'dired-directory)
+          (stringp dired-directory)
+          (not (file-exists-p (file-name-directory dired-directory)))))))
+
+(defun my/ibuffer-mark-stale-buffers (arg)
+  "Mark old unmodified buffers and buffers visiting deleted files.
+With prefix ARG, mark all saved buffers regardless of age."
+  (interactive "P")
+  (ibuffer-mark-on-buffer
+   (lambda (buf) (or (my/buffer-dissociated-p buf)
+                     (and (buffer-file-name buf)
+                          (not (buffer-modified-p buf))
+                          (if arg t (my/buffer-old-p buf)))))))
+
+(after! ibuffer
+  (define-key ibuffer-mode-map "* t" #'my/ibuffer-mark-stale-buffers))
+#+end_src
+
+* Editor utilities (from vanilla config)
+
+Custom editing commands. None of these are provided by Doom.
+
+** Duplicate line
+
+Duplicates the current line below. Bound to =s-d= (Cmd-D). Emacs 29+ has
+=duplicate-line= built-in --- consider using that instead.
+
+#+begin_src emacs-lisp :tangle no
+(defun my/duplicate-line ()
+  "Duplicate line at point."
+  (interactive)
+  (let ((line (thing-at-point 'line t)))
+    (save-excursion
+      (forward-line 1)
+      (insert line))))
+
+(keymap-global-set "s-d" #'my/duplicate-line)
+#+end_src
+
+** Fill or unfill paragraph
+
+Replaces =M-q= (=fill-paragraph=). Without prefix, fills normally. With prefix
+arg, unfills (joins lines) by setting =fill-column= to infinity.
+
+#+begin_src emacs-lisp :tangle no
+(defun my/fill-or-unfill-paragraph (&optional unfill region)
+  "Fill paragraph (or REGION).
+With prefix argument UNFILL, unfill it instead."
+  (interactive (progn
+                 (barf-if-buffer-read-only)
+                 (list (if current-prefix-arg 'unfill) t)))
+  (let ((fill-column (if unfill (point-max) fill-column)))
+    (fill-paragraph nil region)))
+
+(keymap-global-set "<remap> <fill-paragraph>" #'my/fill-or-unfill-paragraph)
+#+end_src
+
+** Arrayify
+
+Turns a region of newline-separated strings into a quoted, comma-separated
+list. With prefix arg, uses single quotes instead of double.
+
+Example: selecting lines =foo=, =bar=, =baz= produces ="foo", "bar", "baz"=.
+
+#+begin_src emacs-lisp :tangle no
+(defun my/arrayify (&optional single region)
+  "Turn strings on newlines in REGION into a quoted list.
+With prefix arg SINGLE, use single quotes."
+  (interactive (progn
+                 (barf-if-buffer-read-only)
+                 (list (if current-prefix-arg 'single) t)))
+  (let* ((quote (if single "'" "\""))
+         (insertion
+          (mapconcat
+           (lambda (item) (format "%s%s%s" quote item quote))
+           (split-string (buffer-substring
+                          (region-beginning)
+                          (region-end))) ", ")))
+    (call-interactively #'delete-region)
+    (insert insertion)))
+#+end_src
+
+* Lookup utilities (from vanilla config)
+
+Debugging helpers for Emacs internals. Not provided by Doom.
+
+** ASCII lookup
+
+Displays the numeric ASCII/Unicode values for each character in a string.
+Useful for debugging encoding issues or invisible characters.
+
+#+begin_src emacs-lisp :tangle no
+(defun my/ascii-lookup (str)
+  "Display ASCII values for each character in STR."
+  (interactive "MString: ")
+  (message "%s" (string-to-list str)))
+#+end_src
+
+** Key lookup
+
+Searches all loaded keymaps to find where a key sequence is bound. Press any
+key combo and see every keymap that defines it. Useful for debugging binding
+conflicts. Doom's =describe-key= (=C-h k=) shows the active binding but not
+all keymaps that define it.
+
+#+begin_src emacs-lisp :tangle no
+(defun my/key-lookup (key-sequence)
+  "Find all keymaps where KEY-SEQUENCE is bound."
+  (interactive
+   (list (read-key-sequence "Press key: ")))
+  (let ((result))
+    (mapatoms
+     (lambda (ob)
+       (when (and (boundp ob) (keymapp (symbol-value ob)))
+         (let ((m (lookup-key (symbol-value ob) key-sequence)))
+           (when (and m (or (functionp m)
+                            (symbolp m)
+                            (keymapp m)))
+             (push ob result)))))
+     obarray)
+    (message "Key sequence %s is bound in: %s"
+             (key-description key-sequence)
+             (if result
+                 (mapconcat #'symbol-name result ", ")
+               "nothing"))))
+#+end_src
+
+* macOS (from vanilla config)
+
+Tweaks for the emacs-mac port (Mitsuharu/railwaycat). Not tangled --- review
+and enable as needed. Doom's =:os macos= handles modifier keys but not these.
+
+** Smooth mouse wheel scrolling
+
+Emacs-mac port variable for pixel-level smooth scrolling with trackpad/mouse.
+Not set by Doom.
+
+#+begin_src emacs-lisp :tangle no
+(when (boundp 'mac-mouse-wheel-smooth-scroll)
+  (setq mac-mouse-wheel-smooth-scroll t))
+#+end_src
+
+** Native fullscreen
+
+Use macOS native fullscreen (slide animation, own Space) instead of Doom's
+instant in-place fullscreen. *Conflicts with Doom* --- Doom sets
+=ns-use-native-fullscreen= to ~nil~.
+
+The toggle wrapper prefers =toggle-frame-ns-fullscreen= (emacs-mac) when
+available, falling back to =toggle-frame-fullscreen=.
+
+#+begin_src emacs-lisp :tangle no
+(setq ns-use-native-fullscreen t)
+
+(defun my/toggle-fullscreen (&optional frame)
+  "Toggle fullscreen, preferring native macOS fullscreen."
+  (interactive)
+  (if (and ns-use-native-fullscreen (fboundp 'toggle-frame-ns-fullscreen))
+      (toggle-frame-ns-fullscreen frame)
+    (toggle-frame-fullscreen frame)))
+
+(keymap-global-set "<remap> <toggle-frame-fullscreen>" #'my/toggle-fullscreen)
+#+end_src
+
+** Animation control
+
+Global toggle for emacs-mac's native animations (dissolve, slide, etc.).
+Advises =mac-start-animation= to check the flag first. Not in Doom.
+
+#+begin_src emacs-lisp :tangle no
+(defvar my/mac-use-animation t
+  "When non-nil, use Mac animations.")
+
+(when (fboundp 'mac-start-animation)
+  (advice-add 'mac-start-animation :before-while
+              (lambda (frame-or-window &rest _properties)
+                my/mac-use-animation)))
+#+end_src
+
+** Open terminal at current directory
+
+Opens Alacritty at the current file's directory (or dired directory). Similar
+to Doom's =+macos/open-in-iterm= but for Alacritty.
+
+#+begin_src emacs-lisp :tangle no
+(defun my/open-in-alacritty (&optional path)
+  "Open Alacritty in PATH or current directory."
+  (interactive (list default-directory))
+  (let ((path (expand-file-name
+               (or path (if (derived-mode-p 'dired-mode)
+                            (dired-get-file-for-visit)
+                          default-directory)))))
+    (start-process "alacritty" nil "alacritty"
+                   "--working-directory" path)))
+#+end_src
+
 * Scrolling
+** Vanilla scroll settings (reference)
+
+Conservative scrolling from the pre-Doom standalone config. Not currently needed
+--- Doom's =smooth-scroll= module handles this. Kept here in case =smooth-scroll=
+is ever disabled.
+
+#+begin_src emacs-lisp :tangle no
+(setq auto-window-vscroll nil
+      fast-but-imprecise-scrolling t
+      scroll-conservatively 101
+      scroll-margin 0
+      scroll-preserve-screen-position t)
+#+end_src
+
 ** Disable scroll interpolation in TTY
 
 Doom's =smooth-scroll +interpolate= module advises =scroll-up= / =scroll-down= to
@@ -247,3 +867,1820 @@ called directly.
         (good-scroll-move (- (good-scroll--convert-line-to-step arg)))
       (funcall fn arg))))
 #+end_src
+
+* Doom archive                                                     :archive:
+
+Everything below was imported from the old Doom config archive at
+=06.01 Digital tools - Unsorted/doom/=. All blocks are =:tangle no= for review.
+Items marked *SKIP* are obsolete or work-specific. Items marked *TODO* need
+decisions or package installation before enabling.
+
+** Geolocation for solar theme switching
+
+The old root =config.el= fetched lat/lon from ipinfo.io at startup for solar
+theme calculations. Slow on every launch (network call). Consider caching or
+hardcoding, or just using the macOS appearance hook instead.
+
+#+begin_src emacs-lisp :tangle no
+;; TODO: slow on startup — cache result or hardcode location?
+(let* ((location-cmd "curl -s ipinfo.io/loc")
+       (location (split-string
+                  (string-trim
+                   (shell-command-to-string location-cmd))
+                  ",")))
+  (setq calendar-latitude (string-to-number (car location))
+        calendar-longitude (string-to-number (cadr location))))
+#+end_src
+
+** Org-roam
+
+Full org-roam setup: capture templates, node display, unlinked reference
+toggling, keybindings, export-to-markdown. Requires =org-roam= and
+=org-roam-ui= packages. Uses Doom APIs (=doom-path=, =map!=, =after!=,
+=delq!=, =appendq!=).
+
+*TODO*: Decide if still using org-roam. If so, needs =+roam2= flag on =:lang
+org= in init.el, plus packages below.
+
+*** Packages
+
+#+begin_src emacs-lisp :tangle no
+(package! org-roam-ui)
+#+end_src
+
+*** Capture templates
+
+Single "Main" template that creates files as =${slug}.org= in the roam
+directory. The commented-out section shows a richer template set with thoughts,
+quotes, references, and website captures — might be worth reviving.
+
+#+begin_src emacs-lisp :tangle no
+;; TODO: adapt doom-path calls — may need (expand-file-name) instead
+(after! org-roam
+  (setq org-roam-directory (expand-file-name "roam" org-directory))
+
+  (setq org-roam-capture-templates
+        `(("m" "Main" plain "%?"
+           :target (file+head ,(expand-file-name "${slug}.org" org-roam-directory)
+                              ,(concat ":PROPERTIES:\n"
+                                       ":CREATED: %U\n"
+                                       ":END:\n"
+                                       "#+title: ${title}\n\n"))))))
+#+end_src
+
+*** Node display
+
+Custom display template showing title, truncated ID, and tags. The old config
+had a =doom-type= field for categorizing nodes by directory — commented out
+pending directory structure decisions.
+
+#+begin_src emacs-lisp :tangle no
+(after! org-roam
+  (setq org-roam-node-display-template
+        (concat "${title:*} ${id:8} "
+                (propertize "${tags:20}" 'face 'org-tag))))
+#+end_src
+
+*** Unlinked references toggle
+
+Org-roam's sidebar shows backlinks by default. This adds a toggle for unlinked
+references (slower but useful for discovery). Bound to =SPC n r u=.
+
+#+begin_src emacs-lisp :tangle no
+(after! org-roam
+  (defvar my/org-roam-show-unlinked nil)
+
+  (defun my/org-roam-toggle-unlinked-references ()
+    (interactive)
+    (if my/org-roam-show-unlinked
+        (setq org-roam-mode-sections
+              (delq #'org-roam-unlinked-references-section org-roam-mode-sections))
+      (add-to-list 'org-roam-mode-sections #'org-roam-unlinked-references-section t))
+    (setq my/org-roam-show-unlinked (not my/org-roam-show-unlinked))
+    (when (eq major-mode 'org-roam-mode)
+      (org-roam-buffer-refresh))))
+#+end_src
+
+*** Keybindings
+
+#+begin_src emacs-lisp :tangle no
+(after! org-roam
+  (map! :map org-mode-map :leader :prefix "nr"
+        "a" #'org-roam-alias-add
+        "A" #'org-roam-alias-remove
+        "t" #'org-roam-tag-add
+        "T" #'org-roam-tag-remove
+        "r" #'org-roam-ref-add
+        "R" #'org-roam-ref-remove))
+#+end_src
+
+*** Roam UI
+
+Web-based graph visualization. Opens in browser.
+
+#+begin_src emacs-lisp :tangle no
+(use-package! org-roam-ui
+  :after org-roam
+  :init
+  (map! :map org-mode-map :leader :prefix "nr"
+        :desc "Open UI" "u" #'org-roam-ui-open))
+#+end_src
+
+*** Export all nodes to Markdown
+
+Batch-exports every roam node to a directory as =.md= files. Useful for
+publishing or backup. Skips already-exported files.
+
+#+begin_src emacs-lisp :tangle no
+(defun my/org-roam-export-to-md (output-dir)
+  "Export Org-roam nodes as Markdown files to OUTPUT-DIR."
+  (interactive (list (read-directory-name "Output directory: ")))
+  (unless (file-exists-p output-dir) (make-directory output-dir))
+  (org-roam-db-sync)
+  (dolist (node (org-roam-node-list))
+    (message "Exporting %s..." (org-roam-node-file node))
+    (with-current-buffer (find-file-noselect (org-roam-node-file node))
+      (let ((outfile (concat output-dir "/" (org-export-output-file-name ".md"))))
+        (unless (file-exists-p outfile)
+          (ignore-errors (org-export-to-file 'md outfile))))))
+  (message "Done."))
+#+end_src
+
+*** Autoload: roam header builder
+
+Utility used by capture templates to build the =:PROPERTIES:= + =#+title:=
+header for new roam nodes. Supports optional refs (cite keys, URLs) and
+filetags.
+
+#+begin_src emacs-lisp :tangle no
+(defun +org/roam--create-header (&optional title ref &rest tags)
+  (concat ":PROPERTIES:\n"
+          ":CREATED: %U\n"
+          (when ref (concat ":ROAM_REFS: "
+                            (cond ((eq ref 'citekey) "[cite:@${citekey}]")
+                                  ((eq ref 'url) "%^{url}")
+                                  (t ref)) "\n"))
+          ":END:\n"
+          (concat "#+title: " (or title "${title}") "\n")
+          (when tags (concat "#+filetags: "
+                             (mapconcat (lambda (tag) (format ":%s:" tag)) tags " ")
+                             "\n"))
+          "\n"))
+#+end_src
+
+*** Autoload: cite from another node
+
+Inserts a formatted quote block attributed to another roam node. Prompts for
+the source node, inserts a link + =#+begin_quote= block with yanked text.
+
+#+begin_src emacs-lisp :tangle no
+(defun org-roam-cite-other-node ()
+  (interactive)
+  (let ((node (org-roam-node-read nil nil nil t)))
+    (insert (format "From [[%s][%s]]:\n\n"
+                    (org-roam-node-id node)
+                    (org-roam-node-title node)))
+    (insert "#+begin_quote\n")
+    (yank)
+    (insert "\n#+end_quote\n")))
+#+end_src
+
+*** Autoload: visit ROAM_REFS URL
+
+Opens the URL stored in a node's =ROAM_REFS= property in the browser.
+
+#+begin_src emacs-lisp :tangle no
+(defun org-roam-visit-roam-ref-at-point ()
+  (interactive)
+  (let* ((prop (assoc "ROAM_REFS" (org-entry-properties)))
+         (link (when prop (cdr prop))))
+    (if link (browse-url link)
+      (message "No ROAM_REFS found!"))))
+#+end_src
+
+** Org-journal
+
+Journal integration with org-capture templates and agenda. Requires
+=org-journal= package (add =+journal= flag to =:lang org= in init.el).
+
+The old config had =AT-WORK= conditionals for weekly vs yearly journal files
+and work-specific capture templates. Stripped those out below.
+
+*** Autoload: find journal location
+
+Used by capture templates to position point at the end of today's journal
+entry.
+
+#+begin_src emacs-lisp :tangle no
+(defun org-journal-find-location ()
+  "Open today's journal for capture (inhibit heading insertion)."
+  (org-journal-new-entry t)
+  (unless (eq org-journal-file-type 'daily)
+    (org-narrow-to-subtree))
+  (goto-char (point-max)))
+#+end_src
+
+*** Capture templates
+
+Appends journal-specific templates to =org-capture-templates=: a freeform
+entry and a TODO entry. The "jj" template uses =org-journal-find-location= to
+position in today's file.
+
+#+begin_src emacs-lisp :tangle no
+(after! org-capture
+  (appendq! org-capture-templates
+            `(("j" "Templates for journal")
+              ("jj" "Journal entry" plain (function org-journal-find-location)
+               "** %(format-time-string org-journal-time-format)%^{Title}\n%i%?"
+               :jump-to-captured t :immediate-finish t)
+              ("jt" "Journal todo" plain (function (lambda nil (org-journal-new-entry t)))
+               "** TODO %?\n%U\n" :clock-in t :clock-resume t))))
+#+end_src
+
+*** Settings
+
+#+begin_src emacs-lisp :tangle no
+;; TODO: decide on file-type (daily/weekly/yearly) and format
+(after! org-journal
+  (setq org-journal-enable-agenda-integration t
+        org-journal-file-type 'yearly
+        org-journal-file-format "%Y.org"
+        org-journal-dir (expand-file-name "journal/" org-directory))
+  (add-to-list 'org-agenda-files org-journal-dir))
+#+end_src
+
+** Org: project detection
+
+Checks if an org heading is a "project" (has TODO subtasks). Useful for custom
+agenda views that separate projects from standalone tasks. From Bernt Hansen's
+GTD setup.
+
+#+begin_src emacs-lisp :tangle no
+(defun +org-entry-is-project-p ()
+  "Return non-nil if current heading has TODO subtasks."
+  (save-restriction
+    (widen)
+    (let ((has-subtask)
+          (subtree-end (save-excursion (org-end-of-subtree t)))
+          (is-a-task (member (nth 2 (org-heading-components))
+                             org-todo-keywords-1)))
+      (save-excursion
+        (forward-line 1)
+        (while (and (not has-subtask)
+                    (< (point) subtree-end)
+                    (re-search-forward "^\*+ " subtree-end t))
+          (when (member (org-get-todo-state) org-todo-keywords-1)
+            (setq has-subtask t))))
+      (and is-a-task has-subtask))))
+#+end_src
+
+** Org: jupyter (SKIP)
+
+Attempted jupyter notebook integration via =ob-jupyter=. Entirely commented out
+--- never got working. Kept for reference only.
+
+** Checkers
+
+The old config disabled flycheck globally in org-mode and configured the RST
+sphinx builder. The org-mode disable is heavy-handed — the proselint fix (see
+=~/.config/proselint/config=) is better.
+
+#+begin_src emacs-lisp :tangle no
+;; TODO: consider if this is still wanted now that proselint is configured
+;; (setq flycheck-global-modes '(not org-mode))
+(when (modulep! :lang rst)
+  (setq flycheck-rst-sphinx-executable "sphinx-build"))
+#+end_src
+
+** Language: Python
+
+Black formatter at 120 columns, pyright LSP column width, and poetry keybinds.
+Requires =:lang python= with =+lsp= and =+pyright= flags.
+
+#+begin_src emacs-lisp :tangle no
+(when (modulep! :lang python +lsp)
+  (setq-hook! 'python-mode-hook +format-with-lsp nil)
+  (when (modulep! :lang python +pyright)
+    (after! lsp-pyright
+      (setq lsp-pyright-formatter-column 120
+            lsp-pyright-line-column 120))))
+
+(when (modulep! :editor format)
+  (set-formatter! 'black "black -q --line-length=120 -"))
+
+(when (modulep! :lang python +poetry)
+  (map! :map python-mode-map :localleader
+        :desc "Poetry menu" "p" #'poetry))
+#+end_src
+
+** Language: shell
+
+Enable LSP for shell scripts. Requires a shell language server (e.g.
+=bash-language-server=).
+
+#+begin_src emacs-lisp :tangle no
+(when (modulep! :tools lsp)
+  (add-hook! sh-mode #'lsp!))
+#+end_src
+
+** Language: emacs-lisp
+
+Aggressive indentation in elisp buffers. The =aggressive-indent= package
+re-indents code as you type. Requires the package declaration below.
+
+#+begin_src emacs-lisp :tangle no
+(package! aggressive-indent)
+#+end_src
+
+#+begin_src emacs-lisp :tangle no
+(add-hook! emacs-lisp-mode-hook #'aggressive-indent-mode)
+#+end_src
+
+** Language: plantuml
+
+Use the local =plantuml= executable instead of the JAR file.
+
+#+begin_src emacs-lisp :tangle no
+(after! plantuml-mode
+  (setq plantuml-default-exec-mode 'executable))
+#+end_src
+
+** Language: YAML utility
+
+Convert YAML to JSON using =yq=. Useful for debugging YAML files.
+
+#+begin_src emacs-lisp :tangle no
+(defun +yaml/to-json (infile)
+  "Convert INFILE to JSON with yq."
+  (with-temp-buffer
+    (call-process "yq" infile t nil "-o" "json")
+    (string-trim (buffer-string))))
+#+end_src
+
+** Language: REST utility
+
+Helper for building Basic Auth headers from username/password. Used with
+=restclient-mode=.
+
+#+begin_src emacs-lisp :tangle no
+(defun +rest/base64-auth (username password)
+  (format "Basic %s" (base64-encode-string
+                      (concat username ":" password))))
+#+end_src
+
+** Language: feature-mode (SKIP)
+
+Cucumber/Gherkin file support. Probably work-specific (=.feature= files).
+
+** Tools: LSP
+
+Disable file watch threshold to avoid warnings on large projects.
+
+#+begin_src emacs-lisp :tangle no
+(setq lsp-file-watch-threshold nil)
+#+end_src
+
+** Tools: magit
+
+SSH auth socket detection for git push over SSH. Sources the SSH agent
+environment file to find =SSH_AUTH_SOCK=. Also had code-review (forge PR
+review) config — the Bitbucket parts are work-specific.
+
+#+begin_src emacs-lisp :tangle no
+;; TODO: may not be needed if SSH agent is configured properly via launchd
+(defun my/get-ssh-auth-socket ()
+  (string-trim
+   (shell-command-to-string "source ~/.ssh/environment* && echo $SSH_AUTH_SOCK")))
+
+(setenv "SSH_AUTH_SOCK" (my/get-ssh-auth-socket))
+#+end_src
+
+** Tools: gist
+
+Open gists in browser after creation. Bind =C-x C-g= to create a gist from
+region.
+
+#+begin_src emacs-lisp :tangle no
+(setq gist-view-gist t)
+(map! "C-x C-g" #'gist-region)
+#+end_src
+
+** Tools: lookup (Stack Overflow)
+
+=sx.el= keybindings for browsing Stack Overflow from Emacs. Requires =sx=
+package. Also configures Dash docsets path.
+
+*TODO*: Decide if still using sx.el or if web search is sufficient.
+
+#+begin_src emacs-lisp :tangle no
+(package! sx)
+#+end_src
+
+#+begin_src emacs-lisp :tangle no
+(map! :leader :prefix ("s C-s" . "Stack Overflow")
+      "q" #'sx-tab-all-questions
+      "i" #'sx-inbox
+      "o" #'sx-open-link
+      "u" #'sx-tab-unanswered-my-tags
+      "a" #'sx-ask
+      "s" #'sx-search)
+#+end_src
+
+** Tools: lookup (Dash docsets)
+
+Point Dash docsets at the system location. Requires Dash.app installed.
+
+#+begin_src emacs-lisp :tangle no
+(after! dash-docs
+  (setq dash-docs-docsets-path
+        (expand-file-name "~/Library/Application Support/Dash/DocSets")))
+#+end_src
+
+** Tools: lookup (deadgrep)
+
+=deadgrep= is an alternative to =rg= with a dedicated results buffer. Bound to
+=SPC s r=. Requires =deadgrep= package.
+
+#+begin_src emacs-lisp :tangle no
+(package! deadgrep)
+#+end_src
+
+#+begin_src emacs-lisp :tangle no
+(map! :leader :prefix "s"
+      :desc "Search with deadgrep" "r" #'deadgrep)
+#+end_src
+
+** Tools: link-hint override
+
+Remap =link-hint-open-link= to =link-hint-open-link-at-point= so it acts on
+the link under cursor without prompting.
+
+#+begin_src emacs-lisp :tangle no
+(define-key! [remap link-hint-open-link] #'link-hint-open-link-at-point)
+#+end_src
+
+** UI: general settings
+
+Mixed-pitch fonts in org/markdown. Treemacs icon sizing. Doom dashboard
+customization. These came from =config/ui/config.el= — need to read that file
+to capture everything.
+
+*TODO*: Review =config/ui/config.el= fully — may have additional settings not
+yet captured.
+
+#+begin_src emacs-lisp :tangle no
+(package! mixed-pitch)
+#+end_src
+
+#+begin_src emacs-lisp :tangle no
+;; TODO: verify mixed-pitch settings work with current font config
+(use-package! mixed-pitch
+  :hook ((org-mode markdown-mode) . mixed-pitch-mode))
+#+end_src
+
+** UI: modeline
+
+Custom doom-modeline layout: reordered segments, word count on selection,
+workspace name display, icon scaling fix. The =+light= modeline variant had a
+separate init path.
+
+#+begin_src emacs-lisp :tangle no
+;; TODO: test with current doom-modeline version — segment names may have changed
+(after! doom-modeline
+  (doom-modeline-def-modeline 'main
+    '(bar workspace-name window-number modals matches follow buffer-info
+      remote-host buffer-position word-count parrot selection-info)
+    '(compilation objed-state misc-info persp-name battery grip irc mu4e gnus
+      github debug repl lsp minor-modes input-method indent-info
+      buffer-encoding major-mode process vcs checker time "  "))
+  (setq all-the-icons-scale-factor 1.0
+        doom-modeline-height (font-get doom-font :size)
+        doom-modeline-enable-word-count t
+        doom-modeline-persp-name (modulep! :ui workspaces)))
+#+end_src
+
+** UI: workspaces
+
+Workspace management with named defaults (doom, emacs, config, notes, roam).
+Auto-save sessions every 10 minutes. The =+workspace-default!= macro creates
+keybindings under =SPC w= that switch to a workspace and run an init command if
+it's new.
+
+This is heavily tied to Doom's =+workspace= API (which wraps =persp-mode=).
+Only works with =:ui workspaces= enabled in init.el.
+
+*TODO*: Decide which default workspaces are still relevant. The "esp" workspace
+is work-specific.
+
+#+begin_src emacs-lisp :tangle no
+;; Auto-save session every 10 minutes
+(run-with-idle-timer 600 t #'doom-save-session)
+#+end_src
+
+#+begin_src emacs-lisp :tangle no
+;; TODO: this macro uses Doom APIs — test before enabling
+(defcustom workspace-defaults '()
+  "List of default workspaces.")
+
+(defmacro +workspace-default! (name key cmd)
+  (require 'a)
+  (setq workspace-defaults
+        (a-assoc workspace-defaults name (list key cmd)))
+  `(after! persp-mode
+     (map! :leader :prefix "w"
+           :desc (concat "Switch to " ,name)
+           ,key (cmd!
+                 (let ((already-exists (+workspace-get ,name t)))
+                   (+workspace-switch ,name t)
+                   (unless already-exists
+                     (call-interactively ,cmd)))))))
+
+;; Default workspaces
+(+workspace-default! "doom" "C-d"
+  (cmd! (projectile-switch-project-by-name doom-private-dir)))
+
+(+workspace-default! "config" "C-c"
+  (cmd! (projectile-switch-project-by-name (getenv "XDG_CONFIG_HOME"))))
+
+(+workspace-default! "notes" "C-n"
+  (cmd! (find-file (expand-file-name +org-capture-todo-file org-directory))))
+#+end_src
+
+The macro also requires the =a.el= (associative data structure) package:
+
+#+begin_src emacs-lisp :tangle no
+(package! a)
+#+end_src
+
+** Editor: insert file path override
+
+Overrides Doom's =+default/insert-file-path= to support three modes:
+- No prefix: insert filename only
+- =C-u=: insert abbreviated absolute path
+- =C-u C-u=: prompt for file
+
+#+begin_src emacs-lisp :tangle no
+(defadvice! +default/insert-file-path-a (arg)
+  "Insert buffer-file-name or default-directory with flexible prefix arg."
+  :override '+default/insert-file-path
+  (interactive "p")
+  (let* ((use-current-buffer (memq arg '(1 4)))
+         (use-absolute-path (memq arg '(4 64)))
+         (path (if use-current-buffer (or buffer-file-name default-directory)
+                 (read-file-name "File path to insert: "
+                                 (or buffer-file-name default-directory)))))
+    (insert
+     (if use-absolute-path
+         (abbreviate-file-name path)
+       (file-name-nondirectory path)))))
+#+end_src
+
+** Editor: format completing-read fix
+
+Fixes format selection with =C-u=. Double prefix (=C-u C-u=) returns nil
+(auto-detect) instead of prompting.
+
+#+begin_src emacs-lisp :tangle no
+(defadvice! +format-completing-read-a (fn)
+  :around '+format-completing-read
+  (if (equal current-prefix-arg '(16)) nil (funcall fn)))
+#+end_src
+
+** Emacs: scratch buffer toggle
+
+Toggles the Doom scratch buffer in a popup on the left side. Bound to =SPC t x=.
+
+#+begin_src emacs-lisp :tangle no
+(defun doom/toggle-scratch-buffer ()
+  (interactive)
+  (let* ((buffer-name "*doom:scratch*")
+         (win (get-buffer-window buffer-name)))
+    (if win (delete-window win)
+      (doom/open-scratch-buffer))))
+
+(set-popup-rule! "^\\*doom:scratch\\*"
+  :size 80 :side 'left :vslot -5 :select t :quit nil :ttl nil)
+
+(map! :leader :desc "Toggle scratch buffer" "t x" #'doom/toggle-scratch-buffer)
+#+end_src
+
+** Emacs: switch to *new* buffer
+
+Quick binding to jump to or create a =*new*= buffer.
+
+#+begin_src emacs-lisp :tangle no
+(map! :desc "Switch to *new* buffer"
+      "C-x M-n" (cmd! (let ((buf (get-buffer "*new*")))
+                         (if buf (pop-to-buffer buf)
+                           (+default/new-buffer)))))
+#+end_src
+
+** Terminal: vterm
+
+Custom vterm popup (right side, 80 cols) and toggle. Adds =find-file=,
+=magit-status=, and =man= as vterm eval commands so the terminal can open
+things in Emacs. Text scale decreased slightly.
+
+#+begin_src emacs-lisp :tangle no
+(when (modulep! :ui popup)
+  (set-popup-rule! "^\\*doom:\\(?:v?term\\|e?shell\\)-popup"
+    :size 80 :side 'right :vslot -5 :select t :quit nil :ttl nil))
+
+(after! vterm
+  (appendq! vterm-eval-cmds
+            '(("find-file-other-window" find-file-other-window)
+              ("magit-status" magit-status)
+              ("man" man)))
+  (add-hook! 'vterm-mode-hook (text-scale-decrease 1.2)))
+#+end_src
+
+** TTY: mouse scrolling
+
+Mouse wheel scroll in terminal. Probably redundant with Doom's =:os tty= and
+=xterm-mouse-mode= from the vanilla config.
+
+#+begin_src emacs-lisp :tangle no
+;; TODO: check if :os tty already handles this
+(map! "<mouse-4>" #'scroll-down-line
+      "<mouse-5>" #'scroll-up-line)
+#+end_src
+
+** macOS: fullscreen autoload
+
+Low-level =toggle-frame-ns-fullscreen= implementation for the emacs-mac port.
+This was in =autoload/macos.el=. Probably not needed if using the simpler
+wrapper in the macOS section above, which already calls this when available.
+
+** GPT module (from archive)
+
+Large custom module for OpenAI integration with context-aware prompts, magit
+commit message generation, docstring generation, response caching, and
+transient menus. ~700 lines of code.
+
+This predates =gptel= and is largely superseded by it. The magit commit
+generation and docstring features might be worth extracting, but the rest
+(custom API client, caching, prompt management) is obsolete.
+
+*SKIP* unless specific features are wanted. If so, extract just those functions
+and adapt to use =gptel= as the backend.
+
+** Org git sync script
+
+Simple shell script to auto-commit and push org files. Run via cron or systemd
+timer. Could be useful for syncing org-directory to a git remote.
+
+#+begin_src shell :tangle no
+#!/bin/sh
+cd $1
+git ls-files --deleted -z | xargs -0 git rm >/dev/null 2>&1
+git add . >/dev/null 2>&1
+git commit -m "$(date)"
+git push
+#+end_src
+
+** Packages (archive reference)
+
+Full package list from the old config for reference. Many are already provided
+by Doom modules. Only non-Doom packages would need explicit =package!=
+declarations.
+
+#+begin_src emacs-lisp :tangle no
+;; Already covered by Doom or listed above:
+;; (package! a)                 ;; needed by workspace macro
+;; (package! aggressive-indent) ;; emacs-lisp section
+;; (package! deadgrep)          ;; lookup section
+;; (package! mixed-pitch)       ;; UI section
+;; (package! sx)                ;; Stack Overflow section
+;; (package! org-roam-ui)       ;; org-roam section
+
+;; These may be worth evaluating:
+;; (package! org-ql)            ;; structured org queries
+;; (package! org-transclusion)  ;; embed content from other org files
+;; (package! org-ai)            ;; AI integration for org — may overlap with gptel
+#+end_src
+
+** Custom corfu completion module (archive)
+
+A full custom corfu module that predates Doom's built-in =(corfu +orderless)=
+support. Includes orderless integration, kind-icon for completion icons, cape
+for extra completion-at-point backends, terminal support via =corfu-terminal=,
+evil compatibility, and yasnippet integration via =cape-yasnippet=.
+
+*STATUS:* Your current =init.el= already enables =(corfu +orderless)= from
+Doom's built-in module. This custom module is more feature-rich (icons, cape
+sources, terminal fallback, LSP provider reset) — review against Doom's built-in
+to see if anything is missing.
+
+TODO: Compare this with Doom's built-in corfu module — are icons, cape, and
+terminal support now included upstream?
+
+*** Config
+
+#+begin_src emacs-lisp :tangle no
+;; --- completion/corfu/config.el ---
+
+(use-package! corfu
+  :custom
+  (corfu-separator ?\s)
+  (corfu-auto t)
+  (corfu-auto-delay 0.2)
+  (corfu-preview-current nil)
+  (corfu-on-exact-match nil)
+  (corfu-quit-no-match 'separator)
+  (corfu-cycle t)
+  (corfu-auto-prefix 2)
+  (completion-cycle-threshold 1)
+  (tab-always-indent 'complete)
+  (corfu-max-width 80)
+  (corfu-preselect-first nil)
+  :hook
+  (doom-first-buffer . global-corfu-mode)
+  :config
+  (when (modulep! +minibuffer)
+    (add-hook 'minibuffer-setup-hook #'+corfu--enable-in-minibuffer))
+
+  ;; Dirty hack to get c completion running
+  (when (and (modulep! :lang cc)
+             (equal tab-always-indent 'complete))
+    (map! :map c-mode-base-map
+          :i [remap c-indent-line-or-region] #'completion-at-point))
+
+  ;; Reset lsp-completion provider
+  (add-hook 'doom-init-modules-hook
+            (lambda ()
+              (after! lsp-mode
+                (setq lsp-completion-provider :none))))
+
+  ;; Set orderless filtering for LSP-mode completions
+  (add-hook 'lsp-completion-mode-hook
+            (lambda ()
+              (setf (alist-get 'lsp-capf completion-category-defaults)
+                    '((styles . (orderless flex))))))
+
+  (defun corfu-move-to-minibuffer ()
+    "Move current completions to the minibuffer"
+    (interactive)
+    (let ((completion-extra-properties corfu--extra)
+          completion-cycle-threshold completion-cycling)
+      (apply #'consult-completion-in-region completion-in-region--data)))
+
+  (map! :map corfu-map
+        "C-SPC"    #'corfu-insert-separator
+        "C-n"      #'corfu-next
+        "C-p"      #'corfu-previous
+        "M-m"      #'corfu-move-to-minibuffer
+        (:prefix "C-x"
+                 "C-k"     #'cape-dict
+                 "s"       #'cape-ispell
+                 "C-n"     #'cape-keyword
+                 "C-f"     #'cape-file))
+  (after! evil
+    (advice-add 'corfu--setup :after 'evil-normalize-keymaps)
+    (advice-add 'corfu--teardown :after 'evil-normalize-keymaps)
+    (evil-make-overriding-map corfu-map))
+
+  (defadvice! +corfu--org-return (orig) :around '+org/return
+    (if (and (modulep! :completion corfu)
+             corfu-mode
+             (>= corfu--index 0))
+        (corfu-insert)
+      (funcall orig)))
+
+  ;; Terminal fallback
+  (unless (display-graphic-p)
+    (corfu-doc-terminal-mode)
+    (corfu-terminal-mode)))
+
+(use-package! orderless
+  :when (modulep! +orderless)
+  :init
+  (setq completion-styles '(orderless partial-completion)
+        completion-category-defaults nil
+        completion-category-overrides '((file (styles . (partial-completion))))))
+
+(use-package! kind-icon
+  :after corfu
+  :when (modulep! +icons)
+  :custom
+  (kind-icon-default-face 'corfu-default)
+  :config
+  (setq kind-icon-use-icons t
+        svg-lib-icons-dir (expand-file-name "svg-lib" doom-cache-dir)
+        kind-icon-mapping
+        '((array "a" :icon "code-brackets" :face font-lock-variable-name-face)
+          (boolean "b" :icon "circle-half-full" :face font-lock-builtin-face)
+          (class "c" :icon "view-grid-plus-outline" :face font-lock-type-face)
+          (color "#" :icon "palette" :face success)
+          (constant "co" :icon "pause-circle" :face font-lock-constant-face)
+          (constructor "cn" :icon "table-column-plus-after" :face font-lock-function-name-face)
+          (enum "e" :icon "format-list-bulleted-square" :face font-lock-builtin-face)
+          (enum-member "em" :icon "format-list-checks" :face font-lock-builtin-face)
+          (event "ev" :icon "lightning-bolt-outline" :face font-lock-warning-face)
+          (field "fd" :icon "application-braces-outline" :face font-lock-variable-name-face)
+          (file "f" :icon "file" :face font-lock-string-face)
+          (folder "d" :icon "folder" :face font-lock-doc-face)
+          (function "f" :icon "lambda" :face font-lock-function-name-face)
+          (interface "if" :icon "video-input-component" :face font-lock-type-face)
+          (keyword "kw" :icon "image-filter-center-focus" :face font-lock-keyword-face)
+          (macro "mc" :icon "sigma" :face font-lock-keyword-face)
+          (method "m" :icon "lambda" :face font-lock-function-name-face)
+          (module "{" :icon "view-module" :face font-lock-preprocessor-face)
+          (numeric "nu" :icon "numeric" :face font-lock-builtin-face)
+          (operator "op" :icon "plus-circle-outline" :face font-lock-comment-delimiter-face)
+          (param "pa" :icon "cog" :face default)
+          (property "pr" :icon "tune-vertical" :face font-lock-variable-name-face)
+          (reference "rf" :icon "bookmark-box-multiple" :face font-lock-variable-name-face)
+          (snippet "S" :icon "text-short" :face font-lock-string-face)
+          (string "s" :icon "sticker-text-outline" :face font-lock-string-face)
+          (struct "%" :icon "code-braces" :face font-lock-variable-name-face)
+          (t "." :icon "crosshairs-question" :face shadow)
+          (text "tx" :icon "script-text-outline" :face shadow)
+          (type-parameter "tp" :icon "format-list-bulleted-type" :face font-lock-type-face)
+          (unit "u" :icon "ruler-square" :face shadow)
+          (value "v" :icon "numeric-1-box-multiple-outline" :face font-lock-builtin-face)
+          (variable "va" :icon "adjust" :face font-lock-variable-name-face)))
+  (add-hook 'doom-load-theme-hook #'kind-icon-reset-cache)
+  (add-to-list 'corfu-margin-formatters #'kind-icon-margin-formatter))
+
+(use-package! cape
+  :defer t
+  :init
+  (map!
+   [remap dabbrev-expand] 'cape-dabbrev)
+  (add-hook! 'latex-mode-hook
+    (defun +corfu--latex-set-capfs ()
+      (add-to-list 'completion-at-point-functions #'cape-tex)))
+  (when (modulep! :checkers spell)
+    (add-to-list 'completion-at-point-functions #'cape-dict)
+    (add-to-list 'completion-at-point-functions #'cape-ispell))
+  (add-to-list 'completion-at-point-functions #'cape-file)
+  (add-to-list 'completion-at-point-functions #'cape-keyword t)
+  (add-to-list 'completion-at-point-functions #'cape-dabbrev t))
+
+(use-package! corfu-history
+  :after corfu
+  :hook (corfu-mode . (lambda ()
+                        (corfu-history-mode 1)
+                        (savehist-mode 1)
+                        (add-to-list 'savehist-additional-variables 'corfu-history))))
+
+(use-package! corfu-quick
+  :after corfu
+  :bind (:map corfu-map
+              ("M-q" . corfu-quick-complete)
+              ("C-q" . corfu-quick-insert)))
+
+(use-package! corfu-echo
+  :after corfu
+  :hook (corfu-mode . corfu-echo-mode))
+
+(use-package! corfu-info
+  :after corfu)
+
+(use-package! corfu-popupinfo
+  :after corfu
+  :hook (corfu-mode . corfu-popupinfo-mode))
+
+(when (modulep! :editor evil +everywhere)
+  (setq evil-collection-corfu-key-themes '(default magic-return)))
+
+(use-package! cape-yasnippet
+  :after cape
+  :init
+  (add-to-list 'completion-at-point-functions #'cape-yasnippet)
+  (after! lsp-mode
+    (add-hook 'lsp-managed-mode-hook #'cape-yasnippet--lsp))
+  (after! eglot
+    (add-hook 'eglot-managed-mode-hook #'cape-yasnippet--eglot)))
+
+;; Override :config default mapping
+(add-hook! 'doom-after-modules-config-hook
+  (defun +corfu-unbind-yasnippet-h ()
+    "Remove problematic tab bindings in cmds! on :i TAB"
+    (map! :i [tab] nil
+          :i "TAB" nil
+          :i "C-SPC" #'completion-at-point
+          :i "C-@" #'completion-at-point)))
+#+end_src
+
+*** Packages
+
+#+begin_src emacs-lisp :tangle no
+;; --- completion/corfu/packages.el ---
+
+(package! corfu
+  :recipe (:files (:defaults "extensions/*.el")))
+
+(when (modulep! +icons)
+  (package! kind-icon))
+
+(when (modulep! +orderless)
+  (package! orderless))
+
+(package! cape)
+
+(package! popon
+  :recipe (:type git :repo "https://codeberg.org/akib/emacs-popon"))
+(package! corfu-terminal
+  :recipe (:type git :repo "https://codeberg.org/akib/emacs-corfu-terminal.git"))
+(package! corfu-doc-terminal
+  :recipe (:type git :repo "https://codeberg.org/akib/emacs-corfu-doc-terminal.git"))
+
+(package! cape-yasnippet
+  :recipe (:host github :repo "elken/cape-yasnippet"))
+#+end_src
+
+*** Autoloads — extra capf sources (minad)
+
+Custom completion-at-point functions from Daniel Mendler (minad). Includes file
+path completion, dabbrev with length filtering, ispell word lookup, and
+dictionary file completion.
+
+#+begin_src emacs-lisp :tangle no
+;; --- completion/corfu/autoload/minad-capf.el ---
+
+(require 'dabbrev)
+
+(defun +file-completion-at-point-function ()
+  "File name completion-at-point-function."
+  (when-let (bounds (bounds-of-thing-at-point 'filename))
+    (list (car bounds) (cdr bounds)
+          'read-file-name-internal
+          :exclusive 'no
+          :annotation-function (lambda (_) " (File)"))))
+
+(defun +dabbrev-completion-at-point-function ()
+  (let ((dabbrev-check-all-buffers nil)
+        (dabbrev-check-other-buffers nil))
+    (dabbrev--reset-global-variables))
+  (let ((abbrev (ignore-errors (dabbrev--abbrev-at-point))))
+    (when (and abbrev (not (string-match-p "[ \t]" abbrev)))
+      (pcase ;; Interruptible scanning
+          (while-no-input
+            (let ((inhibit-message t)
+                  (message-log-max nil))
+              (or (dabbrev--find-all-expansions
+                   abbrev (dabbrev--ignore-case-p abbrev))
+                  t)))
+        ('nil (keyboard-quit))
+        ('t nil)
+        (words
+         (let ((min-len (+ 4 (length abbrev))))
+           (setq words (seq-remove (lambda (x) (< (length x) min-len)) words)))
+         (when words
+           (let ((beg (progn (search-backward abbrev) (point)))
+                 (end (progn (search-forward abbrev) (point))))
+             (unless (string-match-p "\n" (buffer-substring beg end))
+               (list beg end words
+                     :exclusive 'no
+                     :annotation-function (lambda (_) " (Dabbrev)"))))))))))
+
+(autoload 'ispell-lookup-words "ispell")
+
+(defun +ispell-completion-at-point-function ()
+  (when-let* ((bounds (bounds-of-thing-at-point 'word))
+              (table (with-demoted-errors
+                         (let ((message-log-max nil)
+                               (inhibit-message t))
+                           (ispell-lookup-words
+                            (format "*%s*"
+                                    (buffer-substring-no-properties
+                                     (car bounds) (cdr bounds))))))))
+    (list (car bounds) (cdr bounds) table
+          :exclusive 'no
+          :annotation-function (lambda (_) " (Ispell)"))))
+
+(defun +word-completion-at-point-function (words)
+  (when-let (bounds (bounds-of-thing-at-point 'word))
+    (list (car bounds) (cdr bounds) words
+          :exclusive 'no
+          :annotation-function (lambda (_) " (Words)"))))
+
+(defvar +dict--words nil)
+(defvar +dict-file "/etc/dictionaries-common/words")
+
+(defun +dict-completion-at-point-function ()
+  (+word-completion-at-point-function
+   (or +dict--words
+       (setq +dict--words
+             (split-string (with-temp-buffer
+                             (insert-file-contents-literally +dict-file)
+                             (buffer-string))
+                           "\n")))))
+#+end_src
+
+*** Autoloads — interactive completion commands
+
+Wrappers to trigger specific completion sources interactively.
+
+#+begin_src emacs-lisp :tangle no
+;; --- completion/corfu/autoload/extra.el ---
+
+(defun +corfu-complete-file-at-point ()
+  "Complete a file path from scratch at point"
+  (interactive)
+  (completion-in-region (point) (point) #'read-file-name-internal))
+
+(defun +corfu-files ()
+  "Complete using files source"
+  (interactive)
+  (let ((completion-at-point-functions
+         (list #'+file-completion-at-point-function)))
+    (completion-at-point)))
+
+(defun +corfu-dabbrev ()
+  "Complete using dabbrev source"
+  (interactive)
+  (let ((completion-at-point-functions
+         (list #'+dabbrev-completion-at-point-function)))
+    (completion-at-point)))
+
+(defun +corfu-ispell ()
+  "Complete using ispell source."
+  (interactive)
+  (let ((completion-at-point-functions
+         (list #'+ispell-completion-at-point-function)))
+    (completion-at-point)))
+
+(defun +corfu-dict ()
+  "Complete using dict source."
+  (interactive)
+  (let ((completion-at-point-functions
+         (list #'+dict-completion-at-point-function)))
+    (completion-at-point)))
+#+end_src
+
+*** Autoloads — minibuffer corfu
+
+Enable corfu in the minibuffer, with guards for vertico, evil-ex, mct, and helm.
+
+#+begin_src emacs-lisp :tangle no
+;; --- completion/corfu/autoload/minibuffer.el ---
+
+(defun +corfu--enable-in-minibuffer ()
+  (unless (or (bound-and-true-p mct--active)
+              (bound-and-true-p vertico--input)
+              (memq this-command '(evil-ex
+                                   evil-ex-search-forward
+                                   evil-ex-search-backward))
+              (and (modulep! :completion helm)
+                   (helm--alive-p))
+              (corfu-mode +1))))
+#+end_src
+
+** Copilot completion module (archive)
+
+Custom Doom module for GitHub Copilot via =copilot.el=. Features smart tab
+completion that respects org heading cycling, a toggle between copilot/company/none,
+and web-mode integration. Disables company and yasnippet when copilot is active.
+
+*STATUS:* You're not currently using Copilot. If you ever want AI-assisted
+completion alongside your existing gptel/Claude setup, the tab logic and mode
+toggle are well-designed and worth stealing.
+
+TODO: If re-enabling, the =copilot.el= package (zerolfx) may be outdated —
+check if there's a maintained fork or if Doom has a built-in copilot module now.
+
+*** Config
+
+#+begin_src emacs-lisp :tangle no
+;; --- completion/copilot/config.el ---
+
+(defun private/org-at-heading-start-p ()
+  "Return t if point is at the beginning of a heading."
+  (when (org-at-heading-p)
+    (let ((pos (point)))
+      (save-excursion
+        (org-end-of-line)
+        (org-beginning-of-line)
+        (equal pos (point))))))
+
+(defun private/copilot-indent-or-complete (&optional arg)
+  "Accept completion from copilot or fallback to <tab> behavior."
+  (interactive "P")
+  (cond
+   ((use-region-p)
+    (indent-for-tab-command))
+   ((and (derived-mode-p 'org-mode) (eq major-mode 'org-mode))
+    (or (private/org-at-heading-start-p) (org-at-drawer-p)) (org-cycle))
+   (t
+    (let ((old-point (point))
+          (old-tick (buffer-chars-modified-tick))
+          (tab-always-indent t))
+      (unless (or (and (not (copilot--overlay-visible)) (eolp))
+                  (and (copilot--overlay-visible)
+                       (eq (eol) (overlay-start copilot--overlay))))
+        (indent-for-tab-command))
+      (when (and (eq old-point (point))
+                 (eq old-tick (buffer-chars-modified-tick)))
+        (if (copilot--overlay-visible)
+            (copilot-accept-completion)
+          (copilot-complete)))))))
+
+(defun private/toggle-company-copilot ()
+  "Toggle between copilot-mode, company-mode, or neither."
+  (interactive)
+  (cond ((bound-and-true-p copilot-mode)
+         (copilot-mode -1)
+         (company-mode 1)
+         (message "company-mode"))
+        ((bound-and-true-p company-mode)
+         (company-mode -1)
+         (message "completions off"))
+        (t
+         (copilot-mode 1)
+         (message "copilot-mode"))))
+
+(use-package! copilot
+  :hook (prog-mode . copilot-mode)
+  :config
+  (map! :map copilot-mode-map "<tab>"
+        #'private/copilot-indent-or-complete)
+  (map! :leader :desc "Completion mode" :prefix "t" "C"
+        #'private/toggle-company-copilot)
+
+  (if (modulep! :lang web)
+      (defadvice! +web/indent-or-yas-or-emmet-expand-a ()
+        :before-while #'+web/indent-or-yas-or-emmet-expand
+        (if (and (bound-and-true-p copilot-mode)
+                 (copilot--overlay-visible))
+            (progn
+              (message "copilot on and overlay visible")
+              (private/copilot-indent-or-complete)
+              nil)
+          t)))
+
+  (add-hook 'copilot-mode-hook (lambda ()
+                                 (company-mode -1)
+                                 (yas-minor-mode -1))))
+#+end_src
+
+*** Packages
+
+#+begin_src emacs-lisp :tangle no
+;; --- completion/copilot/packages.el ---
+
+(package! copilot
+  :recipe (:host github :repo "zerolfx/copilot.el" :files ("*.el" "dist")))
+#+end_src
+
+** Company completion config (archive)
+
+Old company-mode config. Sets idle delay, quick-access numbers (M-1..M-9),
+yasnippet trigger, and conf-mode file backend. Includes commented-out TabNine
+config.
+
+*STATUS:* You've switched to corfu. This is here for reference only — the
+quick-access and conf-mode backend ideas could be ported to corfu/cape if wanted.
+
+#+begin_src emacs-lisp :tangle no
+;; --- config/completion/company.el ---
+
+(after! company
+  (setq company-idle-delay 0.5
+        company-show-quick-access t))
+
+(map! :map company-active-map "C-;" #'company-other-backend)
+
+(when (modulep! :editor snippets)
+  (map! :leader "y" #'company-yasnippet))
+
+(set-company-backend! 'conf-mode
+  (append (alist-get 'conf-mode +company-backend-alist)
+              '(company-files)))
+
+;; TabNine (commented out in original) — AI completion service,
+;; predates Copilot. Not worth reviving.
+#+end_src
+
+** Autotheme Doom module (archive)
+
+The original Doom module version of autotheme, more complete than the vanilla
+port already captured above. Features:
+- macOS appearance hook (=mac-effective-appearance-change-hook=) for instant
+  theme switching when system dark mode toggles
+- Native solar-based timer fallback for non-macOS or non-emacs-mac builds
+- =mac-start-animation= dissolve transition on theme change
+- Toggle command, init function, and customizable light/dark themes
+
+*STATUS:* This is the definitive version. The vanilla port above is a subset.
+When you're ready to enable autotheme, use this as the source.
+
+TODO: Decide whether to keep this as a Doom module or inline into config.el.
+The module approach is cleaner but requires =doom/modules/= directory setup.
+
+*** Init (customization variables)
+
+#+begin_src emacs-lisp :tangle no
+;; --- modules/ui/autotheme/init.el ---
+
+(defcustom +autotheme-light-theme 'doom-one-light
+  "Preferred light theme.")
+
+(defcustom +autotheme-dark-theme 'doom-one
+  "Preferred dark theme.")
+
+(defcustom +autotheme-mode 'macos
+  "If `light', use light theme. If `dark', use dark theme.
+If `native', use Emacs timers based on solar calculations.
+If `macos', use Apple event hooks (emacs-mac build), else fall back to native.
+When nil, disable automatic theme switching.")
+
+(defcustom +autotheme-use-animations t
+  "When `+autotheme-mode' is `macos', use native animations.")
+
+(defcustom +autotheme-sunrise-offset nil
+  "If non-nil, offset from sunrise as list of (hours minutes).
+Only works with native mode.")
+;; TODO: sunrise-offset doesn't actually do anything yet
+
+(add-hook! 'doom-init-ui-hook (+autotheme-init))
+#+end_src
+
+*** Autoloads (full implementation)
+
+#+begin_src emacs-lisp :tangle no
+;; --- modules/ui/autotheme/autoload.el ---
+
+;; -- Native (solar-based) mode --
+
+(defun +autotheme--sunrise-sunset ()
+  "Return time in minutes of sunrise and sunset for today."
+  (require 'solar)
+  (let* ((sunrise-sunset-hours (solar-sunrise-sunset
+                                (calendar-current-date))))
+    (mapcar (lambda (s) (* 60 s))
+            (list (caar sunrise-sunset-hours)
+                  (caadr sunrise-sunset-hours)))))
+
+(defun +autotheme--now ()
+  "Return current time in minutes."
+  (let* ((cts (current-time-string)))
+    (+ (* 60 (string-to-number (substring cts 11 13)))
+       (string-to-number (substring cts 14 16))
+       (/ (string-to-number (substring cts 17 19)) 60))))
+
+(defun +autotheme--day-p ()
+  "Return t if the sun has risen."
+  (require 'solar)
+  (let* ((sunrise-sunset-minutes (+autotheme--sunrise-sunset)))
+    (<= (* 60 (car sunrise-sunset-minutes))
+        (+autotheme--now)
+        (* 60 (cadr sunrise-sunset-minutes)))))
+
+(defun +autotheme--next-transition ()
+  "Return next theme transition time in minutes."
+  (let* ((sunrise-sunset-minutes (+autotheme--sunrise-sunset)))
+    (if (+autotheme--day-p)
+        (cadr sunrise-sunset-minutes)
+      (car sunrise-sunset-minutes))))
+
+(defvar +autotheme--timer nil)
+
+(defun +autotheme--start-timer (&optional no-update)
+  "Update theme unless NO-UPDATE. Set timer for next transition."
+  (let ((timer-time
+         (round (* 60 (- (+autotheme--now)
+                         (+autotheme--next-transition)))))))
+  (unless no-update (+autotheme-load-theme))
+  (setq +autotheme--timer
+        (run-with-timer timer-time nil
+                        #'autotheme--start-timer)))
+
+;; -- macOS mode --
+
+(defun +autotheme--emacs-mac-p ()
+  "Return t if using railwaycat's emacs-mac build."
+  (and IS-MAC (featurep 'mac-win)))
+
+;; -- Common --
+
+(defun +autotheme--mode ()
+  "Return autotheme-mode after accounting for system."
+  (let ((mode +autotheme-mode))
+    (cond ((eq mode 'native) 'native)
+          ((eq mode 'macos)
+           (or (and (+autotheme--emacs-mac-p) 'macos) 'native))
+          (t mode))))
+
+(defun +autotheme--dark-or-light ()
+  "Return dark or light depending on mode/time."
+  (let ((mode (+autotheme--mode)))
+    (cond ((member mode '(dark light)) mode)
+          ((eq mode 'macos)
+           (let ((appearance (plist-get (mac-application-state)
+                                       :appearance)))
+             (cond ((string= appearance "NSAppearanceNameDarkAqua") 'dark)
+                   ((string= appearance "NSAppearanceNameAqua") 'light)
+                   (t nil))))
+          ((eq mode 'native)
+           (if (+autotheme--day-p) 'light 'dark))
+          (t nil))))
+
+(defun +autotheme--preferred-theme ()
+  "Return preferred theme according to autotheme-mode."
+  (let ((cat (+autotheme--dark-or-light)))
+    (cond ((eq cat 'light) +autotheme-light-theme)
+          ((eq cat 'dark) +autotheme-dark-theme)
+          (t doom-theme))))
+
+(defun +autotheme-load-theme (&optional theme force-reload no-animation)
+  "Set doom-theme to THEME and load.
+If NO-ANIMATION, skip dissolve. If FORCE-RELOAD, reload even if unchanged."
+  (let ((theme (or theme (+autotheme--preferred-theme))))
+    (unless (and (eq doom-theme theme) (not force-reload))
+      (setq doom-theme theme)
+      (unless no-animation
+        (mac-start-animation nil :type 'dissolve :duration 0.5))
+      (load-theme doom-theme t))))
+
+(defun +autotheme/toggle (&rest args)
+  "Toggle between light and dark themes."
+  (interactive)
+  (apply #'+autotheme-load-theme
+         (if (eq doom-theme +autotheme-dark-theme)
+             +autotheme-light-theme
+           +autotheme-dark-theme) args))
+
+(defun +autotheme-init ()
+  "Load preferred theme, start timer or add hooks for auto switching."
+  (+autotheme-load-theme)
+  (let ((auto-mode (+autotheme--mode)))
+    (cond ((eq auto-mode 'native)
+           (+autotheme--start-timer t))
+          ((eq auto-mode 'macos)
+           (add-hook! 'mac-effective-appearance-change-hook
+             (+autotheme-load-theme))))))
+#+end_src
+
+** UI general config (archive)
+
+Miscellaneous UI tweaks: modeline with battery/time, blink cursor,
+=which-key= tuning, mixed-pitch for org, proportional window resize,
+and a =kill-buffer-and-frame= command bound to =C-x C-c=.
+
+#+begin_src emacs-lisp :tangle no
+;; --- config/ui/config.el ---
+
+(add-hook!
+ 'doom-init-ui-hook :append
+ (setq doom-font-increment 1))
+
+;; Modeline extras
+(setq mode-line-compact nil)
+(display-battery-mode 1)
+(display-time-mode 1)
+(blink-cursor-mode 1)
+
+;; Resize windows proportionally when splitting
+(unless (modulep! :ui minimap)
+  (setq window-combination-resize t))
+
+;; which-key — fast popup, local-first sort
+(after! which-key
+  (setq which-key-use-C-h-commands t
+        which-key-idle-delay 0.1
+        which-key-idle-secondary-delay 0.1
+        which-key-sort-order 'which-key-local-then-key-order))
+
+;; mixed-pitch in org
+(when (featurep 'mixed-pitch)
+  (use-package! mixed-pitch
+    :config
+    (add-hook 'org-mode-hook #'mixed-pitch-mode)))
+
+;; Kill buffer + frame, or quit Emacs if last frame
+(defun private/kill-buffer-and-frame-or-exit (&optional arg)
+  "Kill buffer and frame. With one frame, quit Emacs (with confirmation)."
+  (interactive "P")
+  (cond
+   ((> (length (visible-frame-list)) 1) (kill-this-buffer) (delete-frame))
+   ((or arg (y-or-n-p "Quit Emacs?")) (save-buffers-kill-terminal arg))
+   (t (message "Abort"))))
+
+(map! :prefix "C-x" :desc "Kill buffer/quit" "C-c"
+      #'private/kill-buffer-and-frame-or-exit)
+#+end_src
+
+** EWW browser tweaks (archive)
+
+Popup rules for eww, auto-readable mode, horizontal split, and sliced image
+scrolling hack for smoother image display. The =shr-put-image= override uses
+=insert-sliced-image= to avoid jerky scrolling on tall images.
+
+TODO: You have =eww= commented out in init.el. If you enable it, these tweaks
+are solid quality-of-life improvements.
+
+#+begin_src emacs-lisp :tangle no
+;; --- config/app/config.el ---
+
+(when (modulep! :ui popup)
+  (set-popup-rule! "^\\*eww\\*" :vslot -11 :size 0.35 :select t))
+
+(after! eww
+  (defun eww-split-window-func (buf _alist)
+    "Split window when opening eww."
+    (when (not (string= (buffer-name (current-buffer)) "*eww*"))
+      (let ((new-window (or (window-in-direction 'left)
+                            (window-in-direction 'right)
+                            (split-window-horizontally))))
+        (set-window-buffer new-window buf)
+        new-window)))
+
+  (add-hook 'eww-after-render-hook #'eww-readable)
+  (push `(,(rx "*eww*") (eww-split-window-func)) display-buffer-alist))
+
+(setq-default shr-use-fonts nil
+              shr-use-colors nil)
+
+;; Sliced image scrolling — avoids jerky scroll on tall images
+(defadvice! shr-put-image-a (spec alt &optional flags)
+  "Use insert-sliced-image for smoother image scrolling in eww/shr."
+  :override 'shr-put-image
+  (if (display-graphic-p)
+      (let* ((size (cdr (assq 'size flags)))
+             (data (if (consp spec) (car spec) spec))
+             (content-type (and (consp spec) (cadr spec)))
+             (start (point))
+             (image (cond
+                     ((eq size 'original)
+                      (create-image data nil t :ascent 100
+                                    :format content-type))
+                     ((eq content-type 'image/svg+xml)
+                      (create-image data 'svg t :ascent 100))
+                     ((eq size 'full)
+                      (ignore-errors
+                        (shr-rescale-image data content-type
+                                           (plist-get flags :width)
+                                           (plist-get flags :height))))
+                     (t
+                      (ignore-errors
+                        (shr-rescale-image data content-type
+                                           (plist-get flags :width)
+                                           (plist-get flags :height)))))))
+        (when image
+          (let* ((image-pixel-cons (image-size image t))
+                 (image-pixel-height (cdr image-pixel-cons))
+                 (image-scroll-rows (round (/ image-pixel-height
+                                              (default-font-height)))))
+            (when (and (> (current-column) 0)
+                       (> (car (image-size image t)) 400))
+              (insert "\n"))
+            (insert-sliced-image image (or alt "*") nil image-scroll-rows 1)
+            (put-text-property start (point) 'image-size size)
+            (when (and shr-image-animate
+                       (cond ((fboundp 'image-multi-frame-p)
+                              (cdr (image-multi-frame-p image)))
+                             ((fboundp 'image-animated-p)
+                              (image-animated-p image))))
+              (image-animate image nil 60))))
+        image)
+    (insert (or alt ""))))
+#+end_src
+
+** Slack module (archive)
+
+*SKIP* — work-specific team registration with env vars for token/cookie. The
+=slack= package itself is straightforward if you ever need it.
+
+#+begin_src emacs-lisp :tangle no
+;; --- app/slack ---
+;; (package! slack)
+
+(use-package! slack
+  :commands (slack-start)
+  :init
+  (setq slack-buffer-emojify t
+        slack-prefer-current-team t))
+
+;; Team registration (work-specific, not portable):
+;; (after! slack
+;;   (slack-register-team
+;;    :name "team-name"
+;;    :default t
+;;    :token (getenv "SLACK_TOKEN")
+;;    :cookie (getenv "SLACK_COOKIE")))
+#+end_src
+
+** Modular config loader (archive)
+
+A custom Doom module that auto-discovers and loads config files matching Doom
+module names from =$DOOMDIR/config/=. For example, if you have Doom's =:tools
+magit= enabled, it loads =$DOOMDIR/config/tools/magit.el= if it exists. Includes
+load time tracking and benchmark display.
+
+*STATUS:* This is what powered the modular config structure (all those
+=config/ui/config.el=, =config/app/slack.el= files). Now that everything is
+consolidated into this literate =config.org=, the loader itself is obsolete —
+but the pattern is interesting if you ever want per-module config files again.
+
+*** Init (variables and hooks)
+
+#+begin_src emacs-lisp :tangle no
+;; --- modules/config/modular/init.el ---
+
+(defgroup modular nil
+  "Modular config"
+  :group 'doom)
+
+(defcustom +modular-etc-dir
+  (doom-path doom-user-dir "etc")
+  "Non-volatile local storage for private config files."
+  :type 'string)
+
+(defcustom +modular-bin-dir
+  (doom-path doom-user-dir "bin")
+  "Directory for external scripts invoked by/for private config."
+  :group 'modular
+  :type 'string)
+
+(defcustom +modular-config-dir
+  (doom-path doom-user-dir "config")
+  "Directory for private config .el files."
+  :group 'modular
+  :type 'string)
+
+(defcustom +modular-show-load-times t
+  "When t, show time per file. When `overview', show total only."
+  :group 'modular
+  :type 'boolean)
+
+(defcustom +modular-enabled t
+  "When non-nil, load modular config files."
+  :group 'modular
+  :type 'boolean)
+
+(defvar +modular--load-times '())
+(defvar +modular-after-init-hook nil)
+
+;; Show load times after Doom's benchmark
+(defadvice! +modular--show-load-time ()
+  :after 'doom-display-benchmark-h
+  (when (and +modular-enabled +modular-show-load-times)
+    (dolist (kv +modular--load-times)
+      (let ((file (car kv))
+            (time (cdr kv)))
+        (when (or (eq file t)
+                  (not (eq +modular-show-load-times 'overview)))
+          (let* ((file (if (stringp file)
+                           (file-relative-name (doom-path file)
+                                               doom-user-dir)
+                         "modular config"))
+                 (time (or time +modular--load-time))
+                 (msg (format "Spent %.3fs in %s." time file)))
+            (if (not (numberp time))
+                (message "Unable to display load time!")
+              (message msg))))))))
+
+;; Load on init
+(add-hook! 'doom-after-init-hook
+  (when +modular-enabled
+    (setq t0 (current-time))
+    (+modular/load)
+    (doom-run-hooks '+modular-after-init-hook)
+    (let ((load-time (float-time (time-subtract (current-time) t0))))
+      (+modular/add-load-time t load-time))
+    (makunbound 't0)))
+#+end_src
+
+*** Autoloads (file discovery and loading)
+
+#+begin_src emacs-lisp :tangle no
+;; --- modules/config/modular/autoload.el ---
+
+(defun +modular--file-path (category &optional module file)
+  (let* ((path (doom-path
+                +modular-config-dir
+                (string-replace ":" "" (symbol-name category))
+                (when module (symbol-name module)))))
+    (if file
+        (concat (expand-file-name file path) ".el")
+      (concat path ".el"))))
+
+(defun modular--module-files (category module)
+  "Return list of filenames to look for given MODULE in CATEGORY."
+  (let* ((files (mapcar (lambda (args)
+                          (apply #'+modular--file-path args))
+                        `((,category)
+                          (,category ,module)
+                          (,category nil "config")
+                          (,category ,module "config")))))
+    (append files (mapcar (lambda (flag)
+                            (+modular--file-path category module
+                                                 (symbol-name flag)))
+                          (doom-module-get category module :flags)))))
+
+(defun +modular/files ()
+  "Return list of all files which would be loaded."
+  (let ((module-keys (doom-module-list))
+        (module-paths-func
+         (lambda (m) (modular--module-files (car m) (cdr m)))))
+    (seq-filter #'file-exists-p
+                (seq-uniq
+                 (apply #'append
+                        (mapcar module-paths-func module-keys))))))
+
+(defun +modular/add-load-time (key value)
+  (appendq! +modular--load-times (list (cons key value))))
+
+(defun +modular/load-file (file)
+  (setq t1 (current-time))
+  (with-demoted-errors
+      (concat "Error loading " file " from modular config: %S")
+    (load file))
+  (let ((load-time (float-time (time-subtract (current-time) t1))))
+    (+modular/add-load-time file load-time))
+  (makunbound 't1))
+
+(defun +modular/load ()
+  "For each Doom module, load corresponding file in $DOOMDIR/config."
+  (seq-do #'+modular/load-file (+modular/files)))
+#+end_src
+
+*** Settings
+
+#+begin_src emacs-lisp :tangle no
+;; --- config/config/modular.el ---
+;; Show only total load time, not per-file
+(setq +modular-show-load-times 'overview)
+
+(map! :desc "Browse private config"
+      "C-h d C-c" (cmd!
+                   (+workspace-switch "config" t)
+                   (doom/open-private-config)))
+#+end_src
+
+** Inform 7 language mode (archive)
+
+Interactive fiction language support. Niche but fun.
+
+#+begin_src emacs-lisp :tangle no
+;; --- lang/inform ---
+;; (package! inform7-mode
+;;   :recipe (:host github :repo "GuiltyDolphin/inform7-mode"))
+
+(use-package! inform7-mode
+  :mode "\\.ni$")
+#+end_src
+
+* Next steps and future directions
+
+** Immediate priorities
+
+1. *Enable autotheme* — the Doom module version above is complete and tested.
+   Either inline into config.el or set up =doom/modules/ui/autotheme/=. Since
+   you're on emacs-mac, the macOS appearance hook gives instant dark/light switching.
+
+2. *Review corfu setup* — compare Doom's built-in =(corfu +orderless)= against
+   the custom module archived above. Key things possibly missing from upstream:
+   - =cape= sources (file, dabbrev, keyword, dict, ispell, yasnippet)
+   - =kind-icon= for completion category icons
+   - =corfu-terminal= / =corfu-doc-terminal= for TTY support
+   - =corfu-history=, =corfu-quick=, =corfu-echo=, =corfu-popupinfo= extensions
+
+3. *Fix ecg/ect aliases* — noted in =TODO.org=, still broken. Quick debug session.
+
+4. *Run =gh auth login=* — symlink is fixed, just need to complete the auth flow.
+
+** Worth enabling soon
+
+- *=window-combination-resize=* — from the UI archive, makes splits proportional.
+  One-liner: =(setq window-combination-resize t)=
+
+- *=which-key= tuning* — the archive had =0.1s= idle delay and local-first sort.
+  Doom's default is slower. If you want snappier key hints, port those settings.
+
+- *=display-battery-mode= / =display-time-mode=* — modeline extras from the
+  archive. Add if you want them; trivial to enable.
+
+- *=blink-cursor-mode=* — Doom disables it by default. Archive had it on.
+
+** Interesting directions based on your setup
+
+- *org-roam* — the archived config is extensive (capture templates, display
+  settings, unlinked references, keybinds, org-roam-ui). You have the =org=
+  module enabled; adding =+roam2= flag would activate it. Your JD system +
+  org-roam could be a powerful combination for linked notes.
+
+- *omnifocus-mode* — per your =TODO.org=, this is a greenfield project. The
+  AppleScript/JXA approach is solid. Start with read-only (pull tasks into a
+  buffer) before tackling write-back. The archived org-capture patterns could
+  inform the buffer format.
+
+- *Emacs MCP server* — also in =TODO.org=. A thin =emacsclient -e= wrapper as
+  an MCP server would let Claude Code interact with your running Emacs. Could
+  start as a simple Node/Python server with =eval=, =list-buffers=, =read-buffer=.
+
+- *eww research workflow* — see the dedicated section below.
+
+- *Literate config walkthrough* — per =TODO.org=, going through Doom's
+  =+org-init-*-h= hooks. Now that everything is in =config.org=, you could add
+  a "Doom org defaults" reference section documenting what each hook does and
+  whether your config overrides it.
+
+** Cleanup candidates
+
+- The =doom-migration-status.md= file is now redundant — everything it tracked
+  has been imported into this =config.org=. Can be trashed once confirmed.
+
+- The =vanilla-early-init.el= file (if still present) — early-init optimizations
+  are handled by Doom. Check if anything unique remains.
+
+- The archive directory at =06.01 Unsorted/doom/= — once you've verified this
+  =config.org= captures everything, the archive can be archived-archived (or
+  just left as-is for peace of mind).
+
+** EWW research workflow
+
+A workflow for in-Emacs web research: browse → read → clip → link. No
+context-switching to a browser. Everything lands in your org notes and (optionally)
+org-roam knowledge graph.
+
+*** 1. Enable eww
+
+Uncomment =eww= in =init.el= under =:emacs=. The archived eww config above
+handles the rest (readable mode, split windows, sliced images).
+
+*** 2. Web clip capture template
+
+Add a ="w"= capture template that grabs the URL, page title, and selected region
+from eww. Uses =%a= (annotation — eww sets =org-store-link= automatically) and
+=%i= (active region / selected text).
+
+#+begin_src emacs-lisp :tangle no
+;; Add to org-capture-templates:
+("w" "Web clip" entry (file "research.org")
+ "* %a\n:PROPERTIES:\n:CAPTURED: %U\n:END:\n\n%i\n\n%?"
+ :prepend t)
+#+end_src
+
+This creates entries like:
+
+#+begin_example
+,* [[https://example.com/article][Article Title]]
+:PROPERTIES:
+:CAPTURED: [2026-03-06 Thu 14:23]
+:END:
+
+Selected text from the page goes here...
+
+Your notes go here.
+#+end_example
+
+*** 3. Quick-browse keybinding
+
+Bind a key to open a URL at point (or prompt) in eww. Doom's =+lookup= module
+already handles some of this, but a direct eww shortcut is handy.
+
+#+begin_src emacs-lisp :tangle no
+(map! :leader
+      (:prefix ("o" . "open")
+       :desc "EWW browser" "w" #'eww
+       :desc "EWW at point" "W" #'eww-browse-url))
+#+end_src
+
+*** 4. Integration with gptel
+
+Browse a page, select a region, and send it to gptel for summarization or Q&A.
+No extra config needed — =gptel-send= already works on regions. The workflow:
+
+1. =M-x eww= → navigate to page
+2. Select interesting text
+3. =C-c RET= (=gptel-send=) → ask a question about the selection
+4. =org-capture= (=w=) to clip the result into your notes
+
+*** 5. org-roam integration (optional)
+
+If you enable org-roam, web clips become nodes. Replace the file target with a
+roam capture:
+
+#+begin_src emacs-lisp :tangle no
+;; org-roam version of web clip:
+(setq org-roam-capture-templates
+      ;; ... existing templates ...
+      '(("w" "Web clip" plain "%i\n\n%?"
+         :target (file+head "web/%<%Y%m%d%H%M%S>-${slug}.org"
+                            "#+title: ${title}\n#+filetags: :web:\n")
+         :unnarrowed t)))
+#+end_src
+
+Each clip becomes a roam node you can backlink to from project notes. Tag with
+=:web:= for easy filtering. Files go in a =web/= subdirectory to keep them
+organized.
+
+*** 6. JD integration
+
+Your org-directory is =~/Documents/00-09 System/02 Notes=. Research clips land
+there naturally. For project-specific research, you could:
+
+- Refile clips from =research.org= into project-specific org files
+- Or use a capture template per JD area (e.g., capture to =26-divorce-research.org=)
+- The =org-refile= config archived above supports deep refiling across agenda files
+
+*** What this gives you
+
+- *No context switch* — research without leaving Emacs
+- *Everything searchable* — clips are plain org, grepped/searched with your existing tools
+- *Linked knowledge* — with org-roam, clips connect to your other notes via backlinks
+- *AI-assisted* — gptel summarizes/analyzes pages in-buffer
+- *JD-native* — clips file into your existing note structure
