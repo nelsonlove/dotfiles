@@ -68,12 +68,18 @@ Source buckets fill automatically. Destination buckets get emptied when blockers
 
 ## Documentation conventions
 
-| File | Purpose | Auto-loaded? |
-|------|---------|--------------|
-| `README.md` | What this is, conventions, context. For humans and agents. | No — read explicitly |
-| `CLAUDE.md` | Claude Code session instructions. Rules, preferences, constraints. | Yes — auto-loaded by Claude Code |
+`jd claude` collects files from each level's `xx.00` meta dir using a stem × extension search. These are the standard stems:
 
-README.md is context; CLAUDE.md is directives. Don't duplicate content between them.
+| Stem | Purpose | Loaded by |
+|------|---------|-----------|
+| `README` | What this is, conventions, context. For humans and agents. | `jd claude` |
+| `TODO` | Open tasks and plans for this level. | `jd claude` |
+| `CLAUDE` | Claude Code session instructions. Rules, preferences, constraints. | `jd claude` + Claude Code natively |
+| `AUDIT` | Current-state audit of a tool, folder, or ID. Date at top for staleness. | `jd claude` |
+| `TIMELINE` | Chronological history — events, decisions, milestones. Prefer `.org` for foldable content. | `jd claude` |
+| `PLAN` | Committed implementation plan (post-decision, not a draft). | `jd claude` |
+
+Extensions searched: `.md`, `.org`, `.txt` (in that order). README is context; CLAUDE is directives. Don't duplicate content between them.
 
 ### JD IDs as topic buckets
 
