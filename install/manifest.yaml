@@ -7,7 +7,7 @@
 repos:
   jd-cli:
     url: git@github.com:nelsonlove/johnnydecimal.py.git
-    jd_link: "00-09 Meta/00 System/00.05 jd-cli"
+    jd_link: "00-09 System/00 System/00.05 jd-cli"
 
   # Add more repos here as they get JD IDs:
   # my-project:
@@ -24,4 +24,4 @@ config_symlinks:
 
 jd_symlinks:
   # Source (on the system) → target (in JD tree, relative to ~/Documents/)
-  ~/repos/dotfiles: "00-09 Meta/06 Digital tools/06.03 Dotfiles"
+  ~/repos/dotfiles: "00-09 System/06 Digital tools/06.03 Dotfiles"

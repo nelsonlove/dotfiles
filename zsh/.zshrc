@@ -131,7 +131,6 @@ jd() {
 }
 
 # Completions
-# source "$HOME/.openclaw/completions/openclaw.zsh"
 fpath=(~/.zfunc ~/.zsh/completions $fpath)
 autoload -Uz compinit && compinit
 

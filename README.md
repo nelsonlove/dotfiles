@@ -65,6 +65,6 @@ git/               ← git config
 This repo is the source of truth for system policy. The JD tree has symlinks back:
 
 ```
-~/Documents/00-09 Meta/00 System/00.00 Meta/POLICY.md → ~/repos/dotfiles/docs/POLICY.md
-~/Documents/.../06.03 Dotfiles                        → ~/repos/dotfiles/
+~/Documents/00-09 System/00 System/00.00 System - Meta/POLICY.md → ~/repos/dotfiles/docs/POLICY.md
+~/Documents/.../06.03 Dotfiles                                   → ~/repos/dotfiles/
 ```

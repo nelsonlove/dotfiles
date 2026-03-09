@@ -80,7 +80,6 @@
     # "miniconda"
     # "ngrok"
     # "onyx"
-    # "openclaw"
     # "pearcleaner"
     # "powerphotos"
     # "pycharm"
