@@ -1,0 +1,189 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>bundleid</key>
+	<string>xyz.ruggi.calfred</string>
+	<key>connections</key>
+	<dict>
+		<key>87544B4D-AFF1-4921-B359-A2E223CEE93A</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>A4C990B3-8B4F-44DB-ACD1-3E1CAF269254</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
+		<key>B638E8B7-6012-4597-AE54-30B99B4DBDCA</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>87544B4D-AFF1-4921-B359-A2E223CEE93A</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
+	</dict>
+	<key>createdby</key>
+	<string>Federico Ruggi</string>
+	<key>description</key>
+	<string>Create calendar events with natural language.</string>
+	<key>disabled</key>
+	<false/>
+	<key>name</key>
+	<string>Add to calendar</string>
+	<key>objects</key>
+	<array>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>concurrently</key>
+				<false/>
+				<key>escaping</key>
+				<integer>102</integer>
+				<key>script</key>
+				<string>calendar=$calendar start_date=$when_start end_date=$when_end summary=$what osascript ./add-event.applescript</string>
+				<key>scriptargtype</key>
+				<integer>1</integer>
+				<key>scriptfile</key>
+				<string></string>
+				<key>type</key>
+				<integer>0</integer>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.action.script</string>
+			<key>uid</key>
+			<string>A4C990B3-8B4F-44DB-ACD1-3E1CAF269254</string>
+			<key>version</key>
+			<integer>2</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>alfredfiltersresults</key>
+				<false/>
+				<key>alfredfiltersresultsmatchmode</key>
+				<integer>0</integer>
+				<key>argumenttreatemptyqueryasnil</key>
+				<true/>
+				<key>argumenttrimmode</key>
+				<integer>0</integer>
+				<key>argumenttype</key>
+				<integer>0</integer>
+				<key>escaping</key>
+				<integer>102</integer>
+				<key>keyword</key>
+				<string>cal</string>
+				<key>queuedelaycustom</key>
+				<integer>3</integer>
+				<key>queuedelayimmediatelyinitially</key>
+				<true/>
+				<key>queuedelaymode</key>
+				<integer>0</integer>
+				<key>queuemode</key>
+				<integer>1</integer>
+				<key>runningsubtext</key>
+				<string></string>
+				<key>script</key>
+				<string>./calfred "$1"</string>
+				<key>scriptargtype</key>
+				<integer>1</integer>
+				<key>scriptfile</key>
+				<string></string>
+				<key>subtext</key>
+				<string></string>
+				<key>title</key>
+				<string></string>
+				<key>type</key>
+				<integer>0</integer>
+				<key>withspace</key>
+				<false/>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.input.scriptfilter</string>
+			<key>uid</key>
+			<string>B638E8B7-6012-4597-AE54-30B99B4DBDCA</string>
+			<key>version</key>
+			<integer>3</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>concurrently</key>
+				<false/>
+				<key>escaping</key>
+				<integer>102</integer>
+				<key>script</key>
+				<string>ARCH=$( uname -m )
+if [[ "$ARCH" == 'arm64' ]] ; then
+	arch -x86_64 ./calfred "$1" # simple support for M1
+else
+	./calfred "$1"
+fi</string>
+				<key>scriptargtype</key>
+				<integer>1</integer>
+				<key>scriptfile</key>
+				<string></string>
+				<key>type</key>
+				<integer>0</integer>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.action.script</string>
+			<key>uid</key>
+			<string>87544B4D-AFF1-4921-B359-A2E223CEE93A</string>
+			<key>version</key>
+			<integer>2</integer>
+		</dict>
+	</array>
+	<key>readme</key>
+	<string>Add events to your calendar using natural language.
+
+Use the "cal" keyword followed by your event details, like "buy flowers next wednesday at 3pm".</string>
+	<key>uidata</key>
+	<dict>
+		<key>87544B4D-AFF1-4921-B359-A2E223CEE93A</key>
+		<dict>
+			<key>xpos</key>
+			<integer>355</integer>
+			<key>ypos</key>
+			<integer>260</integer>
+		</dict>
+		<key>A4C990B3-8B4F-44DB-ACD1-3E1CAF269254</key>
+		<dict>
+			<key>xpos</key>
+			<integer>535</integer>
+			<key>ypos</key>
+			<integer>260</integer>
+		</dict>
+		<key>B638E8B7-6012-4597-AE54-30B99B4DBDCA</key>
+		<dict>
+			<key>note</key>
+			<string>Remember to set your destination calendar name in the workflow's variables panel (top right corner of this window).</string>
+			<key>xpos</key>
+			<integer>165</integer>
+			<key>ypos</key>
+			<integer>260</integer>
+		</dict>
+	</dict>
+	<key>variables</key>
+	<dict>
+		<key>calendar</key>
+		<string>Calendar</string>
+	</dict>
+	<key>variablesdontexport</key>
+	<array/>
+	<key>version</key>
+	<string>1.1.1</string>
+	<key>webaddress</key>
+	<string>https://github.com/ruggi/calfred</string>
+</dict>
+</plist>

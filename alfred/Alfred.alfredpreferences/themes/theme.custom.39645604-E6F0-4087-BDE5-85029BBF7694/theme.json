@@ -1,0 +1,61 @@
+{
+  "alfredtheme" : {
+    "result" : {
+      "textSpacing" : 7,
+      "subtext" : {
+        "size" : 12,
+        "colorSelected" : "#7F7F7FFF",
+        "font" : "System",
+        "color" : "#A5A5A5FF"
+      },
+      "shortcut" : {
+        "size" : 18,
+        "colorSelected" : "#5D007CFF",
+        "font" : "System",
+        "color" : "#5D007CFF"
+      },
+      "backgroundSelected" : "#D1D1D1FF",
+      "text" : {
+        "size" : 18,
+        "colorSelected" : "#191919FF",
+        "font" : "System",
+        "color" : "#191919FF"
+      },
+      "iconPaddingHorizontal" : 4,
+      "paddingVertical" : 3,
+      "iconSize" : 39
+    },
+    "search" : {
+      "paddingVertical" : 0,
+      "background" : "#E8EAE9FF",
+      "spacing" : 10,
+      "text" : {
+        "size" : 36,
+        "colorSelected" : "#000000FF",
+        "font" : "System Light",
+        "color" : "#000000FF"
+      },
+      "backgroundSelected" : "#B3D7FFFF"
+    },
+    "window" : {
+      "color" : "#EAEAEAFF",
+      "paddingHorizontal" : 10,
+      "width" : 600,
+      "borderPadding" : 0,
+      "borderColor" : "#0000007F",
+      "blur" : 0,
+      "roundness" : 10,
+      "paddingVertical" : 10
+    },
+    "credit" : "Nelson Love",
+    "separator" : {
+      "color" : "#D4D4D4FF",
+      "thickness" : 1
+    },
+    "scrollbar" : {
+      "color" : "#B2B2B2FF",
+      "thickness" : 2
+    },
+    "name" : "My theme"
+  }
+}
