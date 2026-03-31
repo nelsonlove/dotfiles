@@ -47,3 +47,6 @@ alacritty/alacritty.toml.*.bak
 
 # Micro
 micro/buffers/history
+
+# JD index (data, not config)
+jd/jd-index.yaml
