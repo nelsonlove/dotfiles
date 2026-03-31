@@ -1,0 +1,77 @@
+{
+    "name": "yiisoft/injector",
+    "type": "library",
+    "description": "PSR-11 compatible injector. Executes a callable and makes an instances by injecting dependencies from a given DI container.",
+    "keywords": [
+        "PSR-11",
+        "DI",
+        "dependency injection",
+        "reflection",
+        "injector"
+    ],
+    "homepage": "https://www.yiiframework.com/",
+    "license": "BSD-3-Clause",
+    "support": {
+        "issues": "https://github.com/yiisoft/injector/issues?state=open",
+        "source": "https://github.com/yiisoft/injector",
+        "forum": "https://www.yiiframework.com/forum/",
+        "wiki": "https://www.yiiframework.com/wiki/",
+        "irc": "ircs://irc.libera.chat:6697/yii",
+        "chat": "https://t.me/yii3en"
+    },
+    "funding": [
+        {
+            "type": "opencollective",
+            "url": "https://opencollective.com/yiisoft"
+        },
+        {
+            "type": "github",
+            "url": "https://github.com/sponsors/yiisoft"
+        }
+    ],
+    "minimum-stability": "stable",
+    "require": {
+        "php": "7.4 - 8.5"
+    },
+    "require-dev": {
+        "bamarni/composer-bin-plugin": "^1.8.3",
+        "maglnet/composer-require-checker": "^3.8 || ^4.2",
+        "phpbench/phpbench": "^1.1",
+        "phpunit/phpunit": "^9.5",
+        "psr/container": "^1.0 || ^2.0",
+        "rector/rector": "^2.0.10",
+        "spatie/phpunit-watcher": "^1.23",
+        "yiisoft/test-support": "^1.4 || ^3.1"
+    },
+    "suggest": {
+        "psr/container": "For automatic resolving of dependencies"
+    },
+    "autoload": {
+        "psr-4": {
+            "Yiisoft\\Injector\\": "src"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Yiisoft\\Injector\\Tests\\": "tests"
+        }
+    },
+    "scripts": {
+        "test": "phpunit --testdox --no-interaction",
+        "test-watch": "phpunit-watcher watch"
+    },
+    "extra": {
+        "bamarni-bin": {
+            "bin-links": true,
+            "target-directory": "tools",
+            "forward-command": true
+        }
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "bamarni/composer-bin-plugin": true,
+            "composer/package-versions-deprecated": true
+        }
+    }
+}

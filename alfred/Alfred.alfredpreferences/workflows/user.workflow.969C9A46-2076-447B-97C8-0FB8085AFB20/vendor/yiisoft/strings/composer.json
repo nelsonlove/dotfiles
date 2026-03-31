@@ -1,0 +1,70 @@
+{
+    "name": "yiisoft/strings",
+    "type": "library",
+    "description": "Yii Strings Helper",
+    "keywords": [
+        "yii",
+        "helper",
+        "string"
+    ],
+    "homepage": "https://www.yiiframework.com/",
+    "license": "BSD-3-Clause",
+    "support": {
+        "issues": "https://github.com/yiisoft/strings/issues?state=open",
+        "source": "https://github.com/yiisoft/strings",
+        "forum": "https://www.yiiframework.com/forum/",
+        "wiki": "https://www.yiiframework.com/wiki/",
+        "irc": "ircs://irc.libera.chat:6697/yii",
+        "chat": "https://t.me/yii3en"
+    },
+    "funding": [
+        {
+            "type": "opencollective",
+            "url": "https://opencollective.com/yiisoft"
+        },
+        {
+            "type": "github",
+            "url": "https://github.com/sponsors/yiisoft"
+        }
+    ],
+    "require": {
+        "php": "8.1 - 8.5",
+        "ext-mbstring": "*"
+    },
+    "require-dev": {
+        "bamarni/composer-bin-plugin": "^1.8.2",
+        "maglnet/composer-require-checker": "^4.7.1",
+        "phpunit/phpunit": "^10.5.48",
+        "rector/rector": "^2.1.2",
+        "spatie/phpunit-watcher": "^1.24",
+        "phpbench/phpbench": "^1.4.1"
+    },
+    "autoload": {
+        "psr-4": {
+            "Yiisoft\\Strings\\": "src"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Yiisoft\\Strings\\Tests\\": "tests"
+        }
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "bamarni/composer-bin-plugin": true,
+            "composer/package-versions-deprecated": true
+        }
+    },
+    "extra": {
+        "bamarni-bin": {
+            "bin-links": true,
+            "target-directory": "tools",
+            "forward-command": true
+        }
+    },
+    "scripts": {
+        "test": "phpunit --testdox --no-interaction",
+        "test-watch": "phpunit-watcher watch"
+    }
+}
