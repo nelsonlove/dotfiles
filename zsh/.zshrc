@@ -83,13 +83,7 @@ alias claude-safe="command claude"
 alias claude-remote="command claude remote-control"
 
 # Auto-route to jd claude when inside the JD tree
-function claude() {
-    if [[ "$PWD" == "$HOME/Documents"* ]] && command -v jd &>/dev/null; then
-        jd claude "$@"
-    else
-        command claude --dangerously-skip-permissions "$@"
-    fi
-}
+eval "$(jd claude --setup)"
 
 # Functions
 function vrun() {
@@ -124,19 +118,8 @@ touch_and_execute "${XDG_CONFIG_HOME}/zsh/zshrc.local"
 # Powerlevel10k config
 [[ ! -f $POWERLEVEL9K_CONFIG_FILE ]] || source "$POWERLEVEL9K_CONFIG_FILE"
 
-# jd-cli wrapper
-jd() {
-  if [[ "$1" == "cd" ]]; then
-    shift
-    local target
-    target=$(command jd cd "$@")
-    if [[ $? -eq 0 && -n "$target" ]]; then
-      builtin cd "$target"
-    fi
-  else
-    command jd "$@"
-  fi
-}
+# jd-cli shell integration (cd wrapper + completions)
+eval "$(jd cd --setup)"
 
 # Completions
 fpath=(~/.zfunc ~/.zsh/completions $fpath)
