@@ -1,7 +1,7 @@
 # Johnny Decimal — System Policy
 
 > Living document. Canonical source of truth for JD structure and filing rules.
-> Last updated: 2026-03-08
+> Last updated: 2026-03-30
 
 ## Principles
 
@@ -27,12 +27,13 @@ Every category follows this convention:
 
 | ID     | Purpose | Notes |
 |--------|---------|-------|
-| `xx.00` | **Category meta** | Agent workspace, config, templates, README. Parallel to `x0` at the area level. |
-| `xx.01` | **Unsorted** | Category-level inbox. Belongs in this category but hasn't been filed to a specific ID yet. |
-| `xx.02+` | **Content** | Named by subject. Real filed content. |
+| `xx.00` | **JDex (category meta)** | Named `JDex for category xx`. Agent workspace, config, templates, README. |
+| `xx.01` | **Inbox** | Named `Inbox for category xx`. Category-level inbox for items not yet filed to a specific ID. |
+| `xx.02` | **Task & project management** | Named `Task & project management for category xx`. Proposals and planning docs. |
+| `xx.03+` | **Content** | Named by subject. Real filed content. |
 
 ### Area meta (`x0`)
-Pattern: `x0 Meta - [Area Name]`
+Pattern: `x0 Management of area XX-XX`
 Purpose: area-level reference material, templates, conventions.
 
 Each `x0` directory should contain a `README.md` documenting what the area covers, its boundaries, setup, and conventions.
@@ -44,27 +45,32 @@ Category `01` is the system-wide intake. Items flow through here on their way to
 ### Two-tier triage
 
 ```
-01.xx (Capture)  →  xx.01 (Category unsorted)  →  xx.yy (Final ID)
+01.xx (Capture)  →  xx.01 (Category inbox)  →  xx.yy (Final ID)
 ```
 
-**Tier 1 (Capture → Category):** Quick sort. "This is a health thing" → `jd mv file 13.01`.
-**Tier 2 (Category → ID):** Detailed filing. "This is specifically lab results" → `jd mv file 13.05`.
+**Tier 1 (Capture → Category inbox):** Quick sort. "This is a health thing" → `jd mv file 13.01`.
+**Tier 2 (Category inbox → ID):** Detailed filing. "This is specifically lab results" → `jd mv file 13.05`.
 
 You don't have to do both tiers at once. Tier 1 is a fast sweep; Tier 2 happens when domain knowledge is available.
 
 ### Capture buckets
 
-| Bucket | Type | Purpose |
-|--------|------|---------|
-| `01.00` | meta | Capture policy, auto-sort rules, agent config |
-| `01.01 Unsorted` | catch-all | True unknown — needs human decision |
-| `01.02 Downloads` | source | Browser download dir (symlink from ~/Downloads) |
-| `01.03 Screenshots` | source | macOS screenshot landing zone |
-| `01.04 Scans` | source | Scanner output dir |
-| `01.05 To LaCie SSD` | destination | Waiting for external drive |
-| `01.06 To Calibre` | destination | Waiting for import to library app |
+| Bucket | Purpose |
+|--------|---------|
+| `01.00 JDex for category 01` | Capture policy, auto-sort rules, agent config |
+| `01.01 Inbox for category 01` | True unknown — needs human decision |
+| `01.10 Repositories for category 01` | Repos awaiting placement in the JD tree |
+| `01.11 To Photos` | Waiting for import to Photos |
+| `01.12 To Contacts` | Waiting for import to Contacts |
+| `01.13 To LaCie SSD` | Waiting for external drive |
+| `01.14 To Extreme SSD` | Waiting for external drive |
+| `01.15 To Calibre or iBooks` | Waiting for import to library app |
+| `01.16 To Bookends` | Waiting for import to reference manager |
+| `01.17 To Calendar` | Waiting for import to Calendar |
+| `01.18 To Day One` | Waiting for import to Day One |
+| `01.19 To Obsidian` | Waiting for import to Obsidian |
 
-Source buckets fill automatically. Destination buckets get emptied when blockers clear.
+Capture buckets are destination-based ("To X") — items wait here until the target app or device is available.
 
 ## Documentation conventions
 

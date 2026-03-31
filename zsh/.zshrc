@@ -79,9 +79,17 @@ alias pxl='pipx list'
 alias pxu='pipx upgrade'
 alias pxun='pipx uninstall'
 alias pxe='pipx environment'
-alias claude-safe="claude"
-alias claude="claude --dangerously-skip-permissions"
-alias claude-remote="claude remote-control"
+alias claude-safe="command claude"
+alias claude-remote="command claude remote-control"
+
+# Auto-route to jd claude when inside the JD tree
+function claude() {
+    if [[ "$PWD" == "$HOME/Documents"* ]] && command -v jd &>/dev/null; then
+        jd claude "$@"
+    else
+        command claude --dangerously-skip-permissions "$@"
+    fi
+}
 
 # Functions
 function vrun() {
