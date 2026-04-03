@@ -1,7 +1,7 @@
 # Johnny Decimal — System Policy
 
 > Living document. Canonical source of truth for JD structure and filing rules.
-> Last updated: 2026-03-30
+> Last updated: 2026-04-01
 
 ## Principles
 
@@ -20,6 +20,13 @@ Two-digit numbered directories inside areas. Each area holds up to 10 categories
 
 ### IDs (`XX.YY Name`)
 Dotted notation inside categories. Up to 100 per category (00-99).
+
+### Sub-IDs (`XX.YY+CODE Name`)
+Extended IDs within a parent ID. Filesystem name: `+CODE Name` inside the ID directory.
+
+- One repo per ID: use `+REPO reponame` (e.g., `+REPO omnifocus-py`)
+- Multiple components: use semantic codes (e.g., `+CLI jd-cli`, `+SCAN jd-scan`, `+PLUG plugins`)
+- Goal: one repo per ID. Multiple repos suggests the ID should be split.
 
 ## Reserved IDs
 
@@ -91,11 +98,42 @@ Extensions searched: `.md`, `.org`, `.txt` (in that order). README is context; C
 
 A JD ID covers a *topic*, not a single file or repo. An ID can contain READMEs, symlinks to repos, documents, exports, and multiple repos if the topic warrants it.
 
+## Repositories
+
+Git repos live in `~/repos/` (never on iCloud Drive — `.git` gets corrupted by sync). Two monorepos:
+
+| Monorepo | Contents | Install |
+|----------|----------|---------|
+| `macos-tools` | 10 macOS access library packages (apple-notes, omnifocus, etc.) + PIM | `pipx install ./packages/<name>` |
+| `jd-tools` | jd-cli + jd-alfred + jd-scan + jd-router | `pipx install ./packages/jd-cli` |
+
+Repos are linked into the JD tree via `+CODE name` sub-ID symlinks (see Sub-IDs above). Key locations:
+- `00.14 JD tools`: `+CLI jd-cli`, `+SCAN jd-scan`, `+ROUTER jd-router`, `+ALFRED jd-alfred`
+- `06.xx` tool IDs: `+REPO <package-name>` pointing into macos-tools
+
+## OmniFocus alignment
+
+OmniFocus projects should be prefixed with their JD ID: `XX.YY Project name`. This enables:
+- `jd omnifocus scan` to detect mismatches between OF and the JD tree
+- `omnifocus rename-project` to bulk-align projects with JD IDs
+- `xx.01` inbox IDs in OF indicate a project that needs a proper JD ID created
+
+## Configuration
+
+| What | Path | Tracked in |
+|------|------|-----------|
+| JD system config | `~/.config/jd/jd.yaml` | dotfiles repo |
+| JDex data | `~/.local/share/jd/jd-index.yaml` | not tracked (data) |
+| JD root config | `~/Documents/.jd.yaml` | symlink → `~/.config/jd/jd.yaml` |
+| JDex root | `~/Documents/.jd-index.yaml` | symlink → `~/.local/share/jd/jd-index.yaml` |
+| JD System Policy | `~/repos/dotfiles/docs/POLICY.md` | dotfiles repo |
+
 ## Naming Conventions
 
 - Areas: `XX-XX Name` (hyphen, not en-dash)
 - Categories: `XX Name`
 - IDs: `XX.YY Name` (or just `XX.YY` for meta dirs)
+- Sub-IDs: `+CODE Name` inside ID directory
 - Use sentence case for names
 - No trailing spaces
 - Avoid special characters that break shell commands (`:`, `*`, `?`)
