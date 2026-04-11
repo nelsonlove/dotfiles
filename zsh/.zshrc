@@ -127,3 +127,6 @@ autoload -Uz compinit && compinit
 
 # Bun
 # export PATH="$HOME/.bun/bin:$PATH"
+
+# Set up fzf key bindings and fuzzy completion
+source <(fzf --zsh)
