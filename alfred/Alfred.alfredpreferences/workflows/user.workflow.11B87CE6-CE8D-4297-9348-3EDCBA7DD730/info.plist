@@ -1,0 +1,1092 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>bundleid</key>
+	<string>vex.oofqa</string>
+	<key>connections</key>
+	<dict>
+		<key>178E62F9-7FA6-4ED4-A8E9-C9550022BB1C</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>F137F615-B62C-43FE-A233-DBFD602597B8</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
+		<key>38F24396-78CB-48A3-BA19-6D6E0BC83A94</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>4C497E16-C10B-4C75-991C-25C6297D1F24</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
+		<key>4C497E16-C10B-4C75-991C-25C6297D1F24</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>OPEN-IN-OF</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
+		<key>51D72337-C3C5-4CD4-ABAA-67FE05D66393</key>
+		<array/>
+		<key>6B2039B3-F8EA-421E-AC9B-9A39F4A8B526</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>8162B38A-51E5-4FCE-BABD-8D93A593A3F2</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
+		<key>8162B38A-51E5-4FCE-BABD-8D93A593A3F2</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>7A3E0FC4-C81D-432A-989F-49769B684E75</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
+		<key>C4BD1F5C-CC2F-4078-A89A-BF65FE9519F0</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>DDB0AF93-9731-4EC8-91A4-8399812E520B</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+			<dict>
+				<key>destinationuid</key>
+				<string>51D72337-C3C5-4CD4-ABAA-67FE05D66393</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
+		<key>C87FDA0D-A8DB-417A-88AA-34A2ABA8E180</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>2BD332D5-217A-47D5-BD03-D05F8B635630</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
+		<key>D1835CB5-96D7-43AC-9D9E-D7B12E37CFD0</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>C4BD1F5C-CC2F-4078-A89A-BF65FE9519F0</string>
+				<key>modifiers</key>
+				<integer>131072</integer>
+				<key>modifiersubtext</key>
+				<string>Copy MarkDown Link to ClipBoard</string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+			<dict>
+				<key>destinationuid</key>
+				<string>C87FDA0D-A8DB-417A-88AA-34A2ABA8E180</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+			<dict>
+				<key>destinationuid</key>
+				<string>47B01936-AFE6-49A9-A555-8B94361CD1A8</string>
+				<key>modifiers</key>
+				<integer>524288</integer>
+				<key>modifiersubtext</key>
+				<string>Open Created Task in OmniFocus</string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
+		<key>F137F615-B62C-43FE-A233-DBFD602597B8</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>OPEN-IN-OF</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
+		<key>F19F15B3-2711-4693-A16D-76774E961296</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>6B2039B3-F8EA-421E-AC9B-9A39F4A8B526</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
+	</dict>
+	<key>createdby</key>
+	<string>Vedran Kriskovic</string>
+	<key>description</key>
+	<string>Quick Capture "Stuff" to OmniFocus</string>
+	<key>disabled</key>
+	<false/>
+	<key>name</key>
+	<string>OmniFocus Task</string>
+	<key>objects</key>
+	<array>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>lastpathcomponent</key>
+				<false/>
+				<key>onlyshowifquerypopulated</key>
+				<false/>
+				<key>removeextension</key>
+				<false/>
+				<key>text</key>
+				<string>{query}</string>
+				<key>title</key>
+				<string>Omnifocus Task Added:</string>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.output.notification</string>
+			<key>uid</key>
+			<string>DDB0AF93-9731-4EC8-91A4-8399812E520B</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>concurrently</key>
+				<false/>
+				<key>escaping</key>
+				<integer>68</integer>
+				<key>script</key>
+				<string>tell application "OmniFocus"
+	tell default document
+		set allTasks to flattened tasks
+		set lastCreatedTask to missing value
+		set latestCreationDate to (current date) - (7 * days)
+
+		repeat with aTask in allTasks
+			try
+				set creationDate to creation date of aTask
+				if creationDate &gt; latestCreationDate then
+					set latestCreationDate to creationDate
+					set lastCreatedTask to aTask
+				end if
+			end try
+		end repeat
+
+		if lastCreatedTask is not missing value then
+			set taskID to id of lastCreatedTask
+			set taskName to name of lastCreatedTask
+			set taskURL to "[" &amp; taskName &amp; "](omnifocus:///task/" &amp; taskID &amp; ")"
+			set the clipboard to taskURL
+
+			-- Notification content
+			set notifyText to taskName
+
+			if project of lastCreatedTask is not missing value then
+				set notifyText to notifyText &amp; return &amp; "PRJ::" &amp; name of project of lastCreatedTask
+			end if
+
+			if (count of tags of lastCreatedTask) &gt; 0 then
+				set tagName to name of first item of tags of lastCreatedTask
+				set notifyText to notifyText &amp; " CON::" &amp; tagName
+			end if
+
+			set notifyText to notifyText &amp; return &amp; "🔗 Link on Clipboard 🔗"
+
+			-- Output for Alfred {query}
+			return notifyText
+		end if
+	end tell
+end tell</string>
+				<key>scriptargtype</key>
+				<integer>1</integer>
+				<key>scriptfile</key>
+				<string></string>
+				<key>type</key>
+				<integer>6</integer>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.action.script</string>
+			<key>uid</key>
+			<string>51D72337-C3C5-4CD4-ABAA-67FE05D66393</string>
+			<key>version</key>
+			<integer>2</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>concurrently</key>
+				<false/>
+				<key>escaping</key>
+				<integer>102</integer>
+				<key>script</key>
+				<string>// bin/bash
+
+query="$1"
+
+# Extract components
+title=$(echo "$query" | sed -E 's/ *(\|\|.*|::.*|@[^\s]+|#[^\s]+|~[^\s]+|\/\/.*|!).*//')
+flag=$(echo "$query" | grep -q "!" &amp;&amp; echo "true" || echo "false")
+project=$(echo "$query" | grep -oE '\|\|[^ @#~:$\/]+' | sed 's/||//')
+tag=$(echo "$query" | grep -oE '::[^ @#~:$\/]+' | sed 's/:://')
+note=$(echo "$query" | grep -oE '//.+' | sed 's|//||')
+defer=$(echo "$query" | grep -oE '#[^ ]+' | sed -n '1p' | sed 's/#//')
+due=$(echo "$query" | grep -oE '#[^ ]+' | sed -n '2p' | sed 's/#//')
+duration=$(echo "$query" | grep -oE '~[^ ]+' | sed 's/~//')
+
+# URL encode function
+urlencode() {
+  python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1]))" "$1"
+}
+
+url="omnifocus://x-callback-url/add?name=$(urlencode "$title")&amp;autosave=true"
+
+[ "$flag" == "true" ] &amp;&amp; url+="&amp;flag=true"
+[ -n "$note" ] &amp;&amp; url+="&amp;note=$(urlencode "$note")"
+[ -n "$project" ] &amp;&amp; url+="&amp;project=$(urlencode "$project")"
+[ -n "$tag" ] &amp;&amp; url+="&amp;context=$(urlencode "$tag")"
+[ -n "$defer" ] &amp;&amp; url+="&amp;defer=$(urlencode "$defer")"
+[ -n "$due" ] &amp;&amp; url+="&amp;due=$(urlencode "$due")"
+[ -n "$duration" ] &amp;&amp; url+="&amp;estimate=$(urlencode "$duration")"
+
+open "$url"
+
+# Notification summary output for Alfred
+output="$title"
+[ -n "$project" ] &amp;&amp; output+="\n💼️:$project"
+[ -n "$tag" ] &amp;&amp; output+=" 🏷️:$tag"
+output+="\n🔗️Link on ClipBoard🔗️"
+
+echo -e "$output"</string>
+				<key>scriptargtype</key>
+				<integer>1</integer>
+				<key>scriptfile</key>
+				<string></string>
+				<key>type</key>
+				<integer>0</integer>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.action.script</string>
+			<key>uid</key>
+			<string>C4BD1F5C-CC2F-4078-A89A-BF65FE9519F0</string>
+			<key>version</key>
+			<integer>2</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>lastpathcomponent</key>
+				<false/>
+				<key>onlyshowifquerypopulated</key>
+				<true/>
+				<key>removeextension</key>
+				<false/>
+				<key>text</key>
+				<string>{query}</string>
+				<key>title</key>
+				<string>Omnifocus Task Added:</string>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.output.notification</string>
+			<key>uid</key>
+			<string>2BD332D5-217A-47D5-BD03-D05F8B635630</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>concurrently</key>
+				<false/>
+				<key>escaping</key>
+				<integer>68</integer>
+				<key>script</key>
+				<string>// bin/bash
+
+query="$1"
+
+# Extract components
+title=$(echo "$query" | sed -E 's/ *(\|\|.*|::.*|@[^\s]+|#[^\s]+|~[^\s]+|\/\/.*|!).*//')
+flag=$(echo "$query" | grep -q "!" &amp;&amp; echo "true" || echo "false")
+project=$(echo "$query" | grep -oE '\|\|[^ @#~:$\/]+' | sed 's/||//')
+tag=$(echo "$query" | grep -oE '::[^ @#~:$\/]+' | sed 's/:://')
+note=$(echo "$query" | grep -oE '//.+' | sed 's|//||')
+defer=$(echo "$query" | grep -oE '#[^ ]+' | sed -n '1p' | sed 's/#//')
+due=$(echo "$query" | grep -oE '#[^ ]+' | sed -n '2p' | sed 's/#//')
+duration=$(echo "$query" | grep -oE '~[^ ]+' | sed 's/~//')
+
+# URL encode function
+urlencode() {
+  python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1]))" "$1"
+}
+
+url="omnifocus://x-callback-url/add?name=$(urlencode "$title")&amp;autosave=true"
+
+[ "$flag" == "true" ] &amp;&amp; url+="&amp;flag=true"
+[ -n "$note" ] &amp;&amp; url+="&amp;note=$(urlencode "$note")"
+[ -n "$project" ] &amp;&amp; url+="&amp;project=$(urlencode "$project")"
+[ -n "$tag" ] &amp;&amp; url+="&amp;context=$(urlencode "$tag")"
+[ -n "$defer" ] &amp;&amp; url+="&amp;defer=$(urlencode "$defer")"
+[ -n "$due" ] &amp;&amp; url+="&amp;due=$(urlencode "$due")"
+[ -n "$duration" ] &amp;&amp; url+="&amp;estimate=$(urlencode "$duration")"
+
+open "$url"
+
+# Notification summary output for Alfred
+output="$title"
+[ -n "$project" ] &amp;&amp; output+="\n💼️:$project"
+[ -n "$tag" ] &amp;&amp; output+=" 🏷️:$tag"
+
+echo -e "$output"</string>
+				<key>scriptargtype</key>
+				<integer>1</integer>
+				<key>scriptfile</key>
+				<string></string>
+				<key>type</key>
+				<integer>0</integer>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.action.script</string>
+			<key>uid</key>
+			<string>C87FDA0D-A8DB-417A-88AA-34A2ABA8E180</string>
+			<key>version</key>
+			<integer>2</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>alfredfiltersresults</key>
+				<false/>
+				<key>alfredfiltersresultsmatchmode</key>
+				<integer>0</integer>
+				<key>argumenttreatemptyqueryasnil</key>
+				<true/>
+				<key>argumenttrimmode</key>
+				<integer>0</integer>
+				<key>argumenttype</key>
+				<integer>0</integer>
+				<key>escaping</key>
+				<integer>102</integer>
+				<key>keyword</key>
+				<string>of</string>
+				<key>queuedelaycustom</key>
+				<integer>3</integer>
+				<key>queuedelayimmediatelyinitially</key>
+				<true/>
+				<key>queuedelaymode</key>
+				<integer>0</integer>
+				<key>queuemode</key>
+				<integer>1</integer>
+				<key>runningsubtext</key>
+				<string>🚩! ||💼 ::🏷️ #⏳ #⌛️ ~⏱️ //📝</string>
+				<key>script</key>
+				<string>#!/bin/zsh
+
+query="$1"
+lastword="${query##* }"
+
+# If user is actively typing a tag
+if [[ "$lastword" == ::* ]]; then
+  prefix="${lastword#::}"
+  base="${query%$lastword}::"
+
+  /usr/bin/osascript -l JavaScript &lt;&lt;EOF
+  const of = Application("OmniFocus");
+  const tags = of.defaultDocument.flattenedTags();
+  const input = "$prefix".toLowerCase();
+  const base = "$base";
+  const results = tags
+    .filter(t =&gt; t.name().toLowerCase().includes(input))
+    .map(t =&gt; ({
+      title: t.name(),
+      subtitle: "🏷️ Choose a Tag",
+      valid: false,
+      autocomplete: base + t.name() + " "
+    }));
+  JSON.stringify({ items: results });
+EOF
+  exit 0
+
+# If user is actively typing a project
+elif [[ "$lastword" == '||'* ]]; then
+  prefix="${lastword#'||'}"
+  base="${query%$lastword}||"
+
+  /usr/bin/osascript -l JavaScript &lt;&lt;EOF
+  const of = Application("OmniFocus");
+  const projects = of.defaultDocument.flattenedProjects();
+  const input = "$prefix".toLowerCase();
+  const base = "$base";
+  const results = projects
+    .filter(p =&gt; p.name().toLowerCase().includes(input))
+    .map(p =&gt; ({
+      title: p.name(),
+      subtitle: "💼 Choose a Project",
+      valid: false,
+      autocomplete: base + p.name() + " "
+    }));
+  JSON.stringify({ items: results });
+EOF
+  exit 0
+fi
+
+# Default fallback – ready to create the task
+cat &lt;&lt;EOF
+{
+  "items": [
+    {
+      "uid": "final-task",
+      "title": "$query",
+      "subtitle": "🚩!  ||💼  ::🏷️  #⏳  #⌛️  ~⏱️  //📝",
+      "arg": "$query",
+      "valid": true
+    }
+  ]
+}
+EOF</string>
+				<key>scriptargtype</key>
+				<integer>1</integer>
+				<key>scriptfile</key>
+				<string></string>
+				<key>subtext</key>
+				<string>🚩!  ||💼  ::🏷️  #⏳  #⌛️  ~⏱️  //📝</string>
+				<key>title</key>
+				<string>Offload Stuff to OmniFocus</string>
+				<key>type</key>
+				<integer>11</integer>
+				<key>withspace</key>
+				<true/>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.input.scriptfilter</string>
+			<key>uid</key>
+			<string>D1835CB5-96D7-43AC-9D9E-D7B12E37CFD0</string>
+			<key>version</key>
+			<integer>3</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>concurrently</key>
+				<false/>
+				<key>escaping</key>
+				<integer>102</integer>
+				<key>script</key>
+				<string>query="$1"
+
+# Extract components
+title=$(echo "$query" | sed -E 's/[!@#~:$\/]+.*//')
+flag=$(echo "$query" | grep -q "!" &amp;&amp; echo "true" || echo "false")
+project=$(echo "$query" | grep -oE '\|\|[^ @#~:$\/]+' | sed 's/||//')
+tag=$(echo "$query" | grep -oE '::[^ @#~:$\/]+' | sed 's/:://')
+note=$(echo "$query" | grep -oE '//.+' | sed 's|//||')
+defer=$(echo "$query" | grep -oE '#[^ ]+' | sed -n '1p' | sed 's/#//')
+due=$(echo "$query" | grep -oE '#[^ ]+' | sed -n '2p' | sed 's/#//')
+duration=$(echo "$query" | grep -oE '~[^ ]+' | sed 's/~//')
+
+# URL encode function
+urlencode() {
+  python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1]))" "$1"
+}
+
+# Build x-callback-url with reveal flag
+url="omnifocus://x-callback-url/add?name=$(urlencode "$title")&amp;autosave=true&amp;reveal-new-item=true"
+
+[ "$flag" == "true" ] &amp;&amp; url+="&amp;flag=true"
+[ -n "$note" ] &amp;&amp; url+="&amp;note=$(urlencode "$note")"
+[ -n "$project" ] &amp;&amp; url+="&amp;project=$(urlencode "$project")"
+[ -n "$tag" ] &amp;&amp; url+="&amp;context=$(urlencode "$tag")"
+[ -n "$defer" ] &amp;&amp; url+="&amp;defer=$(urlencode "$defer")"
+[ -n "$due" ] &amp;&amp; url+="&amp;due=$(urlencode "$due")"
+[ -n "$duration" ] &amp;&amp; url+="&amp;estimate=$(urlencode "$duration")"
+
+# Open the task in OmniFocus with the new task revealed
+open "$url"</string>
+				<key>scriptargtype</key>
+				<integer>1</integer>
+				<key>scriptfile</key>
+				<string></string>
+				<key>type</key>
+				<integer>0</integer>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.action.script</string>
+			<key>uid</key>
+			<string>47B01936-AFE6-49A9-A555-8B94361CD1A8</string>
+			<key>version</key>
+			<integer>2</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>availableviaurlhandler</key>
+				<true/>
+				<key>triggerid</key>
+				<string>displayResults</string>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.trigger.external</string>
+			<key>uid</key>
+			<string>F19F15B3-2711-4693-A16D-76774E961296</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>alfredfiltersresults</key>
+				<true/>
+				<key>alfredfiltersresultsmatchmode</key>
+				<integer>2</integer>
+				<key>argumenttreatemptyqueryasnil</key>
+				<true/>
+				<key>argumenttrimmode</key>
+				<integer>0</integer>
+				<key>argumenttype</key>
+				<integer>1</integer>
+				<key>escaping</key>
+				<integer>102</integer>
+				<key>queuedelaycustom</key>
+				<integer>3</integer>
+				<key>queuedelayimmediatelyinitially</key>
+				<true/>
+				<key>queuedelaymode</key>
+				<integer>0</integer>
+				<key>queuemode</key>
+				<integer>1</integer>
+				<key>runningsubtext</key>
+				<string></string>
+				<key>script</key>
+				<string>echo "${results_json}"</string>
+				<key>scriptargtype</key>
+				<integer>1</integer>
+				<key>scriptfile</key>
+				<string></string>
+				<key>subtext</key>
+				<string></string>
+				<key>title</key>
+				<string></string>
+				<key>type</key>
+				<integer>5</integer>
+				<key>withspace</key>
+				<false/>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.input.scriptfilter</string>
+			<key>uid</key>
+			<string>8162B38A-51E5-4FCE-BABD-8D93A593A3F2</string>
+			<key>version</key>
+			<integer>3</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>alfredfiltersresults</key>
+				<true/>
+				<key>alfredfiltersresultsmatchmode</key>
+				<integer>2</integer>
+				<key>argumenttreatemptyqueryasnil</key>
+				<true/>
+				<key>argumenttrimmode</key>
+				<integer>0</integer>
+				<key>argumenttype</key>
+				<integer>1</integer>
+				<key>escaping</key>
+				<integer>102</integer>
+				<key>keyword</key>
+				<string>ofp</string>
+				<key>queuedelaycustom</key>
+				<integer>3</integer>
+				<key>queuedelayimmediatelyinitially</key>
+				<true/>
+				<key>queuedelaymode</key>
+				<integer>0</integer>
+				<key>queuemode</key>
+				<integer>1</integer>
+				<key>runningsubtext</key>
+				<string>Accessing projects…</string>
+				<key>script</key>
+				<string>// GET ALL PROJECTS
+const allProjects = Application("OmniFocus").defaultDocument.flattenedProjects()
+
+// EXTRACT PROJECT DATA TO SCRIPT FILTER ITEMS
+const sfItems = allProjects.map(project =&gt; {
+	const projName = project.name()
+	const projID = project.id()
+	const taskCount = project.numberOfTasks()
+	const remainTaskCount = taskCount - project.numberOfCompletedTasks()
+
+	return {
+		title: projName,
+		subtitle: `${remainTaskCount} tasks remaining of ${taskCount}`,
+		arg: projID
+	}
+})
+
+// OUTPUT JSON
+JSON.stringify({items:sfItems})</string>
+				<key>scriptargtype</key>
+				<integer>1</integer>
+				<key>scriptfile</key>
+				<string></string>
+				<key>subtext</key>
+				<string>Type characters to filter by project name</string>
+				<key>title</key>
+				<string>List OmniFocus Projects by Name</string>
+				<key>type</key>
+				<integer>7</integer>
+				<key>withspace</key>
+				<true/>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.input.scriptfilter</string>
+			<key>uid</key>
+			<string>4C497E16-C10B-4C75-991C-25C6297D1F24</string>
+			<key>version</key>
+			<integer>3</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>browser</key>
+				<string></string>
+				<key>skipqueryencode</key>
+				<true/>
+				<key>skipvarencode</key>
+				<true/>
+				<key>spaces</key>
+				<string></string>
+				<key>url</key>
+				<string>omnifocus:///task/{query}</string>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.action.openurl</string>
+			<key>uid</key>
+			<string>7A3E0FC4-C81D-432A-989F-49769B684E75</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>availableviaurlhandler</key>
+				<true/>
+				<key>triggerid</key>
+				<string>listAllProjectsKeyword</string>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.trigger.external</string>
+			<key>uid</key>
+			<string>38F24396-78CB-48A3-BA19-6D6E0BC83A94</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>argument</key>
+				<string></string>
+				<key>passthroughargument</key>
+				<false/>
+				<key>variables</key>
+				<dict>
+					<key>results_json</key>
+					<string>{query}</string>
+				</dict>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.utility.argument</string>
+			<key>uid</key>
+			<string>6B2039B3-F8EA-421E-AC9B-9A39F4A8B526</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>alfredfiltersresults</key>
+				<true/>
+				<key>alfredfiltersresultsmatchmode</key>
+				<integer>2</integer>
+				<key>argumenttreatemptyqueryasnil</key>
+				<true/>
+				<key>argumenttrimmode</key>
+				<integer>0</integer>
+				<key>argumenttype</key>
+				<integer>1</integer>
+				<key>escaping</key>
+				<integer>102</integer>
+				<key>keyword</key>
+				<string>oft</string>
+				<key>queuedelaycustom</key>
+				<integer>3</integer>
+				<key>queuedelayimmediatelyinitially</key>
+				<true/>
+				<key>queuedelaymode</key>
+				<integer>0</integer>
+				<key>queuemode</key>
+				<integer>1</integer>
+				<key>runningsubtext</key>
+				<string>Accessing tags…</string>
+				<key>script</key>
+				<string>// GET ALL TAGS
+const allTags = Application("OmniFocus").defaultDocument.flattenedTags()
+
+// EXTRACT PROJECT DATA TO SCRIPT FILTER ITEMS
+const sfItems = allTags.map(tag =&gt; {
+	const tagName = tag.name()
+	const tagID = tag.id()
+	const remainTaskCount = tag.remainingTaskCount()
+
+	return {
+		title: tagName,
+		subtitle: `${remainTaskCount} tasks remaining`,
+		arg: tagID
+	}
+})
+
+// OUTPUT JSON
+JSON.stringify({items:sfItems})</string>
+				<key>scriptargtype</key>
+				<integer>1</integer>
+				<key>scriptfile</key>
+				<string></string>
+				<key>subtext</key>
+				<string>Type characters to filter by tag name</string>
+				<key>title</key>
+				<string>List OmniFocus Tags by Name</string>
+				<key>type</key>
+				<integer>7</integer>
+				<key>withspace</key>
+				<true/>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.input.scriptfilter</string>
+			<key>uid</key>
+			<string>F137F615-B62C-43FE-A233-DBFD602597B8</string>
+			<key>version</key>
+			<integer>3</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>availableviaurlhandler</key>
+				<true/>
+				<key>triggerid</key>
+				<string>listAllTagsKeyword</string>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.trigger.external</string>
+			<key>uid</key>
+			<string>178E62F9-7FA6-4ED4-A8E9-C9550022BB1C</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>concurrently</key>
+				<false/>
+				<key>escaping</key>
+				<integer>102</integer>
+				<key>script</key>
+				<string>open "omnifocus:///task/{query}"</string>
+				<key>scriptargtype</key>
+				<integer>0</integer>
+				<key>scriptfile</key>
+				<string></string>
+				<key>type</key>
+				<integer>0</integer>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.action.script</string>
+			<key>uid</key>
+			<string>OPEN-IN-OF</string>
+			<key>version</key>
+			<integer>2</integer>
+		</dict>
+	</array>
+	<key>readme</key>
+	<string># Task Quick Capture for OmniFocus Workflow
+
+A task creation workflow for Alfred, with live project and tag filters, autocompletion, and modifier options to copy a task link to the clipboard or reveal it in OmniFocus.
+
+### Supported Actions
+
+- Add a task 
+- Add a task with assigned project 
+- Add a task with assigned tag 
+- Add a task with defer date 
+- Add a task with due date
+- Add a task with estimated duration 
+- Add a task with note 
+- Add a task and copy its link to clipboard without opening OmniFocus
+- Add a task and reveal it in OmniFocus
+- Live filter search as you assign the project 
+- Live filter search as you assign the tag
+
+### Usage
+
+Run the workflow either by typing the default keyword: "todo" or assign a hotkey. (I personally use ⌃⌥⇧⌘T)
+Once the workflow is up, you will have a subtitle telling you what to do - 🚩!  ||💼  ::🏷️  #⏳  #⌛️  ~⏱️  //📝. 
+ 
+	All of the following can be combined in any order: 
+
+- To simply add a task to Inbox, just type the task and press enter.
+- To mark the task as flagged follow the task name with an exclamation mark. - Task!
+- To assign a project to the task, type || followed by the project name. - ||Project
+	* As soon as you type || a list of all your projects will appear and filter down as you start typing your project name.  
+- To assign a tag to the task, type :: followed by the tag name. - ::Tag
+	* As soon as you type :: a list of all your tags will appear and filter down as you start typing your tag name.
+- To set a defer date, type # followed by a date or natural language. - #Friday
+- To set a due date, type # followed by a date or natural language. - #Tomorrow
+	* Note that if there is only one # in a string, it will be interpreted as defer date. 
+- To set estimated duration type ~ followed by a number followed by m without space. - ~120m
+- To add a note type // followed by desired text. - //Note
+
+	Modifier Keys:
+
+- ⇧↩ Copies a direct link to the last created task to the clipboard.
+	* This uses AppleScript to locate the most recent task in OmniFocus.
+- ⌥↩ Reveals the newly created task directly in OmniFocus.
+---
+### Credits
+
+Note: This workflow is heavily based on [dv/alfred-omnifocus-workflow: An Alfred 2 workflow to create tasks in OmniFocus featuring autocompletion of Project and Context](https://github.com/dv/alfred-omnifocus-workflow) by David Verhasselt that I found on Github but could not get to work. (After all it is 10 years old)
+I have also pulled some parts of the [OmniFocus Collection](https://alfred.app/workflows/omnigroup/omnifocus-collection/) Workflow by [The Omni Group](https://www.omnigroup.com/) Otto Automator to help with filtering.
+---
+### Version
+
+- **2025.03.29** – Initial release with autocomplete, date parsing, and task modifiers.</string>
+	<key>uidata</key>
+	<dict>
+		<key>178E62F9-7FA6-4ED4-A8E9-C9550022BB1C</key>
+		<dict>
+			<key>xpos</key>
+			<real>355.0</real>
+			<key>ypos</key>
+			<real>930.0</real>
+		</dict>
+		<key>2BD332D5-217A-47D5-BD03-D05F8B635630</key>
+		<dict>
+			<key>colorindex</key>
+			<integer>3</integer>
+			<key>xpos</key>
+			<real>1225.0</real>
+			<key>ypos</key>
+			<real>320.0</real>
+		</dict>
+		<key>38F24396-78CB-48A3-BA19-6D6E0BC83A94</key>
+		<dict>
+			<key>xpos</key>
+			<real>360.0</real>
+			<key>ypos</key>
+			<real>760.0</real>
+		</dict>
+		<key>47B01936-AFE6-49A9-A555-8B94361CD1A8</key>
+		<dict>
+			<key>colorindex</key>
+			<integer>11</integer>
+			<key>note</key>
+			<string>Creates Task in OmniFocus
+Opens OmniFocus With Created Task in Focus</string>
+			<key>xpos</key>
+			<real>980.0</real>
+			<key>ypos</key>
+			<real>485.0</real>
+		</dict>
+		<key>4C497E16-C10B-4C75-991C-25C6297D1F24</key>
+		<dict>
+			<key>note</key>
+			<string>List Projects in a nice list. Type to filter by title.</string>
+			<key>xpos</key>
+			<real>540.0</real>
+			<key>ypos</key>
+			<real>760.0</real>
+		</dict>
+		<key>51D72337-C3C5-4CD4-ABAA-67FE05D66393</key>
+		<dict>
+			<key>colorindex</key>
+			<integer>5</integer>
+			<key>note</key>
+			<string>Searches OmniFocus for Last Created Task and Puts URL to ClipBoard</string>
+			<key>xpos</key>
+			<real>1220.0</real>
+			<key>ypos</key>
+			<real>150.0</real>
+		</dict>
+		<key>6B2039B3-F8EA-421E-AC9B-9A39F4A8B526</key>
+		<dict>
+			<key>note</key>
+			<string>Save the the input into a "results_json" variable to read in the Script Filter.</string>
+			<key>xpos</key>
+			<real>955.0</real>
+			<key>ypos</key>
+			<real>790.0</real>
+		</dict>
+		<key>7A3E0FC4-C81D-432A-989F-49769B684E75</key>
+		<dict>
+			<key>note</key>
+			<string>Open task or project in OmniFocus, via passed URL.</string>
+			<key>xpos</key>
+			<real>1245.0</real>
+			<key>ypos</key>
+			<real>760.0</real>
+		</dict>
+		<key>8162B38A-51E5-4FCE-BABD-8D93A593A3F2</key>
+		<dict>
+			<key>note</key>
+			<string>List the resulting items in an ordered list. Type to filter by title.</string>
+			<key>xpos</key>
+			<real>1075.0</real>
+			<key>ypos</key>
+			<real>760.0</real>
+		</dict>
+		<key>C4BD1F5C-CC2F-4078-A89A-BF65FE9519F0</key>
+		<dict>
+			<key>colorindex</key>
+			<integer>10</integer>
+			<key>note</key>
+			<string>Creates Task in OmniFocus</string>
+			<key>xpos</key>
+			<real>980.0</real>
+			<key>ypos</key>
+			<real>150.0</real>
+		</dict>
+		<key>C87FDA0D-A8DB-417A-88AA-34A2ABA8E180</key>
+		<dict>
+			<key>note</key>
+			<string>Creates Task in OmniFocus</string>
+			<key>xpos</key>
+			<real>980.0</real>
+			<key>ypos</key>
+			<real>320.0</real>
+		</dict>
+		<key>D1835CB5-96D7-43AC-9D9E-D7B12E37CFD0</key>
+		<dict>
+			<key>note</key>
+			<string>🚩!||💼::🏷️#⏳#⌛️~⏱️//📝"
+Calls Upon External Triggers to List &amp; Filter Projects &amp; Tags</string>
+			<key>xpos</key>
+			<real>610.0</real>
+			<key>ypos</key>
+			<real>320.0</real>
+		</dict>
+		<key>DDB0AF93-9731-4EC8-91A4-8399812E520B</key>
+		<dict>
+			<key>colorindex</key>
+			<integer>3</integer>
+			<key>xpos</key>
+			<real>1220.0</real>
+			<key>ypos</key>
+			<real>35.0</real>
+		</dict>
+		<key>F137F615-B62C-43FE-A233-DBFD602597B8</key>
+		<dict>
+			<key>note</key>
+			<string>List Tags in a nice list. Type to filter by title.</string>
+			<key>xpos</key>
+			<real>540.0</real>
+			<key>ypos</key>
+			<real>930.0</real>
+		</dict>
+		<key>F19F15B3-2711-4693-A16D-76774E961296</key>
+		<dict>
+			<key>note</key>
+			<string>This action is called externally via a URL by other actions to display search results</string>
+			<key>xpos</key>
+			<real>740.0</real>
+			<key>ypos</key>
+			<real>760.0</real>
+		</dict>
+		<key>OPEN-IN-OF</key>
+		<dict>
+			<key>xpos</key>
+			<real>850.0</real>
+			<key>ypos</key>
+			<real>500.0</real>
+		</dict>
+	</dict>
+	<key>userconfigurationconfig</key>
+	<array>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>default</key>
+				<string>todo</string>
+				<key>placeholder</key>
+				<string></string>
+				<key>required</key>
+				<true/>
+				<key>trim</key>
+				<true/>
+			</dict>
+			<key>description</key>
+			<string>Required. Keyword for Capturing a Task to OmniFocus</string>
+			<key>label</key>
+			<string>Keyword</string>
+			<key>type</key>
+			<string>textfield</string>
+			<key>variable</key>
+			<string></string>
+		</dict>
+	</array>
+	<key>variablesdontexport</key>
+	<array/>
+	<key>version</key>
+	<string>1.0</string>
+	<key>webaddress</key>
+	<string></string>
+</dict>
+</plist>
