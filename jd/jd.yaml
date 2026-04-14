@@ -1,6 +1,5 @@
 jdex:
   backend: yaml
-
 notes:
   enabled: true
   backend: apple-notes
@@ -9,6 +8,7 @@ notes:
     direction: bidirectional
   filter:
     exclude_zeros: true
-    exclude_status: [archived]
+    exclude_status:
+    - archived
   folders:
     style: area
