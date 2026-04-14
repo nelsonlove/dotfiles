@@ -7,7 +7,7 @@ Personal macOS system config and bootstrap. Repo lives at `~/repos/dotfiles/`, s
 - **JD references**: `92` means `~/Documents/90-99*/92*` — user references JD IDs as shorthand
 - **XDG layout**: config in `~/.config/`, data in `~/.local/share/`, cache in `~/.cache/`
 - **Repos**: live in `~/repos/`, plain names (no JD IDs, no spaces). JD tree has symlinks to them.
-- **Policy docs**: `docs/POLICY.md` is the source of truth for JD conventions, symlinked from JD tree
+- **JD conventions**: source of truth is `00.05 Conventions & policies for the system` in the Obsidian vault
 - **.gitignore is a whitelist**: `*` at top, then `!dir/` + `!dir/**` to opt in
 
 ## Emacs
@@ -25,32 +25,3 @@ Personal macOS system config and bootstrap. Repo lives at `~/repos/dotfiles/`, s
 - Symlinks on iCloud sync as path strings — work cross-machine only if paths match
 - `find ~` with high maxdepth is slow — target specific dirs instead
 - Alacritty uses TOML now (not YAML) — `.yml` files are deprecated legacy
-
-<!-- BACKLOG.MD MCP GUIDELINES START -->
-
-<CRITICAL_INSTRUCTION>
-
-## BACKLOG WORKFLOW INSTRUCTIONS
-
-This project uses Backlog.md MCP for all task and project management activities.
-
-**CRITICAL GUIDANCE**
-
-- If your client supports MCP resources, read `backlog://workflow/overview` to understand when and how to use Backlog for this project.
-- If your client only supports tools or the above request fails, call `backlog.get_workflow_overview()` tool to load the tool-oriented overview (it lists the matching guide tools).
-
-- **First time working here?** Read the overview resource IMMEDIATELY to learn the workflow
-- **Already familiar?** You should have the overview cached ("## Backlog.md Overview (MCP)")
-- **When to read it**: BEFORE creating tasks, or when you're unsure whether to track work
-
-These guides cover:
-- Decision framework for when to create tasks
-- Search-first workflow to avoid duplicates
-- Links to detailed guides for task creation, execution, and finalization
-- MCP tools reference
-
-You MUST read the overview resource to understand the complete workflow. The information is NOT summarized here.
-
-</CRITICAL_INSTRUCTION>
-
-<!-- BACKLOG.MD MCP GUIDELINES END -->
