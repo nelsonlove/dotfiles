@@ -1,0 +1,219 @@
+# AeroSpace — tiling window manager
+# Migrated from yabai + skhd config
+# Hyper key = Left Control (via Karabiner) = cmd+alt+ctrl+shift
+
+config-version = 2
+
+start-at-login = true
+
+# Open two Finder windows at startup for dual-pane on workspace F
+after-startup-command = [
+    'exec-and-forget open -a Finder ~/Documents',
+    'exec-and-forget sleep 1 && open -a Finder ~/Downloads',
+]
+
+# Normalizations (same as yabai BSP defaults)
+enable-normalization-flatten-containers = true
+enable-normalization-opposite-orientation-for-nested-containers = true
+
+# Layout defaults (matching old yabai: bsp, no gaps)
+accordion-padding = 30
+default-root-container-layout = 'tiles'
+default-root-container-orientation = 'auto'
+
+# Mouse follows focus on monitor change (yabai had focus_follows_mouse = autoraise)
+on-focused-monitor-changed = ['move-mouse monitor-lazy-center']
+
+# Don't let cmd-h hide apps (easy to fat-finger, hard to recover in tiling)
+automatically-unhide-macos-hidden-apps = true
+
+# Workspaces: purposeful names, not the whole alphabet
+# Inspired by old yabai named spaces + current app usage
+persistent-workspaces = [
+    "T",  # Terminal (Alacritty, tmux)
+    "E",  # Editor (PyCharm, Emacs)
+    "N",  # Notes (Obsidian, Marked 2)
+    "B",  # Browser (Safari)
+    "M",  # Mail
+    "C",  # Calendar + Comms (Messages, ChatGPT)
+    "O",  # OmniFocus / tasks
+    "D",  # Day One / journals
+    "F",  # Finder (dual pane)
+    "X",  # Scratch / overflow
+]
+
+# No gaps, no padding — clean on laptop (matching old yabai config)
+[gaps]
+    inner.horizontal = 0
+    inner.vertical   = 0
+    outer.left       = 0
+    outer.bottom     = 0
+    outer.top        = 0
+    outer.right      = 0
+
+[key-mapping]
+    preset = 'qwerty'
+
+# ─── Window assignment rules ────────────────────────────────
+# Apps auto-land in their workspace on launch
+
+[[on-window-detected]]
+if.app-id = 'org.alacritty'
+run = 'move-node-to-workspace T'
+
+[[on-window-detected]]
+if.app-id = 'com.jetbrains.pycharm'
+run = 'move-node-to-workspace E'
+
+[[on-window-detected]]
+if.app-id = 'org.gnu.Emacs'
+run = 'move-node-to-workspace E'
+
+[[on-window-detected]]
+if.app-id = 'md.obsidian'
+run = 'move-node-to-workspace N'
+
+[[on-window-detected]]
+if.app-id = 'com.brettterpstra.marked2'
+run = 'move-node-to-workspace N'
+
+[[on-window-detected]]
+if.app-id = 'com.apple.Safari'
+run = 'move-node-to-workspace B'
+
+[[on-window-detected]]
+if.app-id = 'com.apple.mail'
+run = 'move-node-to-workspace M'
+
+[[on-window-detected]]
+if.app-id = 'com.apple.iCal'
+run = 'move-node-to-workspace C'
+
+[[on-window-detected]]
+if.app-id = 'com.apple.MobileSMS'
+run = 'move-node-to-workspace C'
+
+[[on-window-detected]]
+if.app-id = 'com.openai.chat'
+run = 'move-node-to-workspace C'
+
+[[on-window-detected]]
+if.app-id = 'com.anthropic.claudefordesktop'
+run = 'move-node-to-workspace C'
+
+[[on-window-detected]]
+if.app-id = 'com.omnigroup.OmniFocus4'
+run = 'move-node-to-workspace O'
+
+[[on-window-detected]]
+if.app-id = 'com.bloombuilt.dayone-mac'
+run = 'move-node-to-workspace D'
+
+# Float these — they're not tiling-friendly
+[[on-window-detected]]
+if.app-id = 'com.apple.systempreferences'
+run = 'layout floating'
+
+[[on-window-detected]]
+if.app-id = 'com.apple.finder'
+run = 'move-node-to-workspace F'
+
+[[on-window-detected]]
+if.app-id = 'org.pqrs.Karabiner-Elements.Settings'
+run = 'layout floating'
+
+[[on-window-detected]]
+if.app-id = 'org.m0k.transmission'
+run = 'layout floating'
+
+# ─── Main mode bindings ─────────────────────────────────────
+# alt-* for focus/move (vim-style, same as default)
+# Hyper-* (cmd-alt-ctrl-shift) for workspace switching
+
+[mode.main.binding]
+
+    # Layout switching
+    alt-slash = 'layout tiles horizontal vertical'
+    alt-comma = 'layout accordion horizontal vertical'
+
+    # Focus (vim hjkl)
+    alt-h = 'focus left'
+    alt-j = 'focus down'
+    alt-k = 'focus up'
+    alt-l = 'focus right'
+
+    # Move windows (vim hjkl + shift)
+    alt-shift-h = 'move left'
+    alt-shift-j = 'move down'
+    alt-shift-k = 'move up'
+    alt-shift-l = 'move right'
+
+    # Resize
+    alt-minus = 'resize smart -50'
+    alt-equal = 'resize smart +50'
+
+    # ── Workspace switching via Hyper key ──
+    # Hyper = cmd+alt+ctrl+shift (Left Control via Karabiner)
+    # Mnemonic letters matching workspace names
+    cmd-alt-ctrl-shift-t = 'workspace T'  # Terminal
+    cmd-alt-ctrl-shift-e = 'workspace E'  # Editor
+    cmd-alt-ctrl-shift-n = 'workspace N'  # Notes
+    cmd-alt-ctrl-shift-b = 'workspace B'  # Browser
+    cmd-alt-ctrl-shift-m = 'workspace M'  # Mail
+    cmd-alt-ctrl-shift-c = 'workspace C'  # Comms
+    cmd-alt-ctrl-shift-o = 'workspace O'  # OmniFocus
+    cmd-alt-ctrl-shift-d = 'workspace D'  # Day One
+    cmd-alt-ctrl-shift-f = 'workspace F'  # Finder
+    cmd-alt-ctrl-shift-x = 'workspace X'  # Scratch
+
+    # Back-and-forth (Hyper-Tab, like old skhd left/right)
+    cmd-alt-ctrl-shift-tab = 'workspace-back-and-forth'
+
+    # Move window to workspace (Hyper + number row as fallback)
+    cmd-alt-ctrl-shift-1 = 'move-node-to-workspace T'
+    cmd-alt-ctrl-shift-2 = 'move-node-to-workspace E'
+    cmd-alt-ctrl-shift-3 = 'move-node-to-workspace N'
+    cmd-alt-ctrl-shift-4 = 'move-node-to-workspace B'
+    cmd-alt-ctrl-shift-5 = 'move-node-to-workspace M'
+    cmd-alt-ctrl-shift-6 = 'move-node-to-workspace C'
+    cmd-alt-ctrl-shift-7 = 'move-node-to-workspace O'
+    cmd-alt-ctrl-shift-8 = 'move-node-to-workspace D'
+    cmd-alt-ctrl-shift-9 = 'move-node-to-workspace X'
+
+    # Move workspace to other monitor (Hyper-Shift not available,
+    # so use alt-shift-tab like before)
+    alt-shift-tab = 'move-workspace-to-monitor --wrap-around next'
+
+    # Enter service mode
+    # Note: alt-shift-semicolon produces Ú on macOS US layout
+    # Using Hyper-S (service) instead
+    cmd-alt-ctrl-shift-s = 'mode service'
+
+    # Also keep alt-number for quick workspace access
+    # (useful when Hyper isn't convenient)
+    alt-1 = 'workspace T'
+    alt-2 = 'workspace E'
+    alt-3 = 'workspace N'
+    alt-4 = 'workspace B'
+    alt-5 = 'workspace M'
+    alt-6 = 'workspace C'
+    alt-7 = 'workspace O'
+    alt-8 = 'workspace D'
+    alt-9 = 'workspace X'
+    alt-tab = 'workspace-back-and-forth'
+
+# ─── Service mode ────────────────────────────────────────────
+# Enter: alt-shift-;   Exit: esc or reload
+# (replaces old skhd "yabai mode" with green border indicator)
+
+[mode.service.binding]
+    esc = ['reload-config', 'mode main']
+    r = ['flatten-workspace-tree', 'mode main']           # reset layout
+    f = ['layout floating tiling', 'mode main']           # toggle float
+    backspace = ['close-all-windows-but-current', 'mode main']
+
+    # Join windows (like old yabai split management)
+    alt-shift-h = ['join-with left', 'mode main']
+    alt-shift-j = ['join-with down', 'mode main']
+    alt-shift-k = ['join-with up', 'mode main']
+    alt-shift-l = ['join-with right', 'mode main']

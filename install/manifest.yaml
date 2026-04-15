@@ -16,6 +16,7 @@ repos:
 
 config_symlinks:
   # Source (in this repo) → target (on the system)
+  aerospace: ~/.config/aerospace
   emacs: ~/.config/emacs
   alacritty: ~/.config/alacritty
   zsh: ~/.config/zsh
