@@ -45,8 +45,15 @@ inactive/post-nix.sh
 # Alacritty
 alacritty/alacritty.toml.*.bak
 
+# GitHub CLI (auth tokens)
+gh/hosts.yml
+
 # Micro
 micro/buffers/history
+micro/backups
 
 # JD index (data, not config)
 jd/jd-index.yaml
+
+# Remember
+.remember

@@ -17,11 +17,16 @@ repos:
 config_symlinks:
   # Source (in this repo) → target (on the system)
   aerospace: ~/.config/aerospace
-  emacs: ~/.config/emacs
   alacritty: ~/.config/alacritty
-  zsh: ~/.config/zsh
-  tmux: ~/.config/tmux
+  doom: ~/.config/doom        # Doom Emacs config
+  gh: ~/.config/gh
   git: ~/.config/git
+  jd: ~/.config/jd
+  karabiner: ~/.config/karabiner
+  micro: ~/.config/micro
+  proselint: ~/.config/proselint
+  tmux: ~/.config/tmux
+  zsh: ~/.config/zsh
 
 jd_symlinks:
   # Source (on the system) → target (in JD tree, relative to ~/Documents/)
