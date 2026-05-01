@@ -7,6 +7,30 @@
             "complex_modifications": {
                 "rules": [
                     {
+                        "description": "Hyper+B \u2192 Safari",
+                        "manipulators": [
+                            {
+                                "type": "basic",
+                                "from": {
+                                    "key_code": "b",
+                                    "modifiers": {
+                                        "mandatory": [
+                                            "left_command",
+                                            "left_control",
+                                            "left_option",
+                                            "left_shift"
+                                        ]
+                                    }
+                                },
+                                "to": [
+                                    {
+                                        "shell_command": "open -a Safari"
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
                         "description": "Left Control \u2192 Hyper (Shift+Ctrl+Opt+Cmd)",
                         "manipulators": [
                             {
