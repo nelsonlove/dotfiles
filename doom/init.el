@@ -195,7 +195,4 @@
 
        :config
        literate
-       (default +bindings +smartparens)
-
-       :private
-       (vulpea +ui +journal))
+       (default +bindings +smartparens))
