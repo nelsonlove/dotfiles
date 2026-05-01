@@ -1,3 +1,9 @@
+expanded_areas:
+  "90-99":
+    name: Projects
+    scheme: sequential-5digit
+    range: [90000, 99999]
+
 jdex:
   backend: yaml
 notes:
