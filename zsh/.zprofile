@@ -23,7 +23,7 @@ fi
 export PATH="/Applications/Emacs.app/Contents/MacOS/bin:$PATH"
 
 # Source secrets from iCloud
-source "${HOME}/Documents/00-09 System/06 Digital tools/06.12 Secrets/zsh/env.zsh"
+source "${HOME}/Documents/00-09 System/05 Secrets & credentials/05.11 Secrets/zsh/env.zsh"
 
 # GitHub (dynamic — uses keychain token via gh CLI)
 export GITHUB_PERSONAL_ACCESS_TOKEN="$(gh auth token)"
