@@ -57,3 +57,6 @@ jd/jd-index.yaml
 
 # Remember
 .remember
+
+# Semgrep — metrics state only (auth via SEMGREP_APP_TOKEN env var)
+semgrep/
