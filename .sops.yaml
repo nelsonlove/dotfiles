@@ -1,0 +1,20 @@
+# sops policy file. Lists who can decrypt which secret files.
+#
+# Each NixOS host stores its age key derived from its SSH host ed25519 key
+# (generated at first boot; sops-nix reads it via sops.age.sshKeyPaths).
+#
+# Nelson's age identity is derived from his Mac's ~/.ssh/id_ed25519 and
+# placed at ~/.config/sops/age/keys.txt (the sops default lookup path).
+# To rotate: re-run `ssh-to-age -private-key -i ~/.ssh/id_ed25519
+# -o ~/.config/sops/age/keys.txt` after key changes.
+
+keys:
+  - &nelson age15z5ydmnh6my93tdc3v92rfzj8rjup0ducmsmel0zu4alucqrsuls2x8jvz
+  - &pi400  age1lqk27cx2r8jkjpel2zv5zjkntjy24g4jxx9qd24awm6tq99hq5nsphz48v
+
+creation_rules:
+  - path_regex: nix/secrets/pi400\.ya?ml$
+    key_groups:
+      - age:
+          - *nelson
+          - *pi400
