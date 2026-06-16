@@ -15,9 +15,17 @@
     };
 
     nixos-hardware.url = "github:NixOS/nixos-hardware";
+
+    # vault-mcp — source-only input. The upstream flake pins x86_64-linux, but
+    # its derivation (nix/pkgs/vault-mcp.nix) is system-portable when
+    # callPackage'd from another pkgs set. Consumed in hosts/pi400.
+    vault-mcp-src = {
+      url = "github:nelsonlove/obsidian-vault-mcp-server";
+      flake = false;
+    };
   };
 
-  outputs = { self, nixpkgs, nix-darwin, home-manager, nixos-hardware, ... }:
+  outputs = inputs@{ self, nixpkgs, nix-darwin, home-manager, nixos-hardware, ... }:
     let
       mkDarwinHost = { system, hostname }:
         nix-darwin.lib.darwinSystem {
@@ -41,7 +49,7 @@
       mkNixosHost = { system, hostname, extraModules ? [] }:
         nixpkgs.lib.nixosSystem {
           inherit system;
-          specialArgs = { inherit hostname; };
+          specialArgs = { inherit hostname inputs; };
           modules = [
             ./hosts/${hostname}
           ] ++ extraModules;
