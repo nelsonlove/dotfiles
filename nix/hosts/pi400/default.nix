@@ -1,4 +1,11 @@
-{ pkgs, hostname, ... }:
+{ pkgs, hostname, inputs, ... }:
+
+let
+  # vault-mcp packaged from the upstream repo (see flake.nix vault-mcp-src
+  # input). Repo's derivation is system-portable; we callPackage it here so it
+  # builds for aarch64-linux against this host's pkgs set.
+  vault-mcp = pkgs.callPackage "${inputs.vault-mcp-src}/nix/pkgs/vault-mcp.nix" { };
+in
 
 # Pi 400 NixOS host.
 #
@@ -110,10 +117,9 @@
     };
   };
 
-  # vault-mcp — local-only MCP server for claude-code on Pi.
-  # Source: ~/repos/obsidian-vault-mcp-server (cloned + built once at
-  # /home/nelson/repos/vault-mcp). Listens on localhost so no exposure.
-  # Iteration 2: package via buildNpmPackage (repo's vault-mcp.nix derivation).
+  # vault-mcp — local-only MCP server for claude-code on Pi. Sourced from the
+  # upstream repo's derivation via flake input (see top of file). Listens on
+  # localhost only — no exposure, no auth.
   systemd.services.vault-mcp = {
     description = "Obsidian vault MCP server (local Streamable HTTP)";
     after = [ "network.target" "obsidian-sync.service" ];
@@ -122,15 +128,13 @@
       Type = "simple";
       User = "nelson";
       Group = "users";
-      WorkingDirectory = "/home/nelson/repos/vault-mcp";
       Environment = [
         "VAULT_PATH=/home/nelson/obsidian"
         "PORT=8787"
         "HOST=127.0.0.1"
         "AUTH_ENABLED=false"
-        "PATH=/run/current-system/sw/bin"
       ];
-      ExecStart = "${pkgs.nodejs_22}/bin/node /home/nelson/repos/vault-mcp/dist/index.js";
+      ExecStart = "${vault-mcp}/bin/vault-mcp";
       Restart = "on-failure";
       RestartSec = "10s";
     };
