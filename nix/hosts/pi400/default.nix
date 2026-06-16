@@ -9,19 +9,22 @@ in
 
 # Pi 400 NixOS host.
 #
-# Bootstrap order:
+# Bootstrap order (only when re-flashing or bringing up a new Pi):
 #   1. Flash stock NixOS aarch64 SD image, boot Pi with ethernet.
-#   2. At Pi console: `sudo passwd nixos`, or add ~/.ssh/authorized_keys.
-#   3. From Mac: `scp pi:/etc/nixos/hardware-configuration.nix ./hardware.nix`
-#      (and import it below) — needed so root filesystem device is correct.
-#   4. From Mac: `nixos-rebuild switch --flake .#pi400 \
-#        --target-host nelson@<dhcp-ip> --build-host localhost --use-remote-sudo`
-#   5. At Pi console: `sudo tailscale up --ssh --accept-routes` (interactive auth).
-#   6. At Pi console (once on WiFi range): `nmcli device wifi connect myluigi13
-#        password '...'` — NM persists this to /etc/NetworkManager/system-connections.
+#   2. At Pi console: `passwd nixos` to set a temp password, then
+#      `ssh-copy-id nixos@<dhcp-ip>` from the Mac.
+#   3. SSH in and run `sudo nixos-generate-config --show-hardware-config`;
+#      copy output into ./hardware.nix (it normally won't change between
+#      images of the same NixOS release).
+#   4. Write the Tailscale authkey to /etc/tailscale.authkey (mode 0600 root).
+#   5. Build + switch from the UTM aarch64 NixOS VM:
+#        nixos-rebuild switch --flake .#pi400 \
+#          --target-host nelson@<dhcp-ip> --use-remote-sudo
+#   6. At Pi (once in WiFi range): `nmcli device wifi connect myluigi13
+#      password '...'` — NM persists this with 0600 perms.
 #
-# Iteration 2 (later): sops-nix for WiFi PSKs + Tailscale authkey, Obsidian under
-# Xvfb, home-manager.
+# Iteration 3 (deferred): sops-nix for the Tailscale authkey + WiFi PSKs;
+# declarative obsidian-headless install (blocked on upstream pnpm-lock).
 
 {
   imports = [ ./hardware.nix ];
@@ -122,7 +125,11 @@ in
   # localhost only — no exposure, no auth.
   systemd.services.vault-mcp = {
     description = "Obsidian vault MCP server (local Streamable HTTP)";
-    after = [ "network.target" "obsidian-sync.service" ];
+    # vault-mcp is a peer of obsidian-sync — both read /home/nelson/obsidian;
+    # vault-mcp can serve whatever is on disk independently. Just need network
+    # (for the listen socket) before we start.
+    after = [ "network.target" ];
+    wants = [ "network.target" ];
     wantedBy = [ "multi-user.target" ];
     serviceConfig = {
       Type = "simple";

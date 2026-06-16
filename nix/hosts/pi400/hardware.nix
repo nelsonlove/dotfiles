@@ -14,6 +14,12 @@
   boot.kernelModules = [ ];
   boot.extraModulePackages = [ ];
 
+  # NOTE: the `44444444-...` UUID is NOT a placeholder. The NixOS aarch64 SD
+  # image's root partition (`NIXOS_SD`) ships with exactly this UUID baked
+  # into the partition metadata, so a fresh SD-flashed Pi will boot against
+  # it. If you ever switch to a different boot medium / partition scheme,
+  # re-run `nixos-generate-config --show-hardware-config` on the running Pi
+  # and replace this block with the output.
   fileSystems."/" = {
     device = "/dev/disk/by-uuid/44444444-4444-4444-8888-888888888888";
     fsType = "ext4";
