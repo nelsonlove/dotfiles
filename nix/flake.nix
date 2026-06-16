@@ -23,9 +23,14 @@
       url = "github:nelsonlove/obsidian-vault-mcp-server";
       flake = false;
     };
+
+    sops-nix = {
+      url = "github:Mic92/sops-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
-  outputs = inputs@{ self, nixpkgs, nix-darwin, home-manager, nixos-hardware, ... }:
+  outputs = inputs@{ self, nixpkgs, nix-darwin, home-manager, nixos-hardware, sops-nix, ... }:
     let
       mkDarwinHost = { system, hostname }:
         nix-darwin.lib.darwinSystem {
@@ -77,6 +82,7 @@
           hostname = "pi400";
           extraModules = [
             nixos-hardware.nixosModules.raspberry-pi-4
+            sops-nix.nixosModules.sops
           ];
         };
       };
