@@ -62,11 +62,11 @@ nix/secrets/
         │   │ using /etc/ssh/ssh_host_ed25519_key      │
         │   │                                          │
         │  systemd:                                    │
-        │  ├─ sshd                  (key-only)         │
-        │  ├─ tailscaled            (reads authkey)    │
-        │  ├─ NetworkManager        (reads wifi-env)   │
-        │  ├─ obsidian-sync         (ob --continuous)  │
-        │  └─ vault-mcp             (127.0.0.1:8787)   │
+        │  ├─ sshd                    (key-only)         │
+        │  ├─ tailscaled              (reads authkey)    │
+        │  ├─ NetworkManager          (reads wifi-env)   │
+        │  ├─ obsidian-sync           (ob sync --continuous) │
+        │  └─ vault-mcp               (127.0.0.1:8787)   │
         │                                              │
         │  /home/nelson/obsidian    (vault, synced)    │
         └──────────────────────────────────────────────┘
@@ -154,7 +154,7 @@ The minimum manual steps to go from a fresh microSD to a fully-configured Pi:
    ssh nixos@<ip> 'cat /etc/ssh/ssh_host_ed25519_key.pub' | ssh-to-age
    # → age1...newpi...
    ```
-   Edit `.sops.yaml`: replace the `&pi400` anchor with the new recipient. Then:
+   Edit `.sops.yaml`: replace the **age public key value** on the `&pi400` line with the new recipient. Keep the `&pi400` anchor label itself — it's referenced by `*pi400` in `creation_rules`. Then:
    ```sh
    cd ~/repos/dotfiles
    sops updatekeys nix/secrets/pi400.yaml
@@ -167,11 +167,12 @@ The minimum manual steps to go from a fresh microSD to a fully-configured Pi:
 6. **One-time `ob login`** — Obsidian Sync requires interactive auth (email/password/MFA). On the Pi:
    ```sh
    ssh nelson@pi400
-   ob login                              # interactive
-   ob sync-list-remote                   # confirm vault name
-   cd ~/obsidian && ob sync-setup --vault obsidian --device-name pi400
+   ob login                                                   # interactive
+   ob sync-list-remote                                        # prints vault name(s)
+   cd ~/obsidian && ob sync-setup --vault "<name>" --device-name pi400
    sudo systemctl restart obsidian-sync
    ```
+   `<name>` is whichever vault you have under Obsidian Sync — currently `obsidian`, but `sync-list-remote` is the authoritative answer at the time of reflash.
 
 That's everything that can't be pulled from the flake. The Tailscale authkey, WiFi PSKs, user account, package set, service configs all flow from the repo.
 
