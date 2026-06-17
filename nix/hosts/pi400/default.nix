@@ -18,7 +18,7 @@ in
 #      images of the same NixOS release).
 #   4. Add the Pi's host ed25519 pubkey (derive an age recipient via
 #      `ssh-to-age`) to the &pi400 anchor in repo-root /.sops.yaml; re-key
-#      nix/secrets/pi400.yaml with `sops updatekeys`.
+#      nix/secrets/pi400.yaml with `sops updatekeys nix/secrets/pi400.yaml`.
 #   5. Build + switch from the UTM aarch64 NixOS VM:
 #        nixos-rebuild switch --flake .#pi400 \
 #          --target-host nelson@<dhcp-ip> --use-remote-sudo
