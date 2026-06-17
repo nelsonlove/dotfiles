@@ -9,11 +9,6 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
-    home-manager = {
-      url = "github:nix-community/home-manager";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-
     nixos-hardware.url = "github:NixOS/nixos-hardware";
 
     # vault-mcp — source-only input. The upstream flake pins x86_64-linux, but
@@ -30,7 +25,7 @@
     };
   };
 
-  outputs = inputs@{ self, nixpkgs, nix-darwin, home-manager, nixos-hardware, sops-nix, ... }:
+  outputs = inputs@{ self, nixpkgs, nix-darwin, nixos-hardware, sops-nix, ... }:
     let
       mkDarwinHost = { system, hostname }:
         nix-darwin.lib.darwinSystem {
@@ -41,13 +36,6 @@
             ./hosts/${hostname}.nix
 
             { nixpkgs.overlays = [ (import ./overlays/emacs-mac.nix) ]; }
-
-            home-manager.darwinModules.home-manager
-            {
-              home-manager.useGlobalPkgs = true;
-              home-manager.useUserPackages = true;
-              home-manager.users.nelson = import ./home/default.nix;
-            }
           ];
         };
 
