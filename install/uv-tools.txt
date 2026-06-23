@@ -1,0 +1,5 @@
+obsidian-tasks v0.1.0
+- obsidian-tasks
+zotero-mcp-server v0.4.1
+- zotero-cli
+- zotero-mcp
