@@ -34,7 +34,10 @@ warn() { printf "  %s!%s %s\n" "$ylw" "$rst" "$*"; }
 have() { command -v "$1" &>/dev/null; }
 
 # Human labels for groups. Order here defines menu order. 'core' is implicit
-# (always installed) and never shown as a toggle.
+# (always installed) and never shown as a toggle. Deliberately ABSENT from this
+# list (so never shown and never installed): `_dep` (transitive deps brew
+# resolves on its own) and `_untagged` (newly-dumped packages awaiting a group —
+# merge-brewfile-tags.py warns about these so they get categorized).
 GROUP_ORDER=(shell editor terminal dev dev-apps cloud creative audio video writing office productivity reading comms security maintenance utilities remote system fonts games extras)
 declare -A GROUP_LABEL=(
   [shell]="Shell & CLI tools"
@@ -67,8 +70,8 @@ INCLUDE_STALE=0
 
 # entries tagged for a group; app lines may have a trailing ` used:recent`, so
 # match the group name followed by space-or-EOL (keeps `dev` distinct from `dev-apps`).
-count_group()        { grep -cE "# group:$1( |\$)" "$BREWFILE" 2>/dev/null || echo 0; }
-count_group_recent() { grep -E "# group:$1( |\$)" "$BREWFILE" 2>/dev/null | grep -c 'used:recent' || echo 0; }
+count_group()        { local c; c=$(grep -cE "# group:$1( |\$)" "$BREWFILE" 2>/dev/null); echo "${c:-0}"; }
+count_group_recent() { local c; c=$(grep -E "# group:$1( |\$)" "$BREWFILE" 2>/dev/null | grep -c 'used:recent'); echo "${c:-0}"; }
 
 # ---------------------------------------------------------------------------
 # Config symlinks (config_symlinks: block of manifest.yaml)
