@@ -1,80 +1,55 @@
-#!/bin/bash
-set -euo pipefail
-
-# Bootstrap a fresh macOS machine.
-# Installs Nix + Homebrew, clones dotfiles, runs darwin-rebuild switch.
+#!/usr/bin/env bash
+# Bootstrap a fresh macOS machine, then hand off to the interactive installer.
 #
-# Usage:
-#   curl -O https://raw.githubusercontent.com/nelsonlove/dotfiles/main/install/bootstrap.sh
-#   bash bootstrap.sh
+# The repo is public, so this one-liner works with no auth:
+#   curl -fsSL https://raw.githubusercontent.com/nelsonlove/dotfiles/main/install/bootstrap.sh | bash
+#
+# Steps: Xcode CLT -> Rosetta (Apple Silicon) -> Homebrew -> clone -> install.sh
+
+set -euo pipefail
 
 REPO="https://github.com/nelsonlove/dotfiles.git"
 DOTFILES="$HOME/repos/dotfiles"
-HOSTNAME=$(scutil --get LocalHostName)
 
-echo "==> Bootstrapping $HOSTNAME"
+bold=$'\033[1m'; rst=$'\033[0m'
+hdr() { printf "\n%s==> %s%s\n" "$bold" "$*" "$rst"; }
 
-# 1. Xcode Command Line Tools (provides git, clang, etc.)
+hdr "Bootstrapping $(scutil --get LocalHostName 2>/dev/null || hostname)"
+
+# 1. Xcode Command Line Tools (git, clang, make).
 if ! xcode-select -p &>/dev/null; then
-  echo "==> Installing Xcode Command Line Tools..."
+  hdr "Installing Xcode Command Line Tools…"
   xcode-select --install
-  echo "==> Follow the prompt to install, then rerun this script."
+  echo "Finish the GUI install prompt, then re-run this script."
   exit 0
 fi
 
-# 2. Rosetta 2 (for x86 binaries on Apple Silicon)
-if [ "$(uname -m)" = "arm64" ] && ! /usr/bin/pgrep -q oahd; then
-  echo "==> Installing Rosetta..."
+# 2. Rosetta 2 for x86 binaries on Apple Silicon.
+if [[ "$(uname -m)" == "arm64" ]] && ! /usr/bin/pgrep -q oahd; then
+  hdr "Installing Rosetta 2…"
   softwareupdate --install-rosetta --agree-to-license
 fi
 
-# 3. Install Nix (Determinate Systems — flakes enabled out of the box)
-if ! command -v nix &>/dev/null; then
-  echo "==> Installing Nix..."
-  curl --proto '=https' --tlsv1.2 -sSf -L \
-    https://install.determinate.systems/nix | sh -s -- install
-  echo "==> Nix installed. Restart your shell, then rerun this script."
-  exit 0
-fi
-
-# 4. Install Homebrew
+# 3. Homebrew.
 if ! command -v brew &>/dev/null; then
-  if [ -x /opt/homebrew/bin/brew ]; then
-    eval "$(/opt/homebrew/bin/brew shellenv zsh)"
+  if [[ -x /opt/homebrew/bin/brew ]]; then
+    eval "$(/opt/homebrew/bin/brew shellenv)"
   else
-    echo "==> Installing Homebrew..."
+    hdr "Installing Homebrew…"
     /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-    eval "$(/opt/homebrew/bin/brew shellenv zsh)"
+    eval "$(/opt/homebrew/bin/brew shellenv)"
   fi
 fi
 
-# 5. Authenticate with GitHub
-if ! gh auth status &>/dev/null; then
-  echo "==> Authenticating with GitHub..."
-  command -v gh &>/dev/null || brew install gh
-  gh auth login --web
-fi
-
-# 6. Clone dotfiles
-if [ ! -d "$DOTFILES" ]; then
-  echo "==> Cloning dotfiles..."
+# 4. Clone (or update) the dotfiles repo. Public repo -> plain HTTPS, no gh.
+if [[ ! -d "$DOTFILES/.git" ]]; then
+  hdr "Cloning dotfiles…"
   mkdir -p "$HOME/repos"
   git clone "$REPO" "$DOTFILES"
-fi
-
-# 7. Check Full Disk Access (needed for sandboxed prefs like Safari)
-if ! plutil -lint /Library/Preferences/com.apple.TimeMachine.plist &>/dev/null; then
-  echo "WARNING: Terminal lacks Full Disk Access — some preferences (Safari) won't apply."
-  echo "  Grant it in: System Settings → Privacy & Security → Full Disk Access"
-fi
-
-# 8. First nix-darwin build
-echo "==> Running darwin-rebuild switch for $HOSTNAME..."
-cd "$DOTFILES"
-if command -v darwin-rebuild &>/dev/null; then
-  sudo darwin-rebuild switch --flake ".#$HOSTNAME"
 else
-  sudo nix run nix-darwin -- switch --flake ".#$HOSTNAME"
+  hdr "dotfiles already cloned at $DOTFILES"
 fi
 
-echo "==> Done. System is configured."
+# 5. Hand off to the interactive installer.
+hdr "Launching installer…"
+exec "$DOTFILES/install/install.sh" "$@"
