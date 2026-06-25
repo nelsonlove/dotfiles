@@ -4,9 +4,10 @@ For each component class on Nelson's macOS workstation: **is its state
 declared somewhere this repo can re-apply?** This file is the index;
 inventory dumps live alongside it (`Brewfile`, `pipx-list.txt`, etc.).
 
-The goal is **inventory-only** first — spot every place declarative
-documentation is missing. Bootstrap-script consumption of these dumps
-is a later phase.
+The goal was **inventory-only** first — spot every place declarative
+documentation is missing. As of the TUI installer, `install/install.sh`
+now *consumes* the Brewfile (grouped by `# group:` tags); the other dumps
+(pipx/uv/cargo) remain inventory-only.
 
 Narrative discussion lives in the vault at
 `00-09 System/04 Digital tools/04.11 Dotfiles.md` (why some surfaces
@@ -24,7 +25,7 @@ intentionally not declared (sensitive or not declarable on macOS).
 | Symlinks + repo list | `install/manifest.yaml` | hand-edit | ✅ |
 | Shell, git, tmux, editor configs | `zsh/`, `git/`, `tmux/`, `doom/`, etc. | git-tracked | ✅ |
 | Doom Emacs packages | `doom/packages.el` | `doom sync` | ✅ |
-| Homebrew formulae + casks + taps + mas | `install/Brewfile` | `brew bundle dump --force --file=install/Brewfile` | ❌ |
+| Homebrew formulae + casks + taps + mas | `install/Brewfile` (`# group:`-tagged) | `install/refresh-inventory.sh` (dump + tag-merge) | ✅ |
 | Homebrew services | none | `brew services list` (no dump format) | ❌ |
 | Homebrew tap trust | none | `brew tap-info --json` | ❌ |
 | pipx apps | `install/pipx-list.txt` | `pipx list --short` | ❌ |
@@ -79,6 +80,27 @@ Store + (if configured) VS Code extensions + Whalebrew. One Brewfile
 is the right place — don't fragment into separate `formulae.txt` /
 `casks.txt` files. Services state (`started` / `none`) is NOT captured
 by Brewfile — that's a separate gap.
+
+**Group tags.** Each `brew`/`cask`/`mas` line carries a trailing
+`# group:NAME` tag (e.g. `# group:dev`). `install.sh` reads these to
+offer a pick-what-you-want menu; `core` is always installed, `_dep`
+entries are hidden (brew resolves them as dependencies). A plain
+`brew bundle dump --force` would strip these tags, so the refresh goes
+through `refresh-inventory.sh`, which backs up the tagged file and
+re-applies the tags afterward (`merge-brewfile-tags.py`). New, untagged
+packages are reported on stderr and default to `_untagged` until you
+assign a group. The tag-merge also carries over the non-`brew bundle`
+lines (`cargo`/`uv`/`npm`), which a raw dump would drop.
+
+**Staleness flag.** Apps (casks/mas) confirmed opened recently also carry
+`used:recent`. The installer skips not-recently-used apps by default
+(toggle with `s` in the menu or `--include-stale`); core and CLI tools are
+never skipped. The `used:recent` set is a manual first pass derived from
+the CoreDuet `knowledgeC.db` usage stream (`/app/usage`), which only
+retains ~3 weeks — so it's a "definitely active" allowlist, not a complete
+usage history. CLI-tool staleness is intentionally not flagged: shell
+history misses indirect/aliased/editor-spawned invocations, so absence
+isn't a reliable stale signal.
 
 Trust state for third-party taps is also not captured. With 14
 untrusted taps currently in use (`bun`, `wrangler-cli`, `supabase`,

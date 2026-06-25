@@ -7,7 +7,7 @@ Personal system configuration and bootstrap for macOS.
 This repo owns:
 - **Config files** — shell, editor, terminal, git, tmux
 - **Inventory dumps** — Brewfile, pipx-list, uv-tools, cargo-list (see `install/REPRODUCIBILITY.md` for the gap matrix)
-- **Install/bootstrap scripts** — partial; see Status below
+- **Install/bootstrap scripts** — `bootstrap.sh` + interactive `install.sh` (see Bootstrap below)
 - **System policy docs** — JD conventions, XDG layout, repo management
 - **Manifest** — what repos to clone, where to symlink them
 
@@ -23,40 +23,48 @@ This repo does NOT own:
 
 ## Bootstrap
 
-> **Status:** `install/bootstrap.sh` is a Nix-darwin first-build
-> script, but Nix is not currently active on this machine (verified
-> 2026-06-10). The inventory files in `install/` (Brewfile,
-> pipx-list.txt, etc.) are inventory-only for now — no installer
-> consumes them yet. Reapplying state on a fresh machine is currently
-> a manual exercise. See `install/REPRODUCIBILITY.md` for the gap
-> matrix and `install/refresh-inventory.sh` for the dump-everything
-> command.
-
-Target (not yet current) flow:
+The repo is public, so the one-liner works on a fresh Mac with no auth:
 
 ```bash
-# On a fresh Mac:
 curl -fsSL https://raw.githubusercontent.com/nelsonlove/dotfiles/main/install/bootstrap.sh | bash
 ```
 
-Eventually:
-1. Installs Xcode CLI tools + Homebrew
-2. Clones this repo to `~/repos/dotfiles`
-3. Symlinks configs into `~/.config/`
-4. Installs packages from Brewfile + pipx-list.txt + uv-tools.txt + cargo-list.txt
-5. Applies macOS defaults
-6. Clones the JD CLI and other repos from the manifest
-7. Creates JD symlinks in the Documents tree
+`bootstrap.sh` does the unattended prerequisites, then hands off to the
+interactive `install.sh`:
+
+1. **bootstrap.sh** — Xcode CLI tools → Rosetta (Apple Silicon) →
+   Homebrew → clone repo → launch `install.sh`
+2. **install.sh** — symlinks configs into `~/.config/` (from
+   `manifest.yaml`), then opens a pick-what-you-want menu of package
+   **groups** and `brew bundle`s the selection
+
+You don't have to install everything. The installer groups packages
+(shell, editor, dev, cloud, media, apps, games, …) and you toggle which
+groups to install. **Core** (Claude Code + Obsidian) is always included,
+so the minimum install is a working Claude Code + Obsidian. Non-interactive
+shortcuts: `install.sh --core` (minimum) or `install.sh --all` (everything).
+
+The groups come from `# group:NAME` tags on each entry in `Brewfile`.
+Dependencies (tagged `_dep`) are hidden from the menu — `brew` resolves
+them automatically. Re-run `install.sh` anytime to add more groups.
+
+> **Still manual / phase 2:** macOS `defaults`, launchagents, and the JD
+> CLI / project-repo cloning + JD-tree symlinks are not yet wired into
+> `install.sh`. See `install/REPRODUCIBILITY.md` for the full gap matrix
+> and `install/refresh-inventory.sh` for the dump-everything command.
+> Nix is not used for the Mac (it remains active only for the pi400 host).
 
 ## Layout
 
 ```
-install/                  ← bootstrap + inventory
-  bootstrap.sh            ← Nix-darwin first-build (see Status above)
+install/                  ← bootstrap + installer + inventory
+  bootstrap.sh            ← fresh-machine prereqs, then runs install.sh
+  install.sh              ← interactive group-picker installer
   manifest.yaml           ← repos to clone + symlinks to create
   REPRODUCIBILITY.md      ← gap matrix: what's declared, what isn't
   refresh-inventory.sh    ← dump all inventoried surfaces in one pass
-  Brewfile                ← formulae + casks + taps + Mac App Store
+  merge-brewfile-tags.py  ← re-applies # group: tags after a brew dump
+  Brewfile                ← formulae + casks + taps + mas, # group:-tagged
   pipx-list.txt           ← pipx-installed apps
   uv-tools.txt            ← uv tools
   cargo-list.txt          ← cargo --globals
