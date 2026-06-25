@@ -19,15 +19,24 @@ echo "Writing inventory dumps to $SCRIPT_DIR/"
 
 # --- Homebrew ----------------------------------------------------------------
 # Single Brewfile covers formulae + casks + taps + Mac App Store (via mas).
-# `brew bundle dump --force` overwrites. Sort isn't applied — brew bundle
-# emits a stable ordering already.
+# `brew bundle dump --force` overwrites — which strips the `# group:` tags the
+# installer relies on, plus any non-bundle (cargo/uv/npm) lines. We back up the
+# tagged file first, then merge the tags back in (see merge-brewfile-tags.py).
 echo "Homebrew:"
 if have brew; then
+  bak="$(mktemp -t Brewfile.prev.XXXXXX)"
+  [[ -f "$SCRIPT_DIR/Brewfile" ]] && cp "$SCRIPT_DIR/Brewfile" "$bak"
   if brew bundle dump --force --file="$SCRIPT_DIR/Brewfile" >/dev/null 2>&1; then
-    ok "Brewfile (formulae + casks + taps + mas)"
+    if [[ -s "$bak" ]] && have python3; then
+      python3 "$SCRIPT_DIR/merge-brewfile-tags.py" "$bak" "$SCRIPT_DIR/Brewfile"
+      ok "Brewfile (formulae + casks + taps + mas; group tags preserved)"
+    else
+      warn "Brewfile dumped WITHOUT tag merge (no prior tags or python3 missing)"
+    fi
   else
     fail "brew bundle dump failed"
   fi
+  rm -f "$bak"
 else
   skip "brew not on PATH"
 fi
