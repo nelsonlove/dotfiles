@@ -8,7 +8,7 @@ Personal macOS system config and bootstrap. Repo lives at `~/repos/dotfiles/`, s
 - **XDG layout**: config in `~/.config/`, data in `~/.local/share/`, cache in `~/.cache/`
 - **Repos**: live in `~/repos/`, plain names (no JD IDs, no spaces). JD tree has symlinks to them.
 - **JD conventions**: source of truth is `00.05 Conventions & policies for the system` in the Obsidian vault
-- **.gitignore is a whitelist**: `*` at top, then `!dir/` + `!dir/**` to opt in
+- **.gitignore is a targeted blacklist**: switched from whitelist 2026-03-04. Excludes specific noise (`.DS_Store`, `*.elc`, `*.eln`, `eln-cache/`, `*~`, `emacs/custom.el`, `zsh/*.local`, etc.); everything else is tracked by default.
 
 ## Emacs
 

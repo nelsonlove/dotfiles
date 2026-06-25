@@ -1,0 +1,10 @@
+apple-contacts-py 0.2.0
+apple-mail-py 0.1.0
+apple-notes 0.1.0
+apple-notes-py 0.2.0
+johnnydecimal 0.3.0
+omnifocus-py 3.0.0
+osxphotos 0.75.9
+paprika-py 0.1.0
+safari-bookmarks 0.1.0
+wham-ctl 0.1.0

@@ -1,0 +1,626 @@
+tap "belphemur/tap", "https://github.com/Belphemur/homebrew-tap"
+tap "bvanrijn/wrangler"
+tap "forketyfork/tap"
+tap "homebrew/bundle"
+tap "hudochenkov/sshpass"
+tap "minio/stable"
+tap "nikitabobko/tap"
+tap "oven-sh/bun"
+tap "quickbase/tap"
+tap "railwaycat/emacsmacport"
+tap "runpod/runpodctl"
+tap "sikarugir-app/sikarugir", "https://github.com/Sikarugir-App/homebrew-sikarugir.git"
+tap "steipete/tap"
+tap "supabase/tap"
+tap "twilio/brew"
+# Simple, modern, secure file encryption
+brew "age"  # group:core
+# Dungeon exploration game
+brew "angband"  # group:games
+# Codec library for encoding and decoding AV1 video streams
+brew "aom"  # group:_dep
+# Arduino command-line interface
+brew "arduino-cli"  # group:extras agent/review-me
+# Library for manipulating PNG images
+brew "libpng"  # group:_dep
+# Record and share terminal sessions
+brew "asciinema"  # group:shell
+# Spell checker with better logic than ispell
+brew "aspell"  # group:editor
+# MPEG-4 command-line tool
+brew "atomicparsley"  # group:video
+# Uses macOS keychain for storage of AWS credentials
+brew "aws-keychain"  # group:cloud
+# Official Amazon AWS command-line interface
+brew "awscli"  # group:cloud
+# Open-source, cross-platform JavaScript runtime environment
+brew "node"  # group:dev
+# Markdown‑native Task Manager & Kanban visualizer for any Git repository
+brew "backlog-md"  # group:extras agent/review-me
+# Bourne-Again SHell, a UNIX command interpreter
+brew "bash"  # group:core
+# Language Server for Bash
+brew "bash-language-server"  # group:editor
+# Collection of portable C++ source libraries
+brew "boost"  # group:_dep
+# Extract files from Microsoft cabinet files
+brew "cabextract"  # group:extras agent/review-me
+# Vector graphics library with cross-device output support
+brew "cairo"  # group:_dep
+# C parser in Python
+brew "pycparser"  # group:_dep
+# C Foreign Function Interface for Python
+brew "cffi"  # group:_dep
+# High quality MPEG Audio Layer III (MP3) encoder
+brew "lame"  # group:_dep
+# Play, record, convert, and stream select audio and video codecs
+brew "ffmpeg"  # group:video
+# Library and utilities for processing GIFs
+brew "giflib"  # group:_dep
+# GNU multiple precision arithmetic library
+brew "gmp"  # group:_dep
+# GNU Transport Layer Security (TLS) Library
+brew "gnutls"  # group:_dep
+# TIFF library and utilities
+brew "libtiff"  # group:_dep
+# Color management engine supporting ICC profiles
+brew "little-cms2"  # group:_dep
+# New file format for still image compression
+brew "jpeg-xl"  # group:_dep
+# Library for JPEG-2000 image manipulation
+brew "openjpeg"  # group:_dep
+# Image format providing lossless and lossy compression for web images
+brew "webp"  # group:_dep
+# Image processing and image analysis library
+brew "leptonica"  # group:_dep
+# Validating, recursive, caching DNS resolver
+brew "unbound"  # group:_dep
+# Light HTTP/1.1 server library
+brew "libmicrohttpd"  # group:_dep
+# Reliable Internet Stream Transport (RIST)
+brew "librist"  # group:_dep
+# Framework for layout and rendering of i18n text
+brew "pango"  # group:_dep
+# OCR (Optical Character Recognition) engine
+brew "tesseract"  # group:_dep
+# High-performance, asynchronous messaging library
+brew "zeromq"  # group:_dep
+# Core component of the AcoustID project (Audio fingerprinting)
+brew "chromaprint"  # group:extras agent/review-me
+# Control Google Chrome from the command-line
+brew "chrome-cli"  # group:shell
+# Cloudflare Tunnel client (formerly Argo Tunnel)
+brew "cloudflared"  # group:cloud
+# Cross-platform make
+brew "cmake"  # group:dev
+# Console Matrix
+brew "cmatrix"  # group:games
+# Container runtimes on MacOS (and Linux) with minimal setup
+brew "colima"  # group:dev
+# Color-highlighted diff(1) output
+brew "colordiff"  # group:shell
+# GNU File, Shell, and Text utilities
+brew "coreutils"  # group:core
+# Cryptographic recipes and primitives for Python
+brew "cryptography"  # group:_dep
+# C library implementing the SSH2 protocol
+brew "libssh2"  # group:_dep
+# Control the macOS dark mode from the command-line
+brew "dark-mode"  # group:shell
+# Load/unload environment variables based on $PWD
+brew "direnv"  # group:core
+# Pack, ship and run any application as a lightweight container
+brew "docker", link: false  # group:dev
+# Isolated development environments using Docker
+brew "docker-compose"  # group:dev
+# Text processing system for reStructuredText
+brew "docutils", link: false  # group:extras agent/review-me
+# CLI for interacting with Doppler secrets and configuration
+brew "doppler"  # group:core
+# Select default apps for documents and URL schemes on macOS
+brew "duti"  # group:shell
+# Spellchecker wrapping library
+brew "enchant"  # group:extras agent/review-me
+# Perl lib for reading and writing EXIF metadata
+brew "exiftool"  # group:creative
+# Simple, fast and user-friendly alternative to find
+brew "fd"  # group:core
+# Collection of GNU find, xargs, and locate
+brew "findutils"  # group:shell
+# CLI application for interacting with a Cloudflare account
+brew "flarectl"  # group:cloud
+# Real-time software synthesizer based on the SoundFont 2 specs
+brew "fluid-synth"  # group:audio
+# Infamous electronic fortune-cookie generator
+brew "fortune"  # group:games
+# Sample multi-channel audio mixer library
+brew "sdl2_mixer"  # group:_dep
+# Infocom-style interactive fiction player
+brew "frotz"  # group:games
+# Monitor a directory for changes and run a shell command
+brew "fswatch"  # group:shell
+# Command-line fuzzy finder written in Go
+brew "fzf"  # group:core
+# C library for multiple-precision floating-point computations
+brew "mpfr"  # group:_dep
+# GNU awk utility
+brew "gawk"  # group:shell
+# GNU compiler collection
+brew "gcc"  # group:_dep
+# Library for encoding and decoding .avif files
+brew "libavif"  # group:_dep
+# Graphics library to dynamically manipulate images
+brew "gd"  # group:_dep
+# Toolkit for image loading and pixel buffer manipulation
+brew "gdk-pixbuf"  # group:_dep
+# Nonsense activity generator
+brew "genact"  # group:games
+# GitHub command-line tool
+brew "gh"  # group:core
+# Interpreter for PostScript and PDF
+brew "ghostscript"  # group:_dep
+# Automatic git commit --fixup
+brew "git-absorb"  # group:shell
+# Enable transparent encryption/decryption of files in a git repo
+brew "git-crypt"  # group:shell
+# Syntax-highlighting pager for git and diff output
+brew "git-delta"  # group:core
+# Quickly rewrite git repository history
+brew "git-filter-repo"  # group:dev
+# Git extension for versioning large files
+brew "git-lfs"  # group:shell
+# Open GitHub webpages from a terminal
+brew "git-open"  # group:shell
+# GNU implementation of the famous stream editor
+brew "gnu-sed"  # group:shell
+# GNU version of the tar archiving utility
+brew "gnu-tar"  # group:shell
+# GNU implementation of time utility
+brew "gnu-time"  # group:shell
+# GNU Privacy Guard (OpenPGP)
+brew "gnupg"  # group:core
+# Library access to GnuPG
+brew "gpgme"  # group:_dep
+# Image manipulation
+brew "netpbm"  # group:_dep
+# GNU triangulated surface library
+brew "gts"  # group:_dep
+# Library to render SVG files using Cairo
+brew "librsvg"  # group:_dep
+# Graph visualization software from AT&T and Bell Labs
+brew "graphviz"  # group:_dep
+# GNU grep, egrep and fgrep
+brew "grep"  # group:shell
+# Open-source video transcoder available for Linux, Mac, and Windows
+brew "handbrake", link: false  # group:video
+# Package compiler and linker metadata toolkit
+brew "pkgconf"  # group:_dep
+# File format designed to store large amounts of data
+brew "hdf5"  # group:extras agent/review-me
+# Client library for huggingface.co hub
+brew "hf"  # group:cloud
+# Tools for reading and writing Macintosh volumes
+brew "hfsutils"  # group:extras agent/review-me
+# CLI email client written in Rust
+brew "himalaya"  # group:extras agent/review-me
+# Get events and tasks from the macOS calendar database
+brew "ical-buddy"  # group:shell
+# ISO/IEC 23008-12:2017 HEIF file format decoder and encoder
+brew "libheif"  # group:_dep
+# Tools and libraries to manipulate images in select formats
+brew "imagemagick"  # group:creative
+# Design system for interactive fiction
+brew "inform6"  # group:games
+# Image manipulation library
+brew "jpeg"  # group:extras agent/review-me
+# Lightweight and flexible command-line JSON processor
+brew "jq"  # group:core
+# Swiss-army knife of markup format conversion
+brew "pandoc"  # group:editor
+# Interactive environments for writing and running code
+brew "jupyterlab"  # group:dev
+# Network authentication protocol
+brew "krb5"  # group:_dep
+# Linear Algebra PACKage
+brew "lapack"  # group:extras agent/review-me
+# Command-line, double-entry accounting tool
+brew "ledger"  # group:extras agent/review-me
+# JIT library for the GNU compiler collection
+brew "libgccjit"  # group:extras agent/review-me
+# Implementation of the file(1) command
+brew "libmagic"  # group:extras agent/review-me
+# Postgres C API library
+brew "libpq"  # group:_dep
+# C99 library which implements a VT220 or xterm terminal emulator
+brew "libvterm"  # group:extras agent/review-me
+# GNOME XML library
+brew "libxml2"  # group:extras agent/review-me
+# Next-gen compiler infrastructure
+brew "llvm"  # group:dev
+# Fully functional local AWS cloud stack
+brew "localstack"  # group:cloud
+# Creates dependencies in makefiles
+brew "makedepend"  # group:dev
+# Mac App Store command-line interface
+brew "mas"  # group:shell
+# Modern and intuitive terminal-based text editor
+brew "micro"  # group:core
+# Replacement for ls, cp and other commands for object storage
+brew "minio-mc"  # group:cloud
+# Remote terminal application
+brew "mosh"  # group:shell
+# Single-player roguelike video game
+brew "nethack"  # group:games
+# Port scanning utility for large networks
+brew "nmap"  # group:cloud
+# Package for scientific computing with Python
+brew "numpy"  # group:extras agent/review-me
+# Renders an animated, color, ANSI-text loop of the Poptart Cat
+brew "nyancat"  # group:games
+# Adds an OCR text layer to scanned PDF files
+brew "ocrmypdf"  # group:creative
+# Create, run, and share large language models (LLMs)
+brew "ollama", restart_service: :changed  # group:dev
+# Development kit for the Java programming language
+brew "openjdk"  # group:dev
+# Development kit for the Java programming language
+brew "openjdk@21"  # group:dev
+# Open source suite of directory software
+brew "openldap"  # group:_dep
+# Cryptography and SSL/TLS Toolkit
+brew "openssl@1.1"  # group:_dep
+# Outputs current CPU temperature for OSX
+brew "osx-cpu-temp"  # group:games
+# Collection of macOS command-line utilities
+brew "osxutils"  # group:shell
+# 7-Zip (high compression file archiver) implementation
+brew "p7zip"  # group:shell
+# PAM module for reattaching to the user's GUI (Aqua) session
+brew "pam-reattach"  # group:extras agent/review-me
+# Perl compatible regular expressions library
+brew "pcre"  # group:extras agent/review-me
+# Highly capable, feature-rich programming language
+brew "perl"  # group:dev
+# General-purpose scripting language
+brew "php"  # group:dev
+# Execute binaries from Python packages in isolated environments
+brew "pipx"  # group:dev
+# Draw UML diagrams
+brew "plantuml"  # group:editor
+# Paste PNG into files
+brew "pngpaste"  # group:creative
+# Fast, disk space efficient package manager
+brew "pnpm"  # group:dev
+# Python package management tool
+brew "poetry"  # group:dev
+# PDF rendering library (based on the xpdf-3.0 code base)
+brew "poppler"  # group:extras agent/review-me
+# Convert bitmaps to vector graphics
+brew "potrace"  # group:extras agent/review-me
+# Framework for managing multi-language pre-commit hooks
+brew "pre-commit"  # group:dev
+# Code formatter for JavaScript, CSS, JSON, GraphQL, Markdown, YAML
+brew "prettier"  # group:editor
+# Linter for prose
+brew "proselint"  # group:editor
+# Show ps output as a tree
+brew "pstree"  # group:shell
+# Python version management
+brew "pyenv"  # group:dev
+# Static type checker for Python
+brew "pyright"  # group:editor
+# Tab completion for Python argparse
+brew "python-argcomplete"  # group:extras agent/review-me
+# Simple, correct PEP 517 build frontend
+brew "python-build", link: false  # group:extras agent/review-me
+# Python Language Server for the Language Server Protocol
+brew "python-lsp-server"  # group:editor
+# Interpreted, interactive, object-oriented programming language
+brew "python@3.10"  # group:dev
+# Interpreted, interactive, object-oriented programming language
+brew "python@3.11"  # group:dev
+# Generic machine emulator and virtualizer
+brew "qemu"  # group:dev
+# Cross-platform application and UI framework
+brew "qt"  # group:extras agent/review-me
+# Software environment for statistical computing
+brew "r"  # group:dev
+# Reverse engineering framework
+brew "radare2"  # group:dev
+# Develop and deploy code with zero configuration
+brew "railway"  # group:cloud
+# Reattach process (e.g., tmux) to background
+brew "reattach-to-user-namespace"  # group:shell
+# Search tool like grep and The Silver Searcher
+brew "ripgrep"  # group:core
+# Dungeon crawling video game
+brew "rogue"  # group:games
+# Powerful, clean, object-oriented scripting language
+brew "ruby"  # group:dev
+# Extremely fast Python linter, written in Rust
+brew "ruff"  # group:dev
+# Safe, concurrent, practical language
+brew "rust"  # group:dev
+# Run AI agents isolated in a sandboxed macOS user account
+brew "sandvault"  # group:extras agent/review-me
+# Steel Bank Common Lisp system
+brew "sbcl"  # group:dev
+# SDL 1.2 compatibility layer that uses SDL 2.0 behind the scenes
+brew "sdl12-compat"  # group:extras agent/review-me
+# Easily detect and prevent bugs and anti-patterns in your codebase
+brew "semgrep"  # group:dev
+# Static analysis and lint tool, for (ba)sh scripts
+brew "shellcheck"  # group:editor
+# Autoformat shell script source code
+brew "shfmt"  # group:editor
+# Prints a steam locomotive if you type sl instead of ls
+brew "sl"  # group:games
+# Editor of encrypted files
+brew "sops"  # group:core
+# SOund eXchange: universal sound sample translator
+brew "sox"  # group:audio
+# Command-line tool for Stripe
+brew "stripe-cli"  # group:cloud
+# Modern CSS linter
+brew "stylelint"  # group:editor
+# Feature-rich command-line audio/video downloader
+brew "yt-dlp"  # group:video
+# Multi-modal AI tool to extract and summarize content
+brew "summarize"  # group:cloud
+# Send macOS User Notifications from the command-line
+brew "terminal-notifier"  # group:shell
+# Tool to build, change, and version infrastructure
+brew "terraform"  # group:cloud
+# Programmatically correct mistyped console commands
+brew "thefuck"  # group:shell
+# Terminal multiplexer
+brew "tmux"  # group:core
+# Display directories as trees (with optional color/HTML output)
+brew "tree"  # group:core
+# Incremental parsing library
+brew "tree-sitter@0.25"  # group:editor
+# Language Server Protocol implementation for TypeScript wrapping tsserver
+brew "typescript-language-server"  # group:editor
+# Extract files from InstallShield cabinet files
+brew "unshield"  # group:extras agent/review-me
+# Extremely fast Python package installer and resolver, written in Rust
+brew "uv"  # group:dev
+# Command-line interface for Vercel
+brew "vercel-cli"  # group:cloud
+# Terminal spreadsheet multitool for discovering and arranging data
+brew "visidata"  # group:shell
+# Language servers for HTML, CSS, JavaScript, and JSON extracted from vscode
+brew "vscode-langservers-extracted"  # group:editor
+# Convert HTML to PDF
+brew "weasyprint"  # group:editor
+# Internet file retriever
+brew "wget"  # group:core
+# Port of OpenAI's Whisper model in C/C++
+brew "whisper-cpp"  # group:audio
+# Lexical database for the English language
+brew "wordnet"  # group:extras agent/review-me
+# Generate your Xcode project from a spec file and your folder structure
+brew "xcodegen"  # group:dev
+# Language Server for Yaml Files
+brew "yaml-language-server"  # group:editor
+# Process YAML, JSON, XML, CSV and properties documents from the CLI
+brew "yq"  # group:shell
+# Shell extension to navigate your filesystem faster
+brew "zoxide"  # group:core
+# Command-line tool to put Macs to sleep
+brew "zzz"  # group:games
+# GPU-accelerated terminal emulator
+cask "alacritty"  # group:core
+# Application launcher and productivity software
+cask "alfred"  # group:productivity
+# AI-assisted Launchpad replacement
+cask "appgridmac"  # group:system
+# Electronics prototyping platform
+cask "arduino-ide"  # group:dev-apps
+# Multi-track audio editor and recorder
+cask "audacity"  # group:audio
+# Records audio from any application
+cask "audio-hijack"  # group:audio
+# VST2/VST3/AU/AAX DSP Server Plugin
+cask "audiogridder-plugin"  # group:audio
+# Virtual Audio Driver
+cask "blackhole-2ch"  # group:audio
+# 3D creation suite
+cask "blender"  # group:creative
+# File manager
+cask "bloom"  # group:system
+# Reference management and bibliography software
+cask "bookends"  # group:reading
+# E-books management software
+cask "calibre"  # group:reading
+# OpenAI's official ChatGPT desktop app
+cask "chatgpt"  # group:utilities used:recent
+# Inspector for iCloud Drive folders
+cask "cirrus"  # group:system
+# Anthropic's official Claude AI desktop app
+cask "claude"  # group:core
+# Terminal-based AI coding assistant
+cask "claude-code"  # group:core
+# Markdown viewer and editor
+cask "clearance"  # group:writing
+# GUI companion app for Homebrew
+cask "cork"  # group:maintenance
+# Disk space visualiser
+cask "daisydisk"  # group:maintenance used:recent
+# API documentation browser and code snippet manager
+cask "dash"  # group:dev-apps
+# Voice and text chat software
+cask "discord"  # group:comms
+cask "font-et-book"  # group:fonts
+cask "font-fantasque-sans-mono-nerd-font"  # group:fonts
+cask "font-fira-code"  # group:fonts
+cask "font-inter"  # group:fonts
+cask "font-iosevka"  # group:fonts
+cask "font-iosevka-aile"  # group:fonts
+cask "font-merriweather"  # group:fonts
+cask "font-optician-sans"  # group:fonts
+cask "font-victor-mono"  # group:fonts
+cask "font-yrsa"  # group:fonts
+# Cross-platform Git credential storage for multiple hosting providers
+cask "git-credential-manager"  # group:dev-apps
+# Desktop client for GitHub repositories
+cask "github"  # group:dev-apps
+# 2D and 3D game engine
+cask "godot"  # group:dev-apps
+# Web browser
+cask "google-chrome"  # group:utilities used:recent
+# Open Source Multimedia Framework
+cask "gstreamer-runtime"  # group:video
+# Open-source video transcoder
+cask "handbrake-app"  # group:video
+# Automated organisation
+cask "hazel"  # group:productivity
+# Link and retrieve key information
+cask "hookmark"  # group:productivity used:recent
+# Menu bar application that displays the CPU speed limit due to thermal issues
+cask "hot"  # group:system
+# iPhone management application
+cask "imazing"  # group:creative
+# Writing system for interactive fiction based on natural language
+cask "inform"  # group:games
+# Terminal emulator as alternative to Apple's Terminal app
+cask "iterm2"  # group:terminal
+# JetBrains tools manager
+cask "jetbrains-toolbox"  # group:dev-apps
+# Keyboard customiser
+cask "karabiner-elements"  # group:core
+# Porting tool, to make Windows programs/games into native apps
+cask "kegworks-app/kegworks/kegworks"  # group:games
+# Tool to show what is persistently installed on the computer
+cask "knockknock"  # group:security
+# Host-based application firewall
+cask "little-snitch"  # group:security used:recent
+# Cable-free audio router
+cask "loopback"  # group:audio
+# File system integration
+cask "macfuse"  # group:system
+cask "material-colors"  # group:creative
+# Monitors and reports any microphone and camera activity
+cask "micro-snitch"  # group:security
+# Reverse proxy, secure introspectable tunnels to localhost
+cask "ngrok"  # group:cloud
+# Knowledge base that works on top of a local folder of plain text Markdown files
+cask "obsidian"  # group:core
+# Verify system files structure, run miscellaneous maintenance and more
+cask "onyx"  # group:maintenance
+# Extract files and folders from package files, disk images, and archives
+cask "pacifist"  # group:maintenance
+# Utility to uninstall apps and remove leftover files from old/uninstalled apps
+cask "pearcleaner"  # group:maintenance used:recent
+# Tool to organise photo libraries
+cask "powerphotos"  # group:creative used:recent
+# Companion app for Flipper Zero devices
+cask "qflipper"  # group:dev-apps
+# Quick Look generator for Markdown files
+cask "qlmarkdown"  # group:system
+# Imaging utility to install operating systems to a microSD card
+cask "raspberry-pi-imager"  # group:dev-apps
+# Control your computer with your Apple TV Siri Remote
+cask "sirimote"  # group:system
+# Notepad with a built-in calculator
+cask "soulver"  # group:writing
+# Video game digital distribution service
+cask "steam"  # group:games
+# Real time file synchronisation software
+cask "syncthing-app"  # group:cloud
+# Quicklook extension for source files
+cask "syntax-highlight"  # group:system
+# Learn how to play the piano using falling notes
+cask "synthesia"  # group:audio
+# Mesh VPN based on WireGuard
+cask "tailscale-app"  # group:cloud used:recent
+# Unpacks archive files
+cask "the-unarchiver"  # group:maintenance used:recent
+# Menu bar pomodoro timer
+cask "tomatobar"  # group:productivity
+# Open-source BitTorrent client
+cask "transmission"  # group:remote used:recent
+# File transfer application
+cask "transmit"  # group:remote
+# 3D printer and slicing GUI
+cask "ultimaker-cura"  # group:creative
+# Set a Retina display to custom resolutions
+cask "usr-sse2-rdm"  # group:system
+# Virtual machines UI using QEMU
+cask "utm"  # group:dev-apps used:recent
+# Multimedia player
+cask "vlc"  # group:video used:recent
+# App that provides drivers for older model scanners that are no longer supported
+cask "vuescan"  # group:creative
+# Open-source version of the X.Org X Window System
+cask "xquartz"  # group:system
+# Video communication and virtual meeting platform
+cask "zoom"  # group:comms
+# Collect, organise, cite, and share research sources
+cask "zotero"  # group:reading
+mas "Acidity", id: 6472630023  # group:utilities
+mas "Actions", id: 1586435171  # group:productivity
+mas "Actions For Obsidian", id: 1659667937  # group:productivity
+mas "AdBlock Pro", id: 1018301773  # group:security
+mas "Affinity Designer", id: 824171161  # group:creative
+mas "Agenda", id: 1287445660  # group:productivity
+mas "Calca", id: 635758264  # group:writing used:recent
+mas "Day One", id: 1055511498  # group:productivity used:recent
+mas "GarageBand", id: 682658836  # group:audio
+mas "Gemini 2", id: 1090488118  # group:maintenance used:recent
+mas "iMovie", id: 408981434  # group:video
+mas "Infuse", id: 1136220934  # group:video
+mas "Keynote", id: 409183694  # group:office
+mas "Kindle", id: 302584613  # group:reading
+mas "Logic Pro", id: 634148309  # group:audio
+mas "Mapper", id: 1589391989  # group:utilities
+mas "Marked 2", id: 890031187  # group:writing used:recent
+mas "Microsoft Excel", id: 462058435  # group:office
+mas "Microsoft OneNote", id: 784801555  # group:office
+mas "Microsoft Word", id: 462054704  # group:office used:recent
+mas "MindNode Classic", id: 1289197285  # group:writing used:recent
+mas "Numbers", id: 409203825  # group:office
+mas "Obsidian Web Clipper", id: 6720708363  # group:productivity
+mas "OmniFocus", id: 1542143627  # group:productivity used:recent
+mas "OneDrive", id: 823766827  # group:cloud
+mas "Pages", id: 409201541  # group:office
+mas "Paprika Recipe Manager 3", id: 1303222628  # group:productivity
+mas "Pixelmator Pro", id: 1289583905  # group:creative
+mas "Prompt 3", id: 1594420480  # group:remote used:recent
+mas "Screens", id: 1663047912  # group:remote
+mas "Scrivener", id: 1310686187  # group:writing
+mas "Soulver 3", id: 1508732804  # group:writing
+mas "Streaks", id: 963034692  # group:productivity
+mas "StuffIt Expander", id: 919269455  # group:maintenance
+mas "Tampermonkey", id: 6738342400  # group:security
+mas "Telegram", id: 747648890  # group:comms
+mas "Things", id: 904280696  # group:productivity
+mas "Tot", id: 1491071483  # group:writing used:recent
+mas "Ulysses", id: 1225570693  # group:writing
+mas "Xcode", id: 497799835  # group:dev-apps
+cargo "emacs-lsp-booster"
+uv "obsidian-tasks"
+uv "zotero-mcp-server"
+npm "@stephendolan/ynab-cli"
+npm "@vue/cli"
+npm "agent-browser"
+npm "brv"
+npm "claude-max-api-proxy"
+npm "clawhub"
+npm "commit-assist"
+npm "dockerfile-language-server-nodejs"
+npm "firecrawl-cli"
+npm "freyr"
+npm "graphql-language-service-cli"
+npm "js-beautify"
+npm "mcp-quickbase"
+npm "mcporter"
+npm "obsidian-mcp-server"
+npm "openclaw"
+npm "package-json-merge"
+npm "paprika-recipe-cli"
+npm "squirrelscan"
+npm "stylelint-config-standard"
+npm "tailwindcss"
+npm "task-master-ai"
+npm "textlint"
