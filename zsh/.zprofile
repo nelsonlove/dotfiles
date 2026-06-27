@@ -19,13 +19,17 @@ if [[ -d "${HOME}/.local/bin" ]]; then
     export PATH="${HOME}/.local/bin:${PATH}"
 fi
 
-# Emacs (emacs-mac port)
-export PATH="/Applications/Emacs.app/Contents/MacOS/bin:$PATH"
+# Emacs (emacs-mac port) — only when installed
+[[ -d "/Applications/Emacs.app/Contents/MacOS/bin" ]] && \
+    export PATH="/Applications/Emacs.app/Contents/MacOS/bin:$PATH"
 
-# Source secrets from iCloud
-source "${HOME}/Documents/00-09 System/05 Secrets & credentials/05.11 Secrets/zsh/env.zsh"
+# Source secrets from iCloud (skip if the vault isn't synced on this machine)
+_secrets="${HOME}/Documents/00-09 System/05 Secrets & credentials/05.11 Secrets/zsh/env.zsh"
+[[ -f "$_secrets" ]] && source "$_secrets"
+unset _secrets
 
-# GitHub (dynamic — uses keychain token via gh CLI)
-export GITHUB_PERSONAL_ACCESS_TOKEN="$(gh auth token)"
+# GitHub (dynamic — uses keychain token via gh CLI, if authed)
+command -v gh >/dev/null 2>&1 && \
+    export GITHUB_PERSONAL_ACCESS_TOKEN="$(gh auth token 2>/dev/null)"
 
 touch_and_execute "$XDG_CONFIG_HOME/zsh/zprofile.local"
