@@ -14,7 +14,7 @@ tap "steipete/tap"
 tap "supabase/tap"
 tap "twilio/brew"
 # Simple, modern, secure file encryption
-brew "age"  # group:core
+brew "age"  # group:cloud
 # Dungeon exploration game
 brew "angband"  # group:games
 # Codec library for encoding and decoding AV1 video streams
@@ -108,7 +108,7 @@ brew "libssh2"  # group:_dep
 # Control the macOS dark mode from the command-line
 brew "dark-mode"  # group:shell
 # Load/unload environment variables based on $PWD
-brew "direnv"  # group:core
+brew "direnv"  # group:dev
 # Pack, ship and run any application as a lightweight container
 brew "docker", link: false  # group:dev
 # Isolated development environments using Docker
@@ -116,7 +116,7 @@ brew "docker-compose"  # group:dev
 # Text processing system for reStructuredText
 brew "docutils", link: false  # group:extras agent/review-me
 # CLI for interacting with Doppler secrets and configuration
-brew "doppler"  # group:core
+brew "doppler"  # group:cloud
 # Select default apps for documents and URL schemes on macOS
 brew "duti"  # group:shell
 # Spellchecker wrapping library
@@ -124,7 +124,7 @@ brew "enchant"  # group:extras agent/review-me
 # Perl lib for reading and writing EXIF metadata
 brew "exiftool"  # group:creative
 # Simple, fast and user-friendly alternative to find
-brew "fd"  # group:core
+brew "fd"  # group:shell
 # Collection of GNU find, xargs, and locate
 brew "findutils"  # group:shell
 # CLI application for interacting with a Cloudflare account
@@ -140,7 +140,7 @@ brew "frotz"  # group:games
 # Monitor a directory for changes and run a shell command
 brew "fswatch"  # group:shell
 # Command-line fuzzy finder written in Go
-brew "fzf"  # group:core
+brew "fzf"  # group:shell
 # C library for multiple-precision floating-point computations
 brew "mpfr"  # group:_dep
 # GNU awk utility
@@ -164,7 +164,7 @@ brew "git-absorb"  # group:shell
 # Enable transparent encryption/decryption of files in a git repo
 brew "git-crypt"  # group:shell
 # Syntax-highlighting pager for git and diff output
-brew "git-delta"  # group:core
+brew "git-delta"  # group:shell
 # Quickly rewrite git repository history
 brew "git-filter-repo"  # group:dev
 # Git extension for versioning large files
@@ -178,7 +178,7 @@ brew "gnu-tar"  # group:shell
 # GNU implementation of time utility
 brew "gnu-time"  # group:shell
 # GNU Privacy Guard (OpenPGP)
-brew "gnupg"  # group:core
+brew "gnupg"  # group:shell
 # Library access to GnuPG
 brew "gpgme"  # group:_dep
 # Image manipulation
@@ -356,7 +356,7 @@ brew "shfmt"  # group:editor
 # Prints a steam locomotive if you type sl instead of ls
 brew "sl"  # group:games
 # Editor of encrypted files
-brew "sops"  # group:core
+brew "sops"  # group:cloud
 # SOund eXchange: universal sound sample translator
 brew "sox"  # group:audio
 # Command-line tool for Stripe
@@ -394,7 +394,7 @@ brew "vscode-langservers-extracted"  # group:editor
 # Convert HTML to PDF
 brew "weasyprint"  # group:editor
 # Internet file retriever
-brew "wget"  # group:core
+brew "wget"  # group:shell
 # Port of OpenAI's Whisper model in C/C++
 brew "whisper-cpp"  # group:audio
 # Lexical database for the English language
@@ -406,7 +406,7 @@ brew "yaml-language-server"  # group:editor
 # Process YAML, JSON, XML, CSV and properties documents from the CLI
 brew "yq"  # group:shell
 # Shell extension to navigate your filesystem faster
-brew "zoxide"  # group:core
+brew "zoxide"  # group:shell
 # Command-line tool to put Macs to sleep
 brew "zzz"  # group:games
 # GPU-accelerated terminal emulator
