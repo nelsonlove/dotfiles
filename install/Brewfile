@@ -502,7 +502,6 @@ cask "material-colors"  # group:creative
 # Monitors and reports any microphone and camera activity
 cask "micro-snitch"  # group:security
 # Reverse proxy, secure introspectable tunnels to localhost
-cask "ngrok"  # group:cloud
 # Knowledge base that works on top of a local folder of plain text Markdown files
 cask "obsidian"  # group:core
 # Verify system files structure, run miscellaneous maintenance and more
@@ -569,6 +568,8 @@ cask "datagrip"  # group:jetbrains
 cask "pycharm"  # group:jetbrains
 cask "webstorm"  # group:jetbrains
 cask "dataspell"  # group:data
+cask "rider"  # group:jetbrains
+cask "rustrover"  # group:jetbrains
 mas "Acidity", id: 6472630023  # group:utilities
 mas "Actions", id: 1586435171  # group:productivity
 mas "Actions For Obsidian", id: 1659667937  # group:productivity
