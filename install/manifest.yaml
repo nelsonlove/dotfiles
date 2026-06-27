@@ -30,4 +30,4 @@ config_symlinks:
 
 jd_symlinks:
   # Source (on the system) → target (in JD tree, relative to ~/Documents/)
-  ~/repos/dotfiles: "00-09 System/06 Digital tools/06.03 Dotfiles"
+  ~/repos/dotfiles: "00-09 System/04 Digital tools/04.11 Dotfiles"
