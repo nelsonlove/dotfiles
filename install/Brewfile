@@ -581,7 +581,7 @@ cask "microsoft-word"  # group:office used:recent
 mas "MindNode Classic", id: 1289197285  # group:writing used:recent
 mas "Numbers", id: 409203825  # group:office
 mas "Obsidian Web Clipper", id: 6720708363  # group:productivity
-mas "OmniFocus", id: 1542143627  # group:productivity used:recent also-cask:omnifocus
+cask "omnifocus"  # group:productivity used:recent
 cask "onedrive"  # group:cloud
 mas "Pages", id: 409201541  # group:office
 mas "Paprika Recipe Manager 3", id: 1303222628  # group:productivity
