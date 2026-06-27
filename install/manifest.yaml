@@ -14,6 +14,11 @@ repos:
   #   url: git@github.com:nelsonlove/my-project.git
   #   jd_link: "60-69 Work/61 Projects/61.03 My Project/my-project"
 
+home_symlinks:
+  # Dotfiles that must live directly in $HOME. Source (in this repo) → target.
+  # ~/.zshenv is read before ZDOTDIR is set, so it can't live under ~/.config/zsh.
+  zsh/.zshenv: ~/.zshenv
+
 config_symlinks:
   # Source (in this repo) → target (on the system)
   aerospace: ~/.config/aerospace

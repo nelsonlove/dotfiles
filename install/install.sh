@@ -93,16 +93,18 @@ count_group()        { local c; c=$(grep -cE "# group:$1( |\$)" "$BREWFILE" 2>/d
 count_group_recent() { local c; c=$(grep -E "# group:$1( |\$)" "$BREWFILE" 2>/dev/null | grep -c 'used:recent'); echo "${c:-0}"; }
 
 # ---------------------------------------------------------------------------
-# Config symlinks (config_symlinks: block of manifest.yaml)
+# Symlinks (config_symlinks / home_symlinks blocks of manifest.yaml)
 # ---------------------------------------------------------------------------
-link_configs() {
-  hdr "Symlinking configs into ~/.config/"
+# Parse a `  source: ~/target` block ($1) and create the symlinks. Source is a
+# repo-relative path (may contain `/`); target is expanded from `~`. $2 = header.
+link_block() {
+  local block="$1"
+  hdr "$2"
   [[ -f "$MANIFEST" ]] || { warn "no manifest.yaml — skipping"; return; }
-  # Parse the simple `  name: ~/path` lines under `config_symlinks:`.
-  awk '
-    /^config_symlinks:/ {inblk=1; next}
-    /^[a-z_]+:/         {inblk=0}
-    inblk && /^[[:space:]]+[A-Za-z0-9_.-]+:[[:space:]]*/ {
+  awk -v blk="$block" '
+    $0 ~ "^" blk ":"   {inblk=1; next}
+    /^[a-z_]+:/        {inblk=0}
+    inblk && /^[[:space:]]+[A-Za-z0-9_.\/-]+:[[:space:]]*/ {
       sub(/#.*/, ""); gsub(/[[:space:]]/, "");
       split($0, kv, ":"); print kv[1] "\t" kv[2]
     }' "$MANIFEST" | while IFS=$'\t' read -r src tgt; do
@@ -119,6 +121,32 @@ link_configs() {
       ln -sfn "$abs" "$tgt" && ok "$tgt -> $src"
     fi
   done
+}
+link_configs() { link_block config_symlinks "Symlinking configs into ~/.config/"; }
+link_home()    { link_block home_symlinks   "Symlinking dotfiles into ~/"; }
+
+# ---------------------------------------------------------------------------
+# Shell framework (oh-my-zsh + powerlevel10k + plugins)
+# ---------------------------------------------------------------------------
+# The always-symlinked zsh/.zshrc hard-requires oh-my-zsh and loads the
+# powerlevel10k theme + zsh-syntax-highlighting plugin, so install them here
+# regardless of which groups were chosen. Idempotent; safe to re-run.
+clone_if_absent() {
+  local url="$1" dir="$2" name="$3"
+  if [[ -d "$dir" ]]; then ok "$name (present)"; return; fi
+  if git clone --depth=1 "$url" "$dir" >/dev/null 2>&1; then ok "$name"; else warn "$name clone failed"; fi
+}
+install_shell_framework() {
+  hdr "Installing shell framework (oh-my-zsh, powerlevel10k, plugins)"
+  if ! have git; then warn "git not found — skipping (install Xcode CLT or the dev group, then re-run)"; return; fi
+  local data="${XDG_DATA_HOME:-$HOME/.local/share}"
+  local omz="$data/.oh-my-zsh"
+  clone_if_absent "https://github.com/ohmyzsh/ohmyzsh.git" "$omz" "oh-my-zsh"
+  [[ -d "$omz" ]] || return
+  local custom="$omz/custom"
+  clone_if_absent "https://github.com/romkatv/powerlevel10k.git"             "$custom/themes/powerlevel10k"            "powerlevel10k"
+  clone_if_absent "https://github.com/zsh-users/zsh-syntax-highlighting.git" "$custom/plugins/zsh-syntax-highlighting" "zsh-syntax-highlighting"
+  clone_if_absent "https://github.com/zsh-users/zsh-autosuggestions.git"     "$custom/plugins/zsh-autosuggestions"     "zsh-autosuggestions"
 }
 
 # ---------------------------------------------------------------------------
@@ -225,11 +253,13 @@ main() {
     esac
   done
   link_configs
+  link_home
   case "$mode" in
     core) run_bundle "core" ;;
     all)  INCLUDE_STALE=1; run_bundle "core ${GROUP_ORDER[*]}" ;;
     *)    select_groups; run_bundle "$(selected_list)" ;;
   esac
+  install_shell_framework
   hdr "Done"
   say "Re-run anytime to add more groups. Inventory drift: ${cyn}install/refresh-inventory.sh${rst}"
 }
