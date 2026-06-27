@@ -567,7 +567,7 @@ mas "Agenda", id: 1287445660  # group:productivity
 mas "Calca", id: 635758264  # group:writing used:recent
 mas "Day One", id: 1055511498  # group:productivity used:recent
 mas "GarageBand", id: 682658836  # group:audio
-mas "Gemini 2", id: 1090488118  # group:maintenance used:recent
+mas "Gemini 2", id: 1090488118  # group:maintenance used:recent also-cask:gemini
 mas "iMovie", id: 408981434  # group:video
 mas "Infuse", id: 1136220934  # group:video
 mas "Keynote", id: 409183694  # group:office
@@ -575,25 +575,25 @@ mas "Kindle", id: 302584613  # group:reading
 mas "Logic Pro", id: 634148309  # group:audio
 mas "Mapper", id: 1589391989  # group:utilities
 mas "Marked 2", id: 890031187  # group:writing used:recent
-mas "Microsoft Excel", id: 462058435  # group:office
-mas "Microsoft OneNote", id: 784801555  # group:office
-mas "Microsoft Word", id: 462054704  # group:office used:recent
+cask "microsoft-excel"  # group:office
+cask "microsoft-onenote"  # group:office
+cask "microsoft-word"  # group:office used:recent
 mas "MindNode Classic", id: 1289197285  # group:writing used:recent
 mas "Numbers", id: 409203825  # group:office
 mas "Obsidian Web Clipper", id: 6720708363  # group:productivity
-mas "OmniFocus", id: 1542143627  # group:productivity used:recent
-mas "OneDrive", id: 823766827  # group:cloud
+mas "OmniFocus", id: 1542143627  # group:productivity used:recent also-cask:omnifocus
+cask "onedrive"  # group:cloud
 mas "Pages", id: 409201541  # group:office
 mas "Paprika Recipe Manager 3", id: 1303222628  # group:productivity
 mas "Pixelmator Pro", id: 1289583905  # group:creative
 mas "Prompt 3", id: 1594420480  # group:remote used:recent
 mas "Screens", id: 1663047912  # group:remote
-mas "Scrivener", id: 1310686187  # group:writing
-mas "Soulver 3", id: 1508732804  # group:writing
+mas "Scrivener", id: 1310686187  # group:writing also-cask:scrivener
+mas "Soulver 3", id: 1508732804  # group:writing also-cask:soulver
 mas "Streaks", id: 963034692  # group:productivity
 mas "StuffIt Expander", id: 919269455  # group:maintenance
 mas "Tampermonkey", id: 6738342400  # group:security
-mas "Telegram", id: 747648890  # group:comms
+cask "telegram"  # group:comms
 mas "Things", id: 904280696  # group:productivity
 mas "Tot", id: 1491071483  # group:writing used:recent
 mas "Ulysses", id: 1225570693  # group:writing
