@@ -15,7 +15,6 @@ plugins=(
     common-aliases
     copybuffer
     copypath
-    direnv
     docker
     extract
     gh
@@ -32,9 +31,15 @@ plugins=(
     sudo
     tmux
     web-search
-    zoxide
-    zsh-syntax-highlighting  # must be last
 )
+
+# Plugins that eval `<tool> init/hook` at load and error if the binary is
+# absent. The rc is always symlinked, but zoxide (group:shell) / direnv
+# (group:dev) may not be installed (e.g. a core-only install), so add them
+# only when present.
+command -v zoxide >/dev/null 2>&1 && plugins+=(zoxide)
+command -v direnv >/dev/null 2>&1 && plugins+=(direnv)
+plugins+=(zsh-syntax-highlighting)  # must be last
 
 ZSH_THEME="powerlevel10k/powerlevel10k"
 export POWERLEVEL9K_CONFIG_FILE="${XDG_CONFIG_HOME}/zsh/p10k.zsh"
@@ -55,22 +60,29 @@ fi
 # Initialize Oh My Zsh
 source "${ZSH}/oh-my-zsh.sh"
 
-# Aliases
-alias emacsclient="/Applications/Emacs.app/Contents/MacOS/bin/emacsclient"
-function ec {
-  local flags=() args=()
-  for a in "$@"; do
-    if [[ "$a" = -* ]]; then flags+=("$a")
-    elif [[ "$a" = /* ]]; then args+=("$a")
-    else args+=("$PWD/$a")
-    fi
-  done
-  [[ ${#args[@]} -eq 0 ]] && args+=("$PWD")
-  command emacsclient "${flags[@]}" "${args[@]}"
-}
-alias ecg="ec -c"        # open in GUI frame
-alias ect="ec -nw"       # open in terminal
-export EDITOR="/Applications/Emacs.app/Contents/MacOS/bin/emacsclient"
+# Editor — prefer the Emacs (emacs-mac port) emacsclient when installed,
+# otherwise fall back to micro. Emacs is not installed by the Brewfile (it's
+# built via the nix flow), so guard everything emacs on the binary existing.
+EMACSCLIENT="/Applications/Emacs.app/Contents/MacOS/bin/emacsclient"
+if [[ -x "$EMACSCLIENT" ]]; then
+  alias emacsclient="$EMACSCLIENT"
+  function ec {
+    local flags=() args=()
+    for a in "$@"; do
+      if [[ "$a" = -* ]]; then flags+=("$a")
+      elif [[ "$a" = /* ]]; then args+=("$a")
+      else args+=("$PWD/$a")
+      fi
+    done
+    [[ ${#args[@]} -eq 0 ]] && args+=("$PWD")
+    command "$EMACSCLIENT" "${flags[@]}" "${args[@]}"
+  }
+  alias ecg="ec -c"        # open in GUI frame
+  alias ect="ec -nw"       # open in terminal
+  export EDITOR="$EMACSCLIENT"
+elif command -v micro >/dev/null 2>&1; then
+  export EDITOR="micro"
+fi
 alias gcon="git -c core.hooksPath=/dev/null checkout"
 alias karabiner="/Library/Application\ Support/org.pqrs/Karabiner-Elements/bin/karabiner_cli"
 alias pxi='pipx install'
