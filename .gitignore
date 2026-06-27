@@ -14,6 +14,9 @@ emacs/elgrep-data.el
 # Local overrides
 zsh/*.local
 
+# zsh — compinit's generated completion cache (host/version specific)
+zsh/.zcompdump*
+
 # Backlog drafts
 backlog/drafts/*
 
