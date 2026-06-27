@@ -561,6 +561,10 @@ cask "zotero"  # group:reading
 cask "docker-desktop"  # group:dev-apps
 cask "omnioutliner"  # group:productivity
 cask "omniplan"  # group:productivity
+cask "battle-net"  # group:games
+cask "sketch"  # group:creative
+cask "wine-stable"  # group:games
+cask "paragon-extfs"  # group:system
 mas "Acidity", id: 6472630023  # group:utilities
 mas "Actions", id: 1586435171  # group:productivity
 mas "Actions For Obsidian", id: 1659667937  # group:productivity
