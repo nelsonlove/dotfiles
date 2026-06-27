@@ -106,7 +106,7 @@ link_block() {
     /^[a-z_]+:/        {inblk=0}
     inblk && /^[[:space:]]+[A-Za-z0-9_.\/-]+:[[:space:]]*/ {
       sub(/#.*/, ""); gsub(/[[:space:]]/, "");
-      split($0, kv, ":"); print kv[1] "\t" kv[2]
+      i = index($0, ":"); print substr($0, 1, i-1) "\t" substr($0, i+1)
     }' "$MANIFEST" | while IFS=$'\t' read -r src tgt; do
     [[ -z "$src" || -z "$tgt" ]] && continue
     tgt="${tgt/#\~/$HOME}"
@@ -133,7 +133,10 @@ link_home()    { link_block home_symlinks   "Symlinking dotfiles into ~/"; }
 # regardless of which groups were chosen. Idempotent; safe to re-run.
 clone_if_absent() {
   local url="$1" dir="$2" name="$3"
-  if [[ -d "$dir" ]]; then ok "$name (present)"; return; fi
+  # Gate on a finalized clone (.git), not bare dir existence: an interrupted
+  # clone can leave a partial dir that a `-d` check would treat as complete.
+  if [[ -e "$dir/.git" ]]; then ok "$name (present)"; return; fi
+  [[ -d "$dir" ]] && rm -rf "$dir"   # partial/interrupted clone — start clean
   if git clone --depth=1 "$url" "$dir" >/dev/null 2>&1; then ok "$name"; else warn "$name clone failed"; fi
 }
 install_shell_framework() {
@@ -146,7 +149,6 @@ install_shell_framework() {
   local custom="$omz/custom"
   clone_if_absent "https://github.com/romkatv/powerlevel10k.git"             "$custom/themes/powerlevel10k"            "powerlevel10k"
   clone_if_absent "https://github.com/zsh-users/zsh-syntax-highlighting.git" "$custom/plugins/zsh-syntax-highlighting" "zsh-syntax-highlighting"
-  clone_if_absent "https://github.com/zsh-users/zsh-autosuggestions.git"     "$custom/plugins/zsh-autosuggestions"     "zsh-autosuggestions"
 }
 
 # ---------------------------------------------------------------------------

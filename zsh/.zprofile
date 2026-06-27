@@ -28,8 +28,12 @@ _secrets="${HOME}/Documents/00-09 System/05 Secrets & credentials/05.11 Secrets/
 [[ -f "$_secrets" ]] && source "$_secrets"
 unset _secrets
 
-# GitHub (dynamic — uses keychain token via gh CLI, if authed)
-command -v gh >/dev/null 2>&1 && \
-    export GITHUB_PERSONAL_ACCESS_TOKEN="$(gh auth token 2>/dev/null)"
+# GitHub (dynamic — uses keychain token via gh CLI, if authed). Leave the var
+# unset (not exported-empty) when gh is missing or not logged in.
+if command -v gh >/dev/null 2>&1; then
+    _ghtoken="$(gh auth token 2>/dev/null)"
+    [[ -n "$_ghtoken" ]] && export GITHUB_PERSONAL_ACCESS_TOKEN="$_ghtoken"
+    unset _ghtoken
+fi
 
 touch_and_execute "$XDG_CONFIG_HOME/zsh/zprofile.local"
