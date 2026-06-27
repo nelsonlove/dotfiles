@@ -455,6 +455,7 @@ cask "font-fira-code"  # group:fonts
 cask "font-inter"  # group:fonts
 cask "font-iosevka"  # group:fonts
 cask "font-iosevka-aile"  # group:fonts
+cask "font-iosevka-term-nerd-font"  # group:fonts
 cask "font-merriweather"  # group:fonts
 cask "font-optician-sans"  # group:fonts
 cask "font-victor-mono"  # group:fonts
