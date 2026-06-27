@@ -43,7 +43,7 @@
     defaultBranch = main
 
 [interactive]
-    diffFilter = delta --color-only
+    diffFilter = command -v delta >/dev/null 2>&1 && delta --color-only || cat
 
 [user]
 	name = Nelson Love

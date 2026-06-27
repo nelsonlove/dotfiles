@@ -83,7 +83,7 @@ alias claude-safe="command claude"
 alias claude-remote="command claude remote-control"
 
 # Auto-route to jd claude when inside the JD tree
-eval "$(jd claude --setup)"
+command -v jd >/dev/null 2>&1 && eval "$(jd claude --setup)"
 
 # Functions
 function vrun() {
@@ -110,7 +110,7 @@ fi
 if command -v brew >/dev/null 2>&1; then
     export PATH="$(brew --prefix python)/libexec/bin:${PATH}"
 fi
-eval "$(register-python-argcomplete pipx)"
+command -v register-python-argcomplete >/dev/null 2>&1 && eval "$(register-python-argcomplete pipx)"
 
 # Local overrides
 touch_and_execute "${XDG_CONFIG_HOME}/zsh/zshrc.local"
@@ -119,7 +119,7 @@ touch_and_execute "${XDG_CONFIG_HOME}/zsh/zshrc.local"
 [[ ! -f $POWERLEVEL9K_CONFIG_FILE ]] || source "$POWERLEVEL9K_CONFIG_FILE"
 
 # jd-cli shell integration (cd wrapper + completions)
-eval "$(jd cd --setup)"
+command -v jd >/dev/null 2>&1 && eval "$(jd cd --setup)"
 
 # Completions
 fpath=(~/.zfunc ~/.zsh/completions $fpath)
@@ -129,4 +129,4 @@ autoload -Uz compinit && compinit
 # export PATH="$HOME/.bun/bin:$PATH"
 
 # Set up fzf key bindings and fuzzy completion
-source <(fzf --zsh)
+command -v fzf >/dev/null 2>&1 && source <(fzf --zsh)
