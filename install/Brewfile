@@ -218,7 +218,7 @@ brew "jq"  # group:core
 # Swiss-army knife of markup format conversion
 brew "pandoc"  # group:editor
 # Interactive environments for writing and running code
-brew "jupyterlab"  # group:dev
+brew "jupyterlab"  # group:data
 # Network authentication protocol
 brew "krb5"  # group:_dep
 # Linear Algebra PACKage
@@ -254,7 +254,7 @@ brew "nethack"  # group:games
 # Port scanning utility for large networks
 brew "nmap"  # group:cloud
 # Package for scientific computing with Python
-brew "numpy"  # group:extras surfaced/review
+brew "numpy"  # group:data
 # Renders an animated, color, ANSI-text loop of the Poptart Cat
 brew "nyancat"  # group:games
 # Adds an OCR text layer to scanned PDF files
@@ -324,7 +324,7 @@ brew "qemu"  # group:dev
 # Cross-platform application and UI framework
 brew "qt"  # group:extras surfaced/review
 # Software environment for statistical computing
-brew "r"  # group:dev
+brew "r"  # group:data
 # Reverse engineering framework
 brew "radare2"  # group:dev
 # Develop and deploy code with zero configuration
@@ -388,7 +388,7 @@ brew "uv"  # group:dev
 # Command-line interface for Vercel
 brew "vercel-cli"  # group:cloud
 # Terminal spreadsheet multitool for discovering and arranging data
-brew "visidata"  # group:shell
+brew "visidata"  # group:data
 # Language servers for HTML, CSS, JavaScript, and JSON extracted from vscode
 brew "vscode-langservers-extracted"  # group:editor
 # Convert HTML to PDF
@@ -568,6 +568,7 @@ cask "clion"  # group:jetbrains
 cask "datagrip"  # group:jetbrains
 cask "pycharm"  # group:jetbrains
 cask "webstorm"  # group:jetbrains
+cask "dataspell"  # group:data
 mas "Acidity", id: 6472630023  # group:utilities
 mas "Actions", id: 1586435171  # group:productivity
 mas "Actions For Obsidian", id: 1659667937  # group:productivity

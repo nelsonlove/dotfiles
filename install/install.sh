@@ -38,7 +38,7 @@ have() { command -v "$1" &>/dev/null; }
 # list (so never shown and never installed): `_dep` (transitive deps brew
 # resolves on its own) and `_untagged` (newly-dumped packages awaiting a group —
 # merge-brewfile-tags.py warns about these so they get categorized).
-GROUP_ORDER=(shell editor terminal dev dev-apps jetbrains cloud creative audio video writing office productivity reading comms security maintenance utilities remote system fonts games extras)
+GROUP_ORDER=(shell editor terminal dev dev-apps jetbrains data cloud creative audio video writing office productivity reading comms security maintenance utilities remote system fonts games extras)
 declare -A GROUP_LABEL=(
   [shell]="Shell & CLI tools"
   [editor]="Editor support (LSPs, formatters, prose tools)"
@@ -46,6 +46,7 @@ declare -A GROUP_LABEL=(
   [dev]="Dev runtimes & tooling (node, python, rust, docker…)"
   [dev-apps]="Dev GUI apps (Xcode, GitHub, UTM, Godot…)"
   [jetbrains]="JetBrains IDEs (CLion, DataGrip, PyCharm, WebStorm)"
+  [data]="Data science (Jupyter, R, NumPy, VisiData, DataSpell)"
   [cloud]="Cloud & work CLIs (aws, cloudflare, terraform…)"
   [creative]="Creative & graphics (Affinity, Pixelmator, Blender…)"
   [audio]="Audio (Logic, GarageBand, Audacity, plugins…)"
