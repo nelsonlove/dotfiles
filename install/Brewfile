@@ -1,7 +1,5 @@
 tap "belphemur/tap", "https://github.com/Belphemur/homebrew-tap"
-tap "bvanrijn/wrangler"
 tap "forketyfork/tap"
-tap "homebrew/bundle"
 tap "hudochenkov/sshpass"
 tap "minio/stable"
 tap "nikitabobko/tap"
