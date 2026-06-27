@@ -60,7 +60,7 @@ n="$(grep -E '^(brew|cask|mas) ' "$BREWFILE" | grep -vcE '# group:')"
 
 # 6. static scan for bash-4-only constructs (catches the regression class even
 #    when it would only soft-fail at runtime — the original declare -A bug)
-b4="$(grep -nE 'declare[[:space:]]+-A|local[[:space:]]+-A|\bmapfile\b|\breadarray\b|\$\{[^}]*(\^\^|,,)' "$INSTALL" || true)"
+b4="$(grep -nE 'declare[[:space:]]+-A|local[[:space:]]+-A|\bmapfile\b|\breadarray\b|\$\{[^}]*(\^\^|,,)|\[-[0-9]' "$INSTALL" || true)"
 [[ -z "$b4" ]] && ok "no bash-4-only constructs (declare -A, mapfile, \${x^^}, …)" || bad "bash-4-only construct(s):
 $(printf '%s\n' "$b4" | sed 's/^/      /')"
 
