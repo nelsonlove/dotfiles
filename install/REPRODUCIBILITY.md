@@ -147,6 +147,41 @@ The audit gap there isn't "we need to dump these" but "we need a
 bootstrap checklist of which `<cli> login` flows to run after a fresh
 install." That checklist is a separate concern from this file.
 
+## Manually-installed apps (the audit gap)
+
+`install/audit-unmanaged-apps.sh` classifies everything in `/Applications`
++ `~/Applications` as App Store (`_MASReceipt`), Homebrew (matches a
+Brewfile cask), or **unmanaged**. The unmanaged set is what a fresh
+machine won't get automatically. As of 2026-06-25 (MacBook Pro):
+
+**Has a cask, deliberately kept OUT of the Brewfile** — install by hand
+if/when wanted (we don't want these auto-installed on every machine):
+
+- Audio installer-managers — `native-access` (Native Instruments /
+  Kontakt), `izotope-product-portal` (iZotope RX, Audiolens),
+  `steinberg-download-assistant` (Cubase). Their licensed content
+  installs *through* these, so the managers are the reproducible entry
+  point — but they pull large libraries and need per-product auth, so
+  they're documented here, not declared.
+- `ableton-live-suite` (Ableton Live), `battle-net`, `sketch`
+  (license-key), `wine-stable`, `paragon-extfs` (extFS for Mac),
+  `flipper`, `conductor`.
+
+**No cask — manual / licensed installers** (restore by hand after a
+wipe): Synthesizer V Studio, Kontakt content, iZotope RX 10 / Audiolens,
+Cubase 13, RipX DAW, sforzando, ReDominator1x, APPlayMIDI, chipsynth SFC,
+DMX, AIVA, Autodesk Fusion 360, VGMTrans, Basilisk II (+GUI), RimSort,
+Solstice, lichess, 120 HN, Awful, Bailiff, IconDrum, Remindian.
+
+**Managed elsewhere — not gaps:** the JetBrains IDEs (CLion, DataGrip,
+DataSpell, PyCharm, Rider, RustRover, WebStorm) are installed/updated by
+**JetBrains Toolbox** (a declared cask). Emacs is built from source
+(emacs-mac, see [[09 Emacs]]). "Claude Config" / "Share URL to Obsidian"
+are local automation companions, not independently installable.
+
+Re-run the audit after big install/uninstall churn; treat each new
+unmanaged entry as a decision: declare as cask, accept as manual, or remove.
+
 ## What this file deliberately does NOT cover
 
 - `~/.cache/`, `~/.local/share/`, `~/.local/state/` — derived state,

@@ -558,6 +558,9 @@ cask "xquartz"  # group:system
 cask "zoom"  # group:comms
 # Collect, organise, cite, and share research sources
 cask "zotero"  # group:reading
+cask "docker-desktop"  # group:dev-apps
+cask "omnioutliner"  # group:productivity
+cask "omniplan"  # group:productivity
 mas "Acidity", id: 6472630023  # group:utilities
 mas "Actions", id: 1586435171  # group:productivity
 mas "Actions For Obsidian", id: 1659667937  # group:productivity
