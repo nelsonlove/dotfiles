@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Interactive installer for a fresh (or existing) macOS machine.
 #
-# Pure bash — NO external TUI dependency, because this runs before any
-# packages are installed. Driven entirely by the `# group:NAME` tags in
+# Pure bash, and intentionally bash-3.2-compatible — macOS ships bash 3.2
+# (/bin/bash), and this runs before Homebrew (and a newer bash) exist. No
+# associative arrays, no bash-4 features. Driven by the `# group:NAME` tags in
 # install/Brewfile (see install/REPRODUCIBILITY.md).
 #
 # Steps:
@@ -33,42 +34,58 @@ ok()   { printf "  %s✓%s %s\n" "$grn" "$rst" "$*"; }
 warn() { printf "  %s!%s %s\n" "$ylw" "$rst" "$*"; }
 have() { command -v "$1" &>/dev/null; }
 
-# Human labels for groups. Order here defines menu order. 'core' is implicit
-# (always installed) and never shown as a toggle. Deliberately ABSENT from this
-# list (so never shown and never installed): `_dep` (transitive deps brew
-# resolves on its own) and `_untagged` (newly-dumped packages awaiting a group —
-# merge-brewfile-tags.py warns about these so they get categorized).
+# Group menu order. 'core' is implicit (always installed) and never shown as a
+# toggle. Deliberately ABSENT (so never shown and never installed): `_dep`
+# (transitive deps brew resolves on its own) and `_untagged` (newly-dumped
+# packages awaiting a group — merge-brewfile-tags.py warns about these).
 GROUP_ORDER=(shell editor terminal dev dev-apps jetbrains data cloud creative audio video writing office productivity reading comms security maintenance utilities remote system fonts games extras)
-declare -A GROUP_LABEL=(
-  [shell]="Shell & CLI tools"
-  [editor]="Editor support (LSPs, formatters, prose tools)"
-  [terminal]="Terminal emulators (beyond core)"
-  [dev]="Dev runtimes & tooling (node, python, rust, docker…)"
-  [dev-apps]="Dev GUI apps (Xcode, GitHub, UTM, Godot…)"
-  [jetbrains]="JetBrains IDEs (CLion, DataGrip, PyCharm, WebStorm)"
-  [data]="Data science (Jupyter, R, NumPy, VisiData, DataSpell)"
-  [cloud]="Cloud & work CLIs (aws, cloudflare, terraform…)"
-  [creative]="Creative & graphics (Affinity, Pixelmator, Blender…)"
-  [audio]="Audio (Logic, GarageBand, Audacity, plugins…)"
-  [video]="Video (Infuse, VLC, HandBrake…)"
-  [writing]="Writing & notes (Scrivener, Ulysses, Marked…)"
-  [office]="Office (iWork, Microsoft Office)"
-  [productivity]="Productivity (OmniFocus, Things, Alfred, Hazel…)"
-  [reading]="Reading & research (Kindle, Zotero, Bookends…)"
-  [comms]="Communication (Telegram, Discord, Zoom)"
-  [security]="Security (Little Snitch, KnockKnock, AdBlock…)"
-  [maintenance]="Maintenance (DaisyDisk, OnyX, archives…)"
-  [utilities]="Utilities (Chrome, ChatGPT, misc)"
-  [remote]="Remote & transfer (Screens, Prompt, Transmit…)"
-  [system]="System & menu bar (AppGrid, Hot, frameworks…)"
-  [fonts]="Fonts"
-  [games]="Games & toys"
-  [extras]="Extras (uncategorized — review these)"
-)
+
+# bash 3.2 has no associative arrays, so labels are a case function and
+# selection state is an indexed array (SEL) parallel to GROUP_ORDER.
+group_label() {
+  case "$1" in
+    shell)        echo "Shell & CLI tools";;
+    editor)       echo "Editor support (LSPs, formatters, prose tools)";;
+    terminal)     echo "Terminal emulators (beyond core)";;
+    dev)          echo "Dev runtimes & tooling (node, python, rust, docker…)";;
+    dev-apps)     echo "Dev GUI apps (Xcode, GitHub, UTM, Godot…)";;
+    jetbrains)    echo "JetBrains IDEs (CLion, DataGrip, PyCharm, WebStorm)";;
+    data)         echo "Data science (Jupyter, R, NumPy, VisiData, DataSpell)";;
+    cloud)        echo "Cloud & work CLIs (aws, cloudflare, terraform…)";;
+    creative)     echo "Creative & graphics (Affinity, Pixelmator, Blender…)";;
+    audio)        echo "Audio (Logic, GarageBand, Audacity, plugins…)";;
+    video)        echo "Video (Infuse, VLC, HandBrake…)";;
+    writing)      echo "Writing & notes (Scrivener, Ulysses, Marked…)";;
+    office)       echo "Office (iWork, Microsoft Office)";;
+    productivity) echo "Productivity (OmniFocus, Things, Alfred, Hazel…)";;
+    reading)      echo "Reading & research (Kindle, Zotero, Bookends…)";;
+    comms)        echo "Communication (Telegram, Discord, Zoom)";;
+    security)     echo "Security (Little Snitch, KnockKnock, AdBlock…)";;
+    maintenance)  echo "Maintenance (DaisyDisk, OnyX, archives…)";;
+    utilities)    echo "Utilities (Chrome, ChatGPT, misc)";;
+    remote)       echo "Remote & transfer (Screens, Prompt, Transmit…)";;
+    system)       echo "System & menu bar (AppGrid, Hot, frameworks…)";;
+    fonts)        echo "Fonts";;
+    games)        echo "Games & toys";;
+    extras)       echo "Extras (uncategorized — review these)";;
+    *)            echo "$1";;
+  esac
+}
+
 # Groups pre-selected when the menu opens.
 DEFAULT_ON=(shell editor dev)
 # Skip not-recently-used apps (casks/mas without `used:recent`) by default.
 INCLUDE_STALE=0
+# Selection state, parallel to GROUP_ORDER (SEL[i]=1 means group i selected).
+SEL=()
+
+group_index() {
+  local i
+  for i in "${!GROUP_ORDER[@]}"; do
+    [[ "${GROUP_ORDER[$i]}" == "$1" ]] && { echo "$i"; return; }
+  done
+  echo -1
+}
 
 # entries tagged for a group; app lines may have a trailing ` used:recent`, so
 # match the group name followed by space-or-EOL (keeps `dev` distinct from `dev-apps`).
@@ -107,20 +124,19 @@ link_configs() {
 # ---------------------------------------------------------------------------
 # Group selection
 # ---------------------------------------------------------------------------
-declare -A SELECTED
-
 print_menu() {
   clear 2>/dev/null || true
   say "${bold}Choose package groups to install${rst}"
-  say "${dim}Core (Claude Code, Obsidian) is always installed.${rst}\n"
-  local i=1
-  for g in "${GROUP_ORDER[@]}"; do
-    local mark=" "; [[ ${SELECTED[$g]:-0} == 1 ]] && mark="${grn}x${rst}"
-    local tot rec extra; tot="$(count_group "$g")"; rec="$(count_group_recent "$g")"
+  say "${dim}Core (Claude Code, Obsidian) is always installed.${rst}"
+  say ""
+  local i g mark tot rec extra
+  for i in "${!GROUP_ORDER[@]}"; do
+    g="${GROUP_ORDER[$i]}"
+    mark=" "; [[ "${SEL[$i]:-0}" == 1 ]] && mark="${grn}x${rst}"
+    tot="$(count_group "$g")"; rec="$(count_group_recent "$g")"
     extra=""
     (( rec > 0 && rec < tot )) && extra=" ${cyn}${rec} recent${rst}"
-    printf "  %2d) [%s] %-12s %s%s (%s)%s%s\n" "$i" "$mark" "$g" "${GROUP_LABEL[$g]}" "$dim" "$tot" "$rst" "$extra"
-    i=$((i+1))
+    printf "  %2d) [%s] %-12s %s%s (%s)%s%s\n" "$((i+1))" "$mark" "$g" "$(group_label "$g")" "$dim" "$tot" "$rst" "$extra"
   done
   printf "\n  %sCore${rst} [%sx%s] always       Claude Code, Obsidian, daily-driver CLI %s(%s)%s\n" "$dim" "$grn" "$rst" "$dim" "$(count_group core)" "$rst"
   local stale_state; (( INCLUDE_STALE )) && stale_state="${ylw}INCLUDED${rst}" || stale_state="${dim}skipped${rst}"
@@ -129,30 +145,35 @@ print_menu() {
 }
 
 select_groups() {
-  for g in "${DEFAULT_ON[@]}"; do SELECTED[$g]=1; done
+  local g idx i choice
+  for g in "${DEFAULT_ON[@]}"; do idx="$(group_index "$g")"; (( idx >= 0 )) && SEL[$idx]=1; done
   while true; do
     print_menu
-    printf "> "; read -r choice || break
+    printf "> "
+    # Read from the controlling terminal so the menu works under `curl … | bash`,
+    # where stdin is the pipe (not the keyboard). No tty → fall through to defaults.
+    read -r choice </dev/tty 2>/dev/null || break
     case "$choice" in
       "" ) break ;;
       q|Q ) say "Aborted."; exit 0 ;;
-      a|A ) for g in "${GROUP_ORDER[@]}"; do SELECTED[$g]=1; done ;;
-      n|N ) for g in "${GROUP_ORDER[@]}"; do SELECTED[$g]=0; done ;;
+      a|A ) for i in "${!GROUP_ORDER[@]}"; do SEL[$i]=1; done ;;
+      n|N ) for i in "${!GROUP_ORDER[@]}"; do SEL[$i]=0; done ;;
       s|S ) INCLUDE_STALE=$(( INCLUDE_STALE ^ 1 )) ;;
       *[!0-9]* ) : ;;  # ignore non-numeric
       * )
-        local idx=$((choice-1))
+        idx=$((choice-1))
         if (( idx >= 0 && idx < ${#GROUP_ORDER[@]} )); then
-          local g="${GROUP_ORDER[$idx]}"
-          SELECTED[$g]=$(( ${SELECTED[$g]:-0} ^ 1 ))
+          SEL[$idx]=$(( ${SEL[$idx]:-0} ^ 1 ))
         fi ;;
     esac
   done
 }
 
 selected_list() {
-  local out="core"
-  for g in "${GROUP_ORDER[@]}"; do [[ ${SELECTED[$g]:-0} == 1 ]] && out+=" $g"; done
+  local out="core" i
+  for i in "${!GROUP_ORDER[@]}"; do
+    [[ "${SEL[$i]:-0}" == 1 ]] && out+=" ${GROUP_ORDER[$i]}"
+  done
   echo "$out"
 }
 
