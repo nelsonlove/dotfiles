@@ -20,7 +20,7 @@ brew "angband"  # group:games
 # Codec library for encoding and decoding AV1 video streams
 brew "aom"  # group:_dep
 # Arduino command-line interface
-brew "arduino-cli"  # group:extras agent/review-me
+brew "arduino-cli"  # group:extras surfaced/review
 # Library for manipulating PNG images
 brew "libpng"  # group:_dep
 # Record and share terminal sessions
@@ -36,7 +36,7 @@ brew "awscli"  # group:cloud
 # Open-source, cross-platform JavaScript runtime environment
 brew "node"  # group:dev
 # Markdown‑native Task Manager & Kanban visualizer for any Git repository
-brew "backlog-md"  # group:extras agent/review-me
+brew "backlog-md"  # group:extras surfaced/review
 # Bourne-Again SHell, a UNIX command interpreter
 brew "bash"  # group:core
 # Language Server for Bash
@@ -44,7 +44,7 @@ brew "bash-language-server"  # group:editor
 # Collection of portable C++ source libraries
 brew "boost"  # group:_dep
 # Extract files from Microsoft cabinet files
-brew "cabextract"  # group:extras agent/review-me
+brew "cabextract"  # group:extras surfaced/review
 # Vector graphics library with cross-device output support
 brew "cairo"  # group:_dep
 # C parser in Python
@@ -86,7 +86,7 @@ brew "tesseract"  # group:_dep
 # High-performance, asynchronous messaging library
 brew "zeromq"  # group:_dep
 # Core component of the AcoustID project (Audio fingerprinting)
-brew "chromaprint"  # group:extras agent/review-me
+brew "chromaprint"  # group:extras surfaced/review
 # Control Google Chrome from the command-line
 brew "chrome-cli"  # group:shell
 # Cloudflare Tunnel client (formerly Argo Tunnel)
@@ -114,13 +114,13 @@ brew "docker", link: false  # group:dev
 # Isolated development environments using Docker
 brew "docker-compose"  # group:dev
 # Text processing system for reStructuredText
-brew "docutils", link: false  # group:extras agent/review-me
+brew "docutils", link: false  # group:extras surfaced/review
 # CLI for interacting with Doppler secrets and configuration
 brew "doppler"  # group:cloud
 # Select default apps for documents and URL schemes on macOS
 brew "duti"  # group:shell
 # Spellchecker wrapping library
-brew "enchant"  # group:extras agent/review-me
+brew "enchant"  # group:extras surfaced/review
 # Perl lib for reading and writing EXIF metadata
 brew "exiftool"  # group:creative
 # Simple, fast and user-friendly alternative to find
@@ -196,13 +196,13 @@ brew "handbrake", link: false  # group:video
 # Package compiler and linker metadata toolkit
 brew "pkgconf"  # group:_dep
 # File format designed to store large amounts of data
-brew "hdf5"  # group:extras agent/review-me
+brew "hdf5"  # group:extras surfaced/review
 # Client library for huggingface.co hub
 brew "hf"  # group:cloud
 # Tools for reading and writing Macintosh volumes
-brew "hfsutils"  # group:extras agent/review-me
+brew "hfsutils"  # group:extras surfaced/review
 # CLI email client written in Rust
-brew "himalaya"  # group:extras agent/review-me
+brew "himalaya"  # group:extras surfaced/review
 # Get events and tasks from the macOS calendar database
 brew "ical-buddy"  # group:shell
 # ISO/IEC 23008-12:2017 HEIF file format decoder and encoder
@@ -212,7 +212,7 @@ brew "imagemagick"  # group:creative
 # Design system for interactive fiction
 brew "inform6"  # group:games
 # Image manipulation library
-brew "jpeg"  # group:extras agent/review-me
+brew "jpeg"  # group:extras surfaced/review
 # Lightweight and flexible command-line JSON processor
 brew "jq"  # group:core
 # Swiss-army knife of markup format conversion
@@ -222,19 +222,19 @@ brew "jupyterlab"  # group:dev
 # Network authentication protocol
 brew "krb5"  # group:_dep
 # Linear Algebra PACKage
-brew "lapack"  # group:extras agent/review-me
+brew "lapack"  # group:extras surfaced/review
 # Command-line, double-entry accounting tool
-brew "ledger"  # group:extras agent/review-me
+brew "ledger"  # group:extras surfaced/review
 # JIT library for the GNU compiler collection
-brew "libgccjit"  # group:extras agent/review-me
+brew "libgccjit"  # group:extras surfaced/review
 # Implementation of the file(1) command
-brew "libmagic"  # group:extras agent/review-me
+brew "libmagic"  # group:extras surfaced/review
 # Postgres C API library
 brew "libpq"  # group:_dep
 # C99 library which implements a VT220 or xterm terminal emulator
-brew "libvterm"  # group:extras agent/review-me
+brew "libvterm"  # group:extras surfaced/review
 # GNOME XML library
-brew "libxml2"  # group:extras agent/review-me
+brew "libxml2"  # group:extras surfaced/review
 # Next-gen compiler infrastructure
 brew "llvm"  # group:dev
 # Fully functional local AWS cloud stack
@@ -254,7 +254,7 @@ brew "nethack"  # group:games
 # Port scanning utility for large networks
 brew "nmap"  # group:cloud
 # Package for scientific computing with Python
-brew "numpy"  # group:extras agent/review-me
+brew "numpy"  # group:extras surfaced/review
 # Renders an animated, color, ANSI-text loop of the Poptart Cat
 brew "nyancat"  # group:games
 # Adds an OCR text layer to scanned PDF files
@@ -276,9 +276,9 @@ brew "osxutils"  # group:shell
 # 7-Zip (high compression file archiver) implementation
 brew "p7zip"  # group:shell
 # PAM module for reattaching to the user's GUI (Aqua) session
-brew "pam-reattach"  # group:extras agent/review-me
+brew "pam-reattach"  # group:extras surfaced/review
 # Perl compatible regular expressions library
-brew "pcre"  # group:extras agent/review-me
+brew "pcre"  # group:extras surfaced/review
 # Highly capable, feature-rich programming language
 brew "perl"  # group:dev
 # General-purpose scripting language
@@ -294,9 +294,9 @@ brew "pnpm"  # group:dev
 # Python package management tool
 brew "poetry"  # group:dev
 # PDF rendering library (based on the xpdf-3.0 code base)
-brew "poppler"  # group:extras agent/review-me
+brew "poppler"  # group:extras surfaced/review
 # Convert bitmaps to vector graphics
-brew "potrace"  # group:extras agent/review-me
+brew "potrace"  # group:extras surfaced/review
 # Framework for managing multi-language pre-commit hooks
 brew "pre-commit"  # group:dev
 # Code formatter for JavaScript, CSS, JSON, GraphQL, Markdown, YAML
@@ -310,9 +310,9 @@ brew "pyenv"  # group:dev
 # Static type checker for Python
 brew "pyright"  # group:editor
 # Tab completion for Python argparse
-brew "python-argcomplete"  # group:extras agent/review-me
+brew "python-argcomplete"  # group:extras surfaced/review
 # Simple, correct PEP 517 build frontend
-brew "python-build", link: false  # group:extras agent/review-me
+brew "python-build", link: false  # group:extras surfaced/review
 # Python Language Server for the Language Server Protocol
 brew "python-lsp-server"  # group:editor
 # Interpreted, interactive, object-oriented programming language
@@ -322,7 +322,7 @@ brew "python@3.11"  # group:dev
 # Generic machine emulator and virtualizer
 brew "qemu"  # group:dev
 # Cross-platform application and UI framework
-brew "qt"  # group:extras agent/review-me
+brew "qt"  # group:extras surfaced/review
 # Software environment for statistical computing
 brew "r"  # group:dev
 # Reverse engineering framework
@@ -342,11 +342,11 @@ brew "ruff"  # group:dev
 # Safe, concurrent, practical language
 brew "rust"  # group:dev
 # Run AI agents isolated in a sandboxed macOS user account
-brew "sandvault"  # group:extras agent/review-me
+brew "sandvault"  # group:extras surfaced/review
 # Steel Bank Common Lisp system
 brew "sbcl"  # group:dev
 # SDL 1.2 compatibility layer that uses SDL 2.0 behind the scenes
-brew "sdl12-compat"  # group:extras agent/review-me
+brew "sdl12-compat"  # group:extras surfaced/review
 # Easily detect and prevent bugs and anti-patterns in your codebase
 brew "semgrep"  # group:dev
 # Static analysis and lint tool, for (ba)sh scripts
@@ -382,7 +382,7 @@ brew "tree-sitter@0.25"  # group:editor
 # Language Server Protocol implementation for TypeScript wrapping tsserver
 brew "typescript-language-server"  # group:editor
 # Extract files from InstallShield cabinet files
-brew "unshield"  # group:extras agent/review-me
+brew "unshield"  # group:extras surfaced/review
 # Extremely fast Python package installer and resolver, written in Rust
 brew "uv"  # group:dev
 # Command-line interface for Vercel
@@ -398,7 +398,7 @@ brew "wget"  # group:shell
 # Port of OpenAI's Whisper model in C/C++
 brew "whisper-cpp"  # group:audio
 # Lexical database for the English language
-brew "wordnet"  # group:extras agent/review-me
+brew "wordnet"  # group:extras surfaced/review
 # Generate your Xcode project from a spec file and your folder structure
 brew "xcodegen"  # group:dev
 # Language Server for Yaml Files
