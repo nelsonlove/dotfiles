@@ -14,6 +14,7 @@
 # Usage:  install/install.sh                  # interactive group picker
 #         install/install.sh --core           # non-interactive, Core only
 #         install/install.sh --all            # non-interactive, everything
+#         install/install.sh --groups a,b,c   # non-interactive: these groups + core (their apps install regardless of recency)
 #         install/install.sh --include-stale  # also install not-recently-used apps
 #
 # Apps (casks/mas) not opened recently are tagged without `used:recent` and are
@@ -38,7 +39,7 @@ have() { command -v "$1" &>/dev/null; }
 # toggle. Deliberately ABSENT (so never shown and never installed): `_dep`
 # (transitive deps brew resolves on its own) and `_untagged` (newly-dumped
 # packages awaiting a group — merge-brewfile-tags.py warns about these).
-GROUP_ORDER=(shell editor terminal dev dev-apps jetbrains data cloud creative audio video writing office productivity reading comms security maintenance utilities remote system fonts games extras)
+GROUP_ORDER=(shell editor terminal dev dev-apps jetbrains data cloud creative audio video writing office productivity reading comms security safari-extensions maintenance utilities remote system fonts games extras)
 
 # bash 3.2 has no associative arrays, so labels are a case function and
 # selection state is an indexed array (SEL) parallel to GROUP_ORDER.
@@ -60,7 +61,8 @@ group_label() {
     productivity) echo "Productivity (OmniFocus, Things, Alfred, Hazel…)";;
     reading)      echo "Reading & research (Kindle, Zotero, Bookends…)";;
     comms)        echo "Communication (Telegram, Discord, Zoom)";;
-    security)     echo "Security (Little Snitch, KnockKnock, AdBlock…)";;
+    security)     echo "Security (Little Snitch, KnockKnock, Micro Snitch…)";;
+    safari-extensions) echo "Safari extensions (Tampermonkey, AdBlock Pro, clippers…)";;
     maintenance)  echo "Maintenance (DaisyDisk, OnyX, archives…)";;
     utilities)    echo "Utilities (Chrome, ChatGPT, misc)";;
     remote)       echo "Remote & transfer (Screens, Prompt, Transmit…)";;
@@ -233,6 +235,14 @@ run_bundle() {
   hdr "Installing $n packages from groups: $selected"
   (( skipped > 0 )) && say "  ${dim}($skipped not-recently-used app(s) skipped — press ${rst}s${dim} in the menu or pass ${rst}--include-stale${dim} to add them)${rst}"
   if ! have brew; then warn "Homebrew not found — run bootstrap.sh first"; rm -f "$tmp"; return 1; fi
+  # mas lives in the shell group, not core — ensure it exists whenever the
+  # selection includes Mac App Store entries, so e.g. --groups safari-extensions
+  # works standalone (still needs you signed into the App Store). Skip if the
+  # bundle already installs `brew "mas"` (shell group) — brew bundle handles it.
+  if grep -qE '^mas ' "$tmp" && ! grep -qE '^brew "mas"' "$tmp" && ! have mas; then
+    warn "'mas' (App Store CLI) needed for the selected apps — installing it first"
+    brew install mas
+  fi
   say "${dim}(brew resolves dependencies automatically — _dep-tagged formulae are pulled in as needed)${rst}"
   brew bundle install --file="$tmp" --no-upgrade
   local rc=$?
@@ -245,21 +255,51 @@ run_bundle() {
 # main
 # ---------------------------------------------------------------------------
 main() {
-  local mode=""
-  for a in "$@"; do
-    case "$a" in
+  local mode="" groups="" groups_given=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
       --include-stale) INCLUDE_STALE=1 ;;
       --core) mode=core ;;
       --all)  mode=all ;;
-      -h|--help) sed -n '2,22p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; return 0 ;;
+      --groups) shift; groups="${1:-}"; groups_given=1 ;;
+      --groups=*) groups="${1#*=}"; groups_given=1 ;;
+      -h|--help) sed -n '2,23p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; return 0 ;;
+      *) warn "ignoring unrecognized argument '$1' (see --help; --groups takes ONE comma-separated list)" ;;
     esac
+    shift
   done
   link_configs
   link_home
   case "$mode" in
     core) run_bundle "core" ;;
     all)  INCLUDE_STALE=1; run_bundle "core ${GROUP_ORDER[*]}" ;;
-    *)    select_groups; run_bundle "$(selected_list)" ;;
+    *)
+      if (( groups_given )); then
+        # non-interactive: install exactly the named groups (comma-separated) + core.
+        if [[ -z "$groups" ]]; then
+          warn "--groups given an empty value — nothing to do (did you mean --all, or 'GROUP,GROUP'?)"; return 1
+        fi
+        # Explicitly naming a group means you want it — don't stale-skip its apps.
+        INCLUDE_STALE=1
+        local sel="core" g matched=0
+        # split on commas without glob/word-split surprises (read -ra, IFS=,)
+        local _g; IFS=',' read -ra _g <<<"$groups"
+        for g in "${_g[@]}"; do
+          [[ -z "$g" ]] && continue
+          if [[ "$g" == core || " ${GROUP_ORDER[*]} " == *" $g "* ]]; then
+            sel+=" $g"; matched=1
+          else
+            warn "unknown group '$g' — skipping (groups are the # group: tags in install/Brewfile)"
+          fi
+        done
+        if (( ! matched )); then
+          warn "no valid groups in --groups '$groups' — nothing to install (run --help for group names)"; return 1
+        fi
+        run_bundle "$sel"
+      else
+        select_groups; run_bundle "$(selected_list)"
+      fi
+      ;;
   esac
   install_shell_framework
   hdr "Done"
