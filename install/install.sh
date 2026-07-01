@@ -14,7 +14,7 @@
 # Usage:  install/install.sh                  # interactive group picker
 #         install/install.sh --core           # non-interactive, Core only
 #         install/install.sh --all            # non-interactive, everything
-#         install/install.sh --groups a,b,c   # non-interactive, just these groups (+ core)
+#         install/install.sh --groups a,b,c   # non-interactive: these groups + core (their apps install regardless of recency)
 #         install/install.sh --include-stale  # also install not-recently-used apps
 #
 # Apps (casks/mas) not opened recently are tagged without `used:recent` and are
@@ -237,8 +237,9 @@ run_bundle() {
   if ! have brew; then warn "Homebrew not found — run bootstrap.sh first"; rm -f "$tmp"; return 1; fi
   # mas lives in the shell group, not core — ensure it exists whenever the
   # selection includes Mac App Store entries, so e.g. --groups safari-extensions
-  # works standalone (still needs you signed into the App Store).
-  if grep -qE '^mas ' "$tmp" && ! have mas; then
+  # works standalone (still needs you signed into the App Store). Skip if the
+  # bundle already installs `brew "mas"` (shell group) — brew bundle handles it.
+  if grep -qE '^mas ' "$tmp" && ! grep -qE '^brew "mas"' "$tmp" && ! have mas; then
     warn "'mas' (App Store CLI) needed for the selected apps — installing it first"
     brew install mas
   fi
@@ -254,15 +255,16 @@ run_bundle() {
 # main
 # ---------------------------------------------------------------------------
 main() {
-  local mode="" groups=""
+  local mode="" groups="" groups_given=0
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --include-stale) INCLUDE_STALE=1 ;;
       --core) mode=core ;;
       --all)  mode=all ;;
-      --groups) shift; groups="${1:-}" ;;
-      --groups=*) groups="${1#*=}" ;;
+      --groups) shift; groups="${1:-}"; groups_given=1 ;;
+      --groups=*) groups="${1#*=}"; groups_given=1 ;;
       -h|--help) sed -n '2,23p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; return 0 ;;
+      *) warn "ignoring unrecognized argument '$1' (see --help; --groups takes ONE comma-separated list)" ;;
     esac
     shift
   done
@@ -272,16 +274,27 @@ main() {
     core) run_bundle "core" ;;
     all)  INCLUDE_STALE=1; run_bundle "core ${GROUP_ORDER[*]}" ;;
     *)
-      if [[ -n "$groups" ]]; then
+      if (( groups_given )); then
         # non-interactive: install exactly the named groups (comma-separated) + core.
-        local sel="core" g
-        for g in ${groups//,/ }; do
-          if [[ "$g" == core ]] || (( $(group_index "$g") >= 0 )); then
-            sel+=" $g"
+        if [[ -z "$groups" ]]; then
+          warn "--groups given an empty value — nothing to do (did you mean --all, or 'GROUP,GROUP'?)"; return 1
+        fi
+        # Explicitly naming a group means you want it — don't stale-skip its apps.
+        INCLUDE_STALE=1
+        local sel="core" g matched=0
+        # split on commas without glob/word-split surprises (read -ra, IFS=,)
+        local _g; IFS=',' read -ra _g <<<"$groups"
+        for g in "${_g[@]}"; do
+          [[ -z "$g" ]] && continue
+          if [[ "$g" == core || " ${GROUP_ORDER[*]} " == *" $g "* ]]; then
+            sel+=" $g"; matched=1
           else
             warn "unknown group '$g' — skipping (groups are the # group: tags in install/Brewfile)"
           fi
         done
+        if (( ! matched )); then
+          warn "no valid groups in --groups '$groups' — nothing to install (run --help for group names)"; return 1
+        fi
         run_bundle "$sel"
       else
         select_groups; run_bundle "$(selected_list)"
