@@ -38,7 +38,7 @@ have() { command -v "$1" &>/dev/null; }
 # toggle. Deliberately ABSENT (so never shown and never installed): `_dep`
 # (transitive deps brew resolves on its own) and `_untagged` (newly-dumped
 # packages awaiting a group — merge-brewfile-tags.py warns about these).
-GROUP_ORDER=(shell editor terminal dev dev-apps jetbrains data cloud creative audio video writing office productivity reading comms security maintenance utilities remote system fonts games extras)
+GROUP_ORDER=(shell editor terminal dev dev-apps jetbrains data cloud creative audio video writing office productivity reading comms security safari-extensions maintenance utilities remote system fonts games extras)
 
 # bash 3.2 has no associative arrays, so labels are a case function and
 # selection state is an indexed array (SEL) parallel to GROUP_ORDER.
@@ -60,7 +60,8 @@ group_label() {
     productivity) echo "Productivity (OmniFocus, Things, Alfred, Hazel…)";;
     reading)      echo "Reading & research (Kindle, Zotero, Bookends…)";;
     comms)        echo "Communication (Telegram, Discord, Zoom)";;
-    security)     echo "Security (Little Snitch, KnockKnock, AdBlock…)";;
+    security)     echo "Security (Little Snitch, KnockKnock, Micro Snitch…)";;
+    safari-extensions) echo "Safari extensions (Tampermonkey, AdBlock Pro, clippers…)";;
     maintenance)  echo "Maintenance (DaisyDisk, OnyX, archives…)";;
     utilities)    echo "Utilities (Chrome, ChatGPT, misc)";;
     remote)       echo "Remote & transfer (Screens, Prompt, Transmit…)";;
