@@ -14,6 +14,7 @@
 # Usage:  install/install.sh                  # interactive group picker
 #         install/install.sh --core           # non-interactive, Core only
 #         install/install.sh --all            # non-interactive, everything
+#         install/install.sh --groups a,b,c   # non-interactive, just these groups (+ core)
 #         install/install.sh --include-stale  # also install not-recently-used apps
 #
 # Apps (casks/mas) not opened recently are tagged without `used:recent` and are
@@ -234,6 +235,13 @@ run_bundle() {
   hdr "Installing $n packages from groups: $selected"
   (( skipped > 0 )) && say "  ${dim}($skipped not-recently-used app(s) skipped — press ${rst}s${dim} in the menu or pass ${rst}--include-stale${dim} to add them)${rst}"
   if ! have brew; then warn "Homebrew not found — run bootstrap.sh first"; rm -f "$tmp"; return 1; fi
+  # mas lives in the shell group, not core — ensure it exists whenever the
+  # selection includes Mac App Store entries, so e.g. --groups safari-extensions
+  # works standalone (still needs you signed into the App Store).
+  if grep -qE '^mas ' "$tmp" && ! have mas; then
+    warn "'mas' (App Store CLI) needed for the selected apps — installing it first"
+    brew install mas
+  fi
   say "${dim}(brew resolves dependencies automatically — _dep-tagged formulae are pulled in as needed)${rst}"
   brew bundle install --file="$tmp" --no-upgrade
   local rc=$?
@@ -246,21 +254,39 @@ run_bundle() {
 # main
 # ---------------------------------------------------------------------------
 main() {
-  local mode=""
-  for a in "$@"; do
-    case "$a" in
+  local mode="" groups=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
       --include-stale) INCLUDE_STALE=1 ;;
       --core) mode=core ;;
       --all)  mode=all ;;
-      -h|--help) sed -n '2,22p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; return 0 ;;
+      --groups) shift; groups="${1:-}" ;;
+      --groups=*) groups="${1#*=}" ;;
+      -h|--help) sed -n '2,23p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; return 0 ;;
     esac
+    shift
   done
   link_configs
   link_home
   case "$mode" in
     core) run_bundle "core" ;;
     all)  INCLUDE_STALE=1; run_bundle "core ${GROUP_ORDER[*]}" ;;
-    *)    select_groups; run_bundle "$(selected_list)" ;;
+    *)
+      if [[ -n "$groups" ]]; then
+        # non-interactive: install exactly the named groups (comma-separated) + core.
+        local sel="core" g
+        for g in ${groups//,/ }; do
+          if [[ "$g" == core ]] || (( $(group_index "$g") >= 0 )); then
+            sel+=" $g"
+          else
+            warn "unknown group '$g' — skipping (groups are the # group: tags in install/Brewfile)"
+          fi
+        done
+        run_bundle "$sel"
+      else
+        select_groups; run_bundle "$(selected_list)"
+      fi
+      ;;
   esac
   install_shell_framework
   hdr "Done"
