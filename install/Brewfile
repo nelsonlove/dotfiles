@@ -487,6 +487,8 @@ cask "iterm2"  # group:terminal
 # JetBrains tools manager
 # Keyboard customiser
 cask "karabiner-elements"  # group:core
+# Menu-bar toggle to prevent the Mac from sleeping (caffeinate wrapper)
+cask "keepingyouawake"  # group:system
 # Porting tool, to make Windows programs/games into native apps
 cask "kegworks-app/kegworks/kegworks"  # group:games
 # Tool to show what is persistently installed on the computer
