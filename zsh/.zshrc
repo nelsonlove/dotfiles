@@ -58,11 +58,14 @@ else
     export ZSH_TMUX_AUTOSTART=false
 fi
 
-# Over SSH the omz autostart above stays off (it would attach-or-create). Instead
-# attach *only if* a session already exists; otherwise fall through to a normal
-# shell. `-z "$TMUX"` avoids nesting when this shell is itself inside tmux.
+# Over SSH, attach to a running tmux session instead of a bare shell. The omz
+# autostart above stays off for SSH (it would attach-or-create). `command tmux`
+# skips the omz tmux-plugin alias; `-z "$TMUX"` avoids nesting. Deliberately NOT
+# `exec`: on a clean detach `attach` returns 0 and we close the SSH session, but
+# if the attach fails it returns non-zero and we fall through to a normal login
+# shell — so a failed attach can never drop the whole connection (as `exec` did).
 if [[ -n "$SSH_CONNECTION" && -z "$TMUX" ]] && command -v tmux >/dev/null; then
-    tmux ls >/dev/null 2>&1 && exec tmux attach
+    command tmux ls >/dev/null 2>&1 && { command tmux attach && exit; }
 fi
 
 # Initialize Oh My Zsh
