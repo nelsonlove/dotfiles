@@ -57,6 +57,13 @@ else
     export ZSH_TMUX_AUTOSTART=false
 fi
 
+# Over SSH the omz autostart above stays off (it would attach-or-create). Instead
+# attach *only if* a session already exists; otherwise fall through to a normal
+# shell. `-z "$TMUX"` avoids nesting when this shell is itself inside tmux.
+if [[ -n "$SSH_CONNECTION" && -z "$TMUX" ]] && command -v tmux >/dev/null; then
+    tmux ls >/dev/null 2>&1 && exec tmux attach
+fi
+
 # Initialize Oh My Zsh
 source "${ZSH}/oh-my-zsh.sh"
 
