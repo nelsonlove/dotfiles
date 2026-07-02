@@ -1,3 +1,13 @@
+# Over SSH, attach to a running tmux session instead of a bare shell. This MUST
+# run above the p10k instant-prompt block below: instant prompt redirects the
+# TTY, after which `tmux attach` fails with "open terminal failed: not a
+# terminal". Not `exec` — a clean detach (rc 0) closes the SSH session via
+# `exit`; a failed attach (rc != 0) falls through to a normal login shell.
+# `command tmux` skips the omz tmux-plugin alias; `-z "$TMUX"` avoids nesting.
+if [[ -n "$SSH_CONNECTION" && -z "$TMUX" ]] && command -v tmux >/dev/null; then
+    command tmux ls >/dev/null 2>&1 && { command tmux attach && exit; }
+fi
+
 # Enable Powerlevel10k instant prompt. Should stay close to the top of ~/.zshrc.
 # Initialization code that may require console input (password prompts, [y/n]
 # confirmations, etc.) must go above this block; everything else may go below.
@@ -56,16 +66,6 @@ if [[ -z "$TMUX" && -z "$INSIDE_EMACS" && -z "$SSH_CONNECTION" ]]; then
     export ZSH_TMUX_AUTOSTART=true
 else
     export ZSH_TMUX_AUTOSTART=false
-fi
-
-# Over SSH, attach to a running tmux session instead of a bare shell. The omz
-# autostart above stays off for SSH (it would attach-or-create). `command tmux`
-# skips the omz tmux-plugin alias; `-z "$TMUX"` avoids nesting. Deliberately NOT
-# `exec`: on a clean detach `attach` returns 0 and we close the SSH session, but
-# if the attach fails it returns non-zero and we fall through to a normal login
-# shell — so a failed attach can never drop the whole connection (as `exec` did).
-if [[ -n "$SSH_CONNECTION" && -z "$TMUX" ]] && command -v tmux >/dev/null; then
-    command tmux ls >/dev/null 2>&1 && { command tmux attach && exit; }
 fi
 
 # Initialize Oh My Zsh
