@@ -10,7 +10,7 @@ now *consumes* the Brewfile (grouped by `# group:` tags); the other dumps
 (pipx/uv/cargo) remain inventory-only.
 
 Narrative discussion lives in the vault at
-`00-09 System/04 Digital tools/04.11 Dotfiles.md` (why some surfaces
+`00-09 System/04 Apps & config/04.11 Dotfiles.md` (why some surfaces
 are intentionally undocumented, TCC limitations, etc.).
 
 ## Status
