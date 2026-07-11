@@ -1,5 +1,10 @@
 { config, lib, pkgs, ... }:
 
+let
+  # Canonical locations, declared once — mirrors DOTFILES / SECRETS_DIR in zsh/.zshenv.
+  dotfiles = "${config.home.homeDirectory}/repos/dotfiles";
+  secretsDir = "${config.home.homeDirectory}/Documents/00-09 System/09 Secrets & credentials/09.11 Secrets";
+in
 {
   home.username = "nelson";
   home.homeDirectory = lib.mkForce "/Users/nelson";
@@ -15,56 +20,56 @@
   # not the Nix store. Edits are live, no rebuild needed.
   home.file.".config/doom".source =
     config.lib.file.mkOutOfStoreSymlink
-      "${config.home.homeDirectory}/repos/dotfiles/doom";
+      "${dotfiles}/doom";
 
   home.file.".config/alacritty".source =
     config.lib.file.mkOutOfStoreSymlink
-      "${config.home.homeDirectory}/repos/dotfiles/alacritty";
+      "${dotfiles}/alacritty";
 
   home.file.".config/tmux".source =
     config.lib.file.mkOutOfStoreSymlink
-      "${config.home.homeDirectory}/repos/dotfiles/tmux";
+      "${dotfiles}/tmux";
 
   home.file.".config/git".source =
     config.lib.file.mkOutOfStoreSymlink
-      "${config.home.homeDirectory}/repos/dotfiles/git";
+      "${dotfiles}/git";
 
   home.file.".config/micro".source =
     config.lib.file.mkOutOfStoreSymlink
-      "${config.home.homeDirectory}/repos/dotfiles/micro";
+      "${dotfiles}/micro";
 
   home.file.".config/karabiner/karabiner.json".source =
     config.lib.file.mkOutOfStoreSymlink
-      "${config.home.homeDirectory}/repos/dotfiles/karabiner/karabiner.json";
+      "${dotfiles}/karabiner/karabiner.json";
 
   home.file.".config/zsh".source =
     config.lib.file.mkOutOfStoreSymlink
-      "${config.home.homeDirectory}/repos/dotfiles/zsh";
+      "${dotfiles}/zsh";
 
   home.file.".zshrc".source =
     config.lib.file.mkOutOfStoreSymlink
-      "${config.home.homeDirectory}/repos/dotfiles/zsh/.zshrc";
+      "${dotfiles}/zsh/.zshrc";
 
   home.file.".zprofile".source =
     config.lib.file.mkOutOfStoreSymlink
-      "${config.home.homeDirectory}/repos/dotfiles/zsh/.zprofile";
+      "${dotfiles}/zsh/.zprofile";
 
   # Secrets — symlinked from iCloud Drive (09.11 Secrets)
   home.file.".config/gh/hosts.yml".source =
     config.lib.file.mkOutOfStoreSymlink
-      "${config.home.homeDirectory}/Documents/00-09 System/09 Secrets & credentials/09.11 Secrets/gh/hosts.yml";
+      "${secretsDir}/gh/hosts.yml";
 
   home.file.".ssh".source =
     config.lib.file.mkOutOfStoreSymlink
-      "${config.home.homeDirectory}/Documents/00-09 System/09 Secrets & credentials/09.11 Secrets/ssh";
+      "${secretsDir}/ssh";
 
   home.file.".config/aws/config".source =
     config.lib.file.mkOutOfStoreSymlink
-      "${config.home.homeDirectory}/repos/dotfiles/aws/config";
+      "${dotfiles}/aws/config";
 
   home.file.".config/aws/credentials".source =
     config.lib.file.mkOutOfStoreSymlink
-      "${config.home.homeDirectory}/Documents/00-09 System/09 Secrets & credentials/09.11 Secrets/aws/credentials";
+      "${secretsDir}/aws/credentials";
 
   # GitHub CLI
   programs.gh = {

@@ -7,5 +7,20 @@
 export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
 export ZDOTDIR="${XDG_CONFIG_HOME}/zsh"
 
-# GitHub MCP token — sourced from gh keyring, no plaintext secret stored
-export GITHUB_PERSONAL_ACCESS_TOKEN="${GITHUB_PERSONAL_ACCESS_TOKEN:-$(command -v gh >/dev/null 2>&1 && gh auth token 2>/dev/null)}"
+# Canonical locations, declared once — everything downstream (zprofile,
+# includes.zsh, scripts) derives from these instead of hardcoding paths.
+export DOTFILES="${HOME}/repos/dotfiles"
+export SECRETS_DIR="${HOME}/Documents/00-09 System/09 Secrets & credentials/09.11 Secrets"
+
+# Machine-specific env & secrets — gitignored (zsh/*.local). Sourced after the
+# defaults so a machine can override DOTFILES/SECRETS_DIR or preset tokens.
+[[ -f "${ZDOTDIR}/zshenv.local" ]] && source "${ZDOTDIR}/zshenv.local"
+
+# GitHub token — from the gh keyring, no plaintext secret stored. Guarded so
+# nested shells (and a zshenv.local that set it) don't re-run gh, and the var
+# stays unset (not exported-empty) when gh is missing or logged out.
+if [[ -z "${GITHUB_PERSONAL_ACCESS_TOKEN:-}" ]] && command -v gh >/dev/null 2>&1; then
+    _ghtoken="$(gh auth token 2>/dev/null)"
+    [[ -n "$_ghtoken" ]] && export GITHUB_PERSONAL_ACCESS_TOKEN="$_ghtoken"
+    unset _ghtoken
+fi
