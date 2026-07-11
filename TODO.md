@@ -12,7 +12,11 @@
 - [ ] Verify .ssh permissions through iCloud symlink
 
 ## Cleanup
-- [ ] Remove old ~/.config/secrets/ once iCloud secrets (06.04) is confirmed working
+- [x] Remove old ~/.config/secrets/ once iCloud secrets is confirmed working (gone as of 2026-07-11; slot is now 09.11 after renumbers)
+- [ ] `bvanrijn/wrangler` tap: untap or declare in Brewfile
+- [ ] `pickle-ios` (~/repos) has no git remote — push it somewhere
+- [ ] Duplicate clones in ~/repos AND ~/src: claude-code-plugins, ops — pick one home each
+- [ ] Brewfile `npm "obsidian-mcp-server"` is third-party (cyanheads), not installed on MBA — keep or drop?
 
 ## Other TODOs
 

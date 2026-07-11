@@ -8,13 +8,13 @@ This repo owns:
 - **Config files** — shell, editor, terminal, git, tmux
 - **Inventory dumps** — Brewfile, pipx-list, uv-tools, cargo-list (see `install/REPRODUCIBILITY.md` for the gap matrix)
 - **Install/bootstrap scripts** — `bootstrap.sh` + interactive `install.sh` (see Bootstrap below)
+- **LaunchAgents** — Nelson-authored plists in `install/launchagents/`, installed per machine via the `install.sh` picker
 - **System policy docs** — JD conventions, XDG layout, repo management
 - **Manifest** — what repos to clone, where to symlink them
 
 This repo does NOT yet own:
 - **macOS `defaults`** — system preferences (phase 2)
-- **`com.nelson.*.plist` launchagents** — Nelson-authored timers (phase 2)
-- **TCC grants, SSH/GPG/cloud-CLI auth** — out of scope by design (see REPRODUCIBILITY.md)
+- **TCC grants, GPG/cloud-CLI auth** — out of scope by design (see REPRODUCIBILITY.md). SSH keys are per-machine: `install.sh` generates one if absent; register the pubkey by hand.
 
 This repo does NOT own:
 - The JD CLI (`~/repos/jd-tools`) — separate repo, pulled in during bootstrap
@@ -35,8 +35,9 @@ interactive `install.sh`:
 1. **bootstrap.sh** — Xcode CLI tools → Rosetta (Apple Silicon) →
    Homebrew → clone repo → launch `install.sh`
 2. **install.sh** — symlinks configs into `~/.config/` (from
-   `manifest.yaml`), then opens a pick-what-you-want menu of package
-   **groups** and `brew bundle`s the selection
+   `manifest.yaml`), ensures a per-machine SSH key, then opens a
+   pick-what-you-want menu of package **groups**, `brew bundle`s the
+   selection, and finishes with a per-machine LaunchAgents picker
 
 You don't have to install everything. The installer groups packages
 (shell, editor, dev, cloud, media, apps, games, …) and you toggle which
@@ -48,8 +49,8 @@ The groups come from `# group:NAME` tags on each entry in `Brewfile`.
 Dependencies (tagged `_dep`) are hidden from the menu — `brew` resolves
 them automatically. Re-run `install.sh` anytime to add more groups.
 
-> **Still manual / phase 2:** macOS `defaults`, launchagents, and the JD
-> CLI / project-repo cloning + JD-tree symlinks are not yet wired into
+> **Still manual / phase 2:** macOS `defaults`, and the JD CLI /
+> project-repo cloning + JD-tree symlinks are not yet wired into
 > `install.sh`. See `install/REPRODUCIBILITY.md` for the full gap matrix
 > and `install/refresh-inventory.sh` for the dump-everything command.
 > Nix is not used for the Mac (it remains active only for the pi400 host).
@@ -60,10 +61,13 @@ them automatically. Re-run `install.sh` anytime to add more groups.
 install/                  ← bootstrap + installer + inventory
   bootstrap.sh            ← fresh-machine prereqs, then runs install.sh
   install.sh              ← interactive group-picker installer
+  launchagents/           ← Nelson-authored plists (union of machines); per-machine picker
   manifest.yaml           ← repos to clone + symlinks to create
   REPRODUCIBILITY.md      ← gap matrix: what's declared, what isn't
   refresh-inventory.sh    ← dump all inventoried surfaces in one pass
   merge-brewfile-tags.py  ← re-applies # group: tags after a brew dump
+  smoke-test.sh           ← runs install.sh checks under system bash 3.2
+  audit-unmanaged-apps.sh ← classifies /Applications: MAS / brew / unmanaged
   Brewfile                ← formulae + casks + taps + mas, # group:-tagged
   pipx-list.txt           ← pipx-installed apps
   uv-tools.txt            ← uv tools
@@ -98,6 +102,22 @@ inactive/                 ← retired configs kept as reference
 | Config | `~/.config/<app>/` | Settings, init files — symlinked from this repo |
 | Data | `~/.local/share/<app>/` | Packages, databases, persistent state |
 | Cache | `~/.cache/<app>/` | Throwaway files, compilation cache |
+
+## Environment & machine-local overrides
+
+Canonical locations are declared **once**, in `zsh/.zshenv`, and everything
+else derives from them:
+
+- `DOTFILES` — this repo (`~/repos/dotfiles`)
+- `SECRETS_DIR` — the JD secrets slot (`…/09 Secrets & credentials/09.11 Secrets`);
+  a JD renumber is a one-line change here (plus the mirrored let-bindings in
+  `nix/home/default.nix`)
+
+Machine-specific files are gitignored (`zsh/*.local`) and sourced if present:
+
+- `zsh/zshenv.local` — env & secrets, every-shell scope; loads after the
+  defaults above, so it may override them
+- `zsh/zprofile.local`, `zsh/zshrc.local` — login-shell / interactive overrides
 
 ## Johnny Decimal integration
 
