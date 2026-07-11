@@ -53,3 +53,5 @@
 	helper = !/opt/homebrew/bin/gh auth git-credential
 [credential "https://dev.azure.com"]
 	useHttpPath = true
+[url "https://github.com/"]
+	insteadOf = git@github.com:
