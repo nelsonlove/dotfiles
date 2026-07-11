@@ -378,6 +378,8 @@ brew "stylelint"  # group:editor
 brew "yt-dlp"  # group:video
 # Multi-modal AI tool to extract and summarize content
 brew "summarize"  # group:cloud
+# Easiest, most secure way to use WireGuard and 2FA
+brew "tailscale"  # group:cloud
 # Send macOS User Notifications from the command-line
 brew "terminal-notifier"  # group:shell
 # Tool to build, change, and version infrastructure
