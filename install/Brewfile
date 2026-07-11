@@ -398,6 +398,8 @@ brew "vercel-cli"  # group:cloud
 brew "visidata"  # group:data
 # Language servers for HTML, CSS, JavaScript, and JSON extracted from vscode
 brew "vscode-langservers-extracted"  # group:editor
+# Sends magic packets to wake up network-devices
+brew "wakeonlan"  # group:remote
 # Convert HTML to PDF
 brew "weasyprint"  # group:editor
 # Internet file retriever

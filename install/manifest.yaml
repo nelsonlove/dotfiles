@@ -58,6 +58,8 @@ config_symlinks:
   jd: ~/.config/jd
   karabiner: ~/.config/karabiner
   micro: ~/.config/micro
+  # config.json inside is a committed symlink into 09.11 Secrets (iCloud) — holds the pickle API token
+  pickle: ~/.config/pickle
   proselint: ~/.config/proselint
   tmux: ~/.config/tmux
   zsh: ~/.config/zsh
