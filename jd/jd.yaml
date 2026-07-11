@@ -1,9 +1,19 @@
 expanded_areas:
-  "90-99":
+  '27':
+    name: People
+    scheme: sequential-5digit
+    range:
+    - 27000
+    - 27999
+  90-99:
     name: Projects
     scheme: sequential-5digit
-    range: [90000, 99999]
-
+    range:
+    - 90000
+    - 99999
+external_locations:
+  LaCie SSD: /Volumes/LaCie SSD
+  Extreme SSD: /Volumes/Extreme SSD
 jdex:
   backend: yaml
 notes:
@@ -14,7 +24,5 @@ notes:
     direction: bidirectional
   filter:
     exclude_zeros: true
-    exclude_status:
-    - archived
   folders:
     style: area
