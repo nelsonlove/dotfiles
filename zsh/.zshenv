@@ -6,3 +6,6 @@
 # remaining startup files.
 export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
 export ZDOTDIR="${XDG_CONFIG_HOME}/zsh"
+
+# GitHub MCP token — sourced from gh keyring, no plaintext secret stored
+export GITHUB_PERSONAL_ACCESS_TOKEN="${GITHUB_PERSONAL_ACCESS_TOKEN:-$(command -v gh >/dev/null 2>&1 && gh auth token 2>/dev/null)}"

@@ -24,7 +24,7 @@ fi
     export PATH="/Applications/Emacs.app/Contents/MacOS/bin:$PATH"
 
 # Source secrets from iCloud (skip if the vault isn't synced on this machine)
-_secrets="${HOME}/Documents/00-09 System/05 Secrets & credentials/05.11 Secrets/zsh/env.zsh"
+_secrets="${HOME}/Documents/00-09 System/09 Secrets & credentials/09.11 Secrets/zsh/env.zsh"
 [[ -f "$_secrets" ]] && source "$_secrets"
 unset _secrets
 

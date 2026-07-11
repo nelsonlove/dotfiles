@@ -49,14 +49,14 @@
     config.lib.file.mkOutOfStoreSymlink
       "${config.home.homeDirectory}/repos/dotfiles/zsh/.zprofile";
 
-  # Secrets — symlinked from iCloud Drive (06.04 Secrets)
+  # Secrets — symlinked from iCloud Drive (09.11 Secrets)
   home.file.".config/gh/hosts.yml".source =
     config.lib.file.mkOutOfStoreSymlink
-      "${config.home.homeDirectory}/Documents/00-09 System/06 Digital tools/06.04 Secrets/gh/hosts.yml";
+      "${config.home.homeDirectory}/Documents/00-09 System/09 Secrets & credentials/09.11 Secrets/gh/hosts.yml";
 
   home.file.".ssh".source =
     config.lib.file.mkOutOfStoreSymlink
-      "${config.home.homeDirectory}/Documents/00-09 System/06 Digital tools/06.04 Secrets/ssh";
+      "${config.home.homeDirectory}/Documents/00-09 System/09 Secrets & credentials/09.11 Secrets/ssh";
 
   home.file.".config/aws/config".source =
     config.lib.file.mkOutOfStoreSymlink
@@ -64,7 +64,7 @@
 
   home.file.".config/aws/credentials".source =
     config.lib.file.mkOutOfStoreSymlink
-      "${config.home.homeDirectory}/Documents/00-09 System/06 Digital tools/06.04 Secrets/aws/credentials";
+      "${config.home.homeDirectory}/Documents/00-09 System/09 Secrets & credentials/09.11 Secrets/aws/credentials";
 
   # GitHub CLI
   programs.gh = {
