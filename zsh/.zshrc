@@ -1,14 +1,21 @@
-# Over SSH, attach to a running tmux session instead of a bare shell. This MUST
-# run above the p10k instant-prompt block below: instant prompt redirects the
-# TTY, after which `tmux attach` fails with "open terminal failed: not a
-# terminal". Not `exec` — a clean detach (rc 0) closes the SSH session via
-# `exit`; a failed attach (rc != 0) falls through to a normal login shell.
-# `command tmux` skips the omz tmux-plugin alias; `-z "$TMUX"` avoids nesting.
-# Disabled 2026-07-11: forces every SSH login into the existing session with no
-# opt-out at connect time (and detach closes the connection). Re-enable once it
-# has an escape hatch (e.g. a NOTMUX guard).
+# Over SSH, take over this Mac's tmux instead of getting a bare shell: if a
+# session is running, `attach -d` grabs it *and detaches any other client* (so
+# the remote session isn't a mirror of the local screen); if none is running,
+# start a fresh one. This MUST run above the p10k instant-prompt block below —
+# instant prompt redirects the TTY, after which tmux attach fails with "open
+# terminal failed: not a terminal". Not `exec`: a clean detach returns 0 and we
+# `exit` to close the SSH session; a tmux failure returns non-zero and we fall
+# through to a normal login shell. `command tmux` skips the omz tmux-plugin
+# alias; `-z "$TMUX"` avoids nesting.
+# Disabled 2026-07-11: no opt-out at connect time — every SSH login seizes the
+# session (attach -d yanks it off the local screen) and detach closes the
+# connection. Re-enable once it has an escape hatch (e.g. a NOTMUX guard).
 # if [[ -n "$SSH_CONNECTION" && -z "$TMUX" ]] && command -v tmux >/dev/null; then
-#     command tmux ls >/dev/null 2>&1 && { command tmux attach && exit; }
+#     if command tmux ls >/dev/null 2>&1; then
+#         command tmux attach -d && exit    # existing session: take it over (detach local client)
+#     else
+#         command tmux new-session && exit  # nothing running: start one
+#     fi
 # fi
 
 # Enable Powerlevel10k instant prompt. Should stay close to the top of ~/.zshrc.

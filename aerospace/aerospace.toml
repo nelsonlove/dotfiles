@@ -4,7 +4,7 @@
 
 config-version = 2
 
-start-at-login = true
+start-at-login = false
 
 # Open two Finder windows at startup for dual-pane on workspace F
 after-startup-command = [

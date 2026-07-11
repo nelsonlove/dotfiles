@@ -182,6 +182,8 @@ brew "gnu-tar"  # group:shell
 brew "gnu-time"  # group:shell
 # GNU Privacy Guard (OpenPGP)
 brew "gnupg"  # group:shell
+# Open source programming language to build simple/reliable/efficient software
+brew "go"  # group:core
 # Library access to GnuPG
 brew "gpgme"  # group:_dep
 # Image manipulation

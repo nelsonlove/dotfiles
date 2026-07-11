@@ -35,7 +35,7 @@
 (setq window-combination-resize t)
 
 (after! which-key
-  (which-key-use-C-h-commands t)
+  (setq which-key-use-C-h-commands t)
   (setq which-key-idle-delay 0.1)
   (setq which-key-sort-order 'which-key-local-then-key-order))
 
