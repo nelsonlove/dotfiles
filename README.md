@@ -21,6 +21,17 @@ This repo does NOT own:
 - Project repos — cloned per the manifest
 - The JD tree itself — lives on iCloud Drive, wired up by symlinks
 
+## Repo layout convention
+
+- **`~/repos/`** — Nelson-authored repos (own work), plain names.
+- **`~/src/`** — clones of *other people's* repos kept around as dependencies
+  or upstreams (e.g. the callumalpass agent-approvals chain: pickle, tickle,
+  mdbase-rs, ops, tasknotes-cli). Things here get built/`npm link`ed/symlinked
+  against, not developed in. `~/.claude/skills/ops` (via this repo's
+  `claude/skills/ops`) points at `~/src/ops`.
+- One home per repo — no duplicate clones across the two (duplicates removed
+  2026-07-11). Forks being actively worked on count as own work → `~/repos/`.
+
 ## Bootstrap
 
 The repo is public, so the one-liner works on a fresh Mac with no auth:
