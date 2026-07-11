@@ -13,15 +13,17 @@ Synced portion of `~/.claude/`. Symlinked into place by `install.sh` via
   memories ride Obsidian Sync across machines instead of this repo.
 - `skills/` — user-level skills (`pickle`, `tickle`, …). New skills written
   to `~/.claude/skills/` land here automatically through the symlink; commit
-  them when they settle. Exception: `skills/ops/` is a clone of
-  `callumalpass/ops` (gitignored here) — on a fresh machine,
-  `git clone https://github.com/callumalpass/ops ~/.claude/skills/ops`.
+  them when they settle. Exception: `skills/ops` is a committed symlink to
+  `~/src/ops` (the canonical `callumalpass/ops` clone) — on a fresh machine,
+  `git clone https://github.com/callumalpass/ops ~/src/ops` makes it resolve.
 
 ## What deliberately does NOT live here
 
-- **Secrets** — `env.GITHUB_PERSONAL_ACCESS_TOKEN` and friends belong in
-  `~/.claude/settings.local.json` (machine-local, never committed). If a
-  secret shows up in `settings.json`, move it there before committing.
+- **Secret contents** — `env.GITHUB_PERSONAL_ACCESS_TOKEN` and friends live in
+  `settings.local.json`, whose real file sits in the JD tree at
+  `09.11 Secrets/claude/` (iCloud-protected). This repo commits only a
+  symlink to it (same pattern as gh/wrangler creds). If a secret shows up
+  in `settings.json`, move it there before committing.
 - `~/.claude.json` — OAuth tokens, trust dialogs. Machine-local.
 - `~/.claude/projects/` — session transcripts (machine-local) and the
   per-project `memory/` entries, which on this machine are symlinks into the
@@ -31,6 +33,8 @@ Synced portion of `~/.claude/`. Symlinked into place by `install.sh` via
 
 ## Fresh machine
 
-`install.sh` symlinks this dir's contents into `~/.claude/`; sign in to
-Claude Code (auth is per-machine), and put the GitHub PAT into
-`~/.claude/settings.local.json`. Memories arrive via Obsidian Sync.
+`install.sh` symlinks this dir's contents into `~/.claude/` (run it BEFORE
+first `claude` launch, or it will warn-and-skip files Claude Code already
+created); sign in to Claude Code (auth is per-machine). `settings.local.json`
+resolves once iCloud has synced `09.11 Secrets/`; `skills/ops` resolves once
+`~/src/ops` is cloned. Memories arrive via Obsidian Sync.

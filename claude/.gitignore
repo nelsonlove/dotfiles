@@ -1,2 +1,1 @@
-# ops skill is a clone of callumalpass/ops — reinstall by cloning, not vendored
-skills/ops/
+# (intentionally empty — skills/ops is a committed symlink to ~/src/ops)
