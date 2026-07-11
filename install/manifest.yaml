@@ -7,7 +7,31 @@
 repos:
   jd-cli:
     url: git@github.com:nelsonlove/johnnydecimal.py.git
-    jd_link: "00-09 System/00 System/00.05 jd-cli"
+    jd_link: "00-09 System/07 Apps & config/07.40 JD tools/+REPO jd-cli"
+
+  # Inventory of ~/repos as of 2026-07-11 (jd_link pending for most).
+  agent-approvals:
+    url: git@github.com:nelsonlove/agent-approvals.git
+  claude-code-plugins:
+    url: git@github.com:nelsonlove/claude-code-plugins.git
+  jd-numbering:
+    url: git@github.com:nelsonlove/jd-numbering.git
+  nelson.love:
+    url: git@github.com:nelsonlove/nelson.love.git
+  obsidian-execute-code:
+    url: git@github.com:nelsonlove/obsidian-execute-code.git
+  obsidian-vault-mcp-plugin:
+    url: git@github.com:nelsonlove/obsidian-vault-mcp-plugin.git
+  ops:  # upstream (callumalpass), not a fork
+    url: git@github.com:callumalpass/ops.git
+  repoint-links:
+    url: git@github.com:nelsonlove/repoint-links.git
+  tasknotes-workflows:
+    url: git@github.com:nelsonlove/tasknotes-workflows.git
+  vault-skills:
+    url: git@github.com:nelsonlove/vault-skills.git
+  # pickle-ios — local-only, NO remote; push it somewhere before relying on this list
+  # obsidian-perf — scratch/perf-work dir moved in from ~/Desktop; not a clone target
 
   # Add more repos here as they get JD IDs:
   # my-project:
@@ -35,4 +59,4 @@ config_symlinks:
 
 jd_symlinks:
   # Source (on the system) → target (in JD tree, relative to ~/Documents/)
-  ~/repos/dotfiles: "00-09 System/04 Digital tools/04.11 Dotfiles"
+  ~/repos/dotfiles: "00-09 System/07 Apps & config/07.11 Dotfiles/+REPO dotfiles"

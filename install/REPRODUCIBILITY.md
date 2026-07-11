@@ -10,7 +10,7 @@ now *consumes* the Brewfile (grouped by `# group:` tags); the other dumps
 (pipx/uv/cargo) remain inventory-only.
 
 Narrative discussion lives in the vault at
-`00-09 System/04 Digital tools/04.11 Dotfiles.md` (why some surfaces
+`00-09 System/07 Apps & config/07.11 Dotfiles.md` (why some surfaces
 are intentionally undocumented, TCC limitations, etc.).
 
 ## Status
@@ -35,14 +35,14 @@ intentionally not declared (sensitive or not declarable on macOS).
 | pnpm globals | `install/pnpm-globals.txt` | `pnpm list -g --depth=0 --json` | ⏸ |
 | Gem globals | `install/gems.txt` | `gem list --no-versions` | ⏸ |
 | Mac App Store apps | (rolls into `install/Brewfile`) | covered by `brew bundle dump` | ❌ |
-| Nelson's launchagents | `install/launchagents/com.nelson.*.plist` | manual copy from `~/Library/LaunchAgents/` | ❌ |
+| Nelson's launchagents | `install/launchagents/*.plist` | `install.sh` picker (or `--launchagents a,b` / `all`) | ✅ |
 | macOS `defaults` | `install/defaults/*.plist` | per-domain `defaults export` | ⏸ phase 2 |
 | TCC grants (Accessibility, FDA, Screen Recording, Automation) | n/a | not declarable without MDM | 🚫 |
 | Login Items / SMAppService | per-app bundles | not centrally exposed by macOS | 🚫 |
 | Claude Code config (`~/.claude/`) | external — `~/repos/claude-code-config` | separate repo, git-tracked | ✅ external |
 | Claude Code plugin enable list | `~/.claude/settings.json` | inside claude-code-config repo | ✅ external |
 | Vault content | external — Obsidian Sync | server-side | ✅ external |
-| SSH keys | `~/.ssh/` | manual restore from 1Password | 🚫 by design |
+| SSH keys | `~/.ssh/id_ed25519` (per-machine) | `install.sh` generates if absent; register pubkey with GitHub/hosts | ✅ (private keys never migrate) |
 | GPG keys | `~/.gnupg/` | manual restore from 1Password | 🚫 by design |
 | Doppler / 1Password / cloud-CLI auth | various `~/.<tool>/` | server-side; per-machine `<cli> login` | 🚫 by design |
 | Tailscale device + ACL | tailscale.com | account-level | ✅ external (server-side) |
@@ -120,6 +120,18 @@ latest by default and that matches Nelson's actual workflow.
 Covered by `brew bundle dump` via the `mas` lines. No separate
 `mas-list.txt` is needed — but `mas` itself must be installed first
 for the dump to include MAS entries. Bootstrap order matters.
+
+### LaunchAgents
+
+`install/launchagents/*.plist` holds Nelson-authored agents from all
+machines (union set). They're safe to commit: secrets stay in external
+files the plists reference (`~/.config/vault-mcp-remote/tunnel-token`,
+`…/env`). `install.sh` offers a per-machine picker (non-interactive:
+`--launchagents label,label` / `all` / `none`) that copies the plist to
+`~/Library/LaunchAgents/` and `launchctl bootstrap`s it. Note
+`dev.tickle.daemon` is also installed by the agent-approvals setup flow —
+the copy here just mirrors it. When adding a new agent on any machine,
+copy the plist into this dir and commit.
 
 ### macOS defaults
 

@@ -2,6 +2,10 @@ export XDG_CONFIG_HOME="${HOME}/.config"
 export XDG_LOCAL_HOME="${HOME}/.local"
 export XDG_DATA_HOME="${XDG_LOCAL_HOME}/share"
 
+# Make bare `brew bundle <check|cleanup|install>` use the canonical Brewfile
+# instead of looking for ./Brewfile in the cwd.
+export HOMEBREW_BUNDLE_FILE="${HOME}/repos/dotfiles/install/Brewfile"
+
 
 touch_and_execute() {
     local -r filepath="${1}"

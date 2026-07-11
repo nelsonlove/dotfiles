@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.nelson.legal-mail.poll</string>
+
+    <!-- The actual command: bin/pull (incremental, default) -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/nelson/repos/legal-mail/bin/pull</string>
+    </array>
+
+    <!-- Every 2 hours. StartInterval is sleep-resilient: intervals missed while
+         the Mac is asleep coalesce into a single run on wake (no pile-up).
+         Replaces the old daily 04:00 StartCalendarInterval, which silently
+         drifted whenever the Mac was asleep at 4am. -->
+    <key>StartInterval</key>
+    <integer>7200</integer>
+
+    <!-- Don't fire on launchctl load — wait for the scheduled time -->
+    <key>RunAtLoad</key>
+    <false/>
+
+    <!-- Logs: tail with `tail -F ~/Library/Logs/legal-mail.log` -->
+    <key>StandardOutPath</key>
+    <string>/Users/nelson/Library/Logs/legal-mail.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/nelson/Library/Logs/legal-mail.log</string>
+
+    <!-- Need Homebrew PATH for himalaya + python3 + osascript -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
+    </dict>
+
+    <!-- launchd will skip the run if the previous one is still going -->
+    <key>AbandonProcessGroup</key>
+    <true/>
+</dict>
+</plist>

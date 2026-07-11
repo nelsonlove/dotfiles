@@ -64,6 +64,28 @@ b4="$(grep -nE 'declare[[:space:]]+-A|local[[:space:]]+-A|\bmapfile\b|\breadarra
 [[ -z "$b4" ]] && ok "no bash-4-only constructs (declare -A, mapfile, \${x^^}, …)" || bad "bash-4-only construct(s):
 $(printf '%s\n' "$b4" | sed 's/^/      /')"
 
+# 7. bundle resolution (compute_bundle / preview / browse) under system bash.
+#    Guards the empty-description regression: entries with no `# desc` comment
+#    must still emit their full raw line (blank lines = silently-dropped packages,
+#    and a whitespace field separator would shift the raw line off the row).
+tmp="$(mktemp)"; gen="$(mktemp)"; sed '$d' "$INSTALL" > "$tmp"
+cat >> "$tmp" <<T
+BREWFILE="$BREWFILE"
+INCLUDE_STALE=1
+skip="\$(compute_bundle "core \${GROUP_ORDER[*]}" "$gen")"
+blanks="\$(grep -c '^\$' "$gen")"
+[ "\$blanks" = 0 ] || { echo "ERR-blank-lines=\$blanks"; exit 3; }
+# a mas entry that has no description must still carry its "id:" arg
+grep -qE '^mas "[^"]+", id: [0-9]+' "$gen" || { echo ERR-mas-id-lost; exit 3; }
+# every emitted brew/cask/mas line must resolve to a real Brewfile line
+while IFS= read -r l; do grep -qxF "\$l" "$BREWFILE" || { echo "ERR-fabricated: \$l"; exit 3; }; done < <(grep -E '^(brew|cask|mas) ' "$gen")
+preview_plan "core shell" >/dev/null 2>&1 || { echo ERR-preview; exit 3; }
+browse_group shell </dev/null >/dev/null 2>&1 || { echo ERR-browse; exit 3; }
+echo BUNDLE_OK
+T
+if "$SH" "$tmp" 2>/dev/null | grep -q BUNDLE_OK; then ok "bundle resolution intact (no dropped/fabricated lines; review & browse run)"; else bad "bundle resolution failed: $("$SH" "$tmp" 2>&1 | grep -E '^ERR' | head -1)"; fi
+rm -f "$tmp" "$gen"
+
 echo
 [[ $rc == 0 ]] && echo "smoke test PASSED" || echo "smoke test FAILED"
 exit $rc

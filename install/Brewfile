@@ -1,7 +1,10 @@
 tap "belphemur/tap", "https://github.com/Belphemur/homebrew-tap"
+tap "clerk/stable"
 tap "forketyfork/tap"
+tap "hashicorp/tap"
 tap "hudochenkov/sshpass"
 tap "minio/stable"
+tap "nelsonlove/tap"
 tap "nikitabobko/tap"
 tap "oven-sh/bun"
 tap "quickbase/tap"
@@ -32,7 +35,7 @@ brew "aws-keychain"  # group:cloud
 # Official Amazon AWS command-line interface
 brew "awscli"  # group:cloud
 # Open-source, cross-platform JavaScript runtime environment
-brew "node"  # group:dev
+brew "node"  # group:core
 # Markdown‑native Task Manager & Kanban visualizer for any Git repository
 brew "backlog-md"  # group:extras user/review
 # Bourne-Again SHell, a UNIX command interpreter
@@ -87,6 +90,8 @@ brew "zeromq"  # group:_dep
 brew "chromaprint"  # group:extras user/review
 # Control Google Chrome from the command-line
 brew "chrome-cli"  # group:shell
+# Command-line interface for Clerk (authentication & user management)
+brew "clerk"  # group:cloud
 # Cloudflare Tunnel client (formerly Argo Tunnel)
 brew "cloudflared"  # group:cloud
 # Cross-platform make
@@ -196,7 +201,7 @@ brew "pkgconf"  # group:_dep
 # File format designed to store large amounts of data
 brew "hdf5"  # group:extras user/review
 # Client library for huggingface.co hub
-brew "hf"  # group:cloud
+brew "hf"  # group:llm
 # Tools for reading and writing Macintosh volumes
 brew "hfsutils"  # group:extras user/review
 # CLI email client written in Rust
@@ -240,7 +245,9 @@ brew "localstack"  # group:cloud
 # Creates dependencies in makefiles
 brew "makedepend"  # group:dev
 # Mac App Store command-line interface
-brew "mas"  # group:shell
+brew "mas"  # group:core
+# Markdown-file database CLI (backs the pickle/tickle agent-approvals stack)
+brew "mdbase-cli"  # group:llm
 # Modern and intuitive terminal-based text editor
 brew "micro"  # group:core
 # Replacement for ls, cp and other commands for object storage
@@ -258,7 +265,7 @@ brew "nyancat"  # group:games
 # Adds an OCR text layer to scanned PDF files
 brew "ocrmypdf"  # group:creative
 # Create, run, and share large language models (LLMs)
-brew "ollama", restart_service: :changed  # group:dev
+brew "ollama", restart_service: :changed  # group:llm
 # Development kit for the Java programming language
 brew "openjdk"  # group:dev
 # Development kit for the Java programming language
@@ -266,7 +273,7 @@ brew "openjdk@21"  # group:dev
 # Open source suite of directory software
 brew "openldap"  # group:_dep
 # Cryptography and SSL/TLS Toolkit
-brew "openssl@1.1"  # group:_dep
+brew "openssl@3"  # group:_dep
 # Outputs current CPU temperature for OSX
 brew "osx-cpu-temp"  # group:games
 # Collection of macOS command-line utilities
@@ -281,8 +288,10 @@ brew "pcre"  # group:extras user/review
 brew "perl"  # group:dev
 # General-purpose scripting language
 brew "php"  # group:dev
+# Human approval inbox for agents (pickle/tickle agent-approvals stack)
+brew "pickle"  # group:llm
 # Execute binaries from Python packages in isolated environments
-brew "pipx"  # group:dev
+brew "pipx"  # group:core
 # Draw UML diagrams
 brew "plantuml"  # group:editor
 # Paste PNG into files
@@ -340,7 +349,7 @@ brew "ruff"  # group:dev
 # Safe, concurrent, practical language
 brew "rust"  # group:dev
 # Run AI agents isolated in a sandboxed macOS user account
-brew "sandvault"  # group:extras user/review
+brew "sandvault"  # group:llm
 # Steel Bank Common Lisp system
 brew "sbcl"  # group:dev
 # SDL 1.2 compatibility layer that uses SDL 2.0 behind the scenes
@@ -368,7 +377,7 @@ brew "summarize"  # group:cloud
 # Send macOS User Notifications from the command-line
 brew "terminal-notifier"  # group:shell
 # Tool to build, change, and version infrastructure
-brew "terraform"  # group:cloud
+brew "hashicorp/tap/terraform"  # group:cloud (left homebrew-core after license change)
 # Programmatically correct mistyped console commands
 brew "thefuck"  # group:shell
 # Terminal multiplexer
@@ -382,7 +391,7 @@ brew "typescript-language-server"  # group:editor
 # Extract files from InstallShield cabinet files
 brew "unshield"  # group:extras user/review
 # Extremely fast Python package installer and resolver, written in Rust
-brew "uv"  # group:dev
+brew "uv"  # group:core
 # Command-line interface for Vercel
 brew "vercel-cli"  # group:cloud
 # Terminal spreadsheet multitool for discovering and arranging data
@@ -394,7 +403,7 @@ brew "weasyprint"  # group:editor
 # Internet file retriever
 brew "wget"  # group:shell
 # Port of OpenAI's Whisper model in C/C++
-brew "whisper-cpp"  # group:audio
+brew "whisper-cpp"  # group:llm
 # Lexical database for the English language
 brew "wordnet"  # group:extras user/review
 # Generate your Xcode project from a spec file and your folder structure
@@ -432,7 +441,7 @@ cask "bookends"  # group:reading
 # E-books management software
 cask "calibre"  # group:reading
 # OpenAI's official ChatGPT desktop app
-cask "chatgpt"  # group:utilities used:recent
+cask "chatgpt"  # group:llm used:recent
 # Inspector for iCloud Drive folders
 cask "cirrus"  # group:system
 # Anthropic's official Claude AI desktop app
@@ -467,7 +476,7 @@ cask "github"  # group:dev-apps
 # 2D and 3D game engine
 cask "godot"  # group:dev-apps
 # Web browser
-cask "google-chrome"  # group:utilities used:recent
+cask "google-chrome"  # group:dev-apps used:recent
 # Open Source Multimedia Framework
 cask "gstreamer-runtime"  # group:video
 # Open-source video transcoder
@@ -610,6 +619,7 @@ cask "telegram"  # group:comms
 mas "Things", id: 904280696  # group:productivity
 mas "Tot", id: 1491071483  # group:writing used:recent
 mas "Ulysses", id: 1225570693  # group:writing
+mas "Wayback Machine", id: 1472432422  # group:safari-extensions used:recent
 mas "Xcode", id: 497799835  # group:dev-apps
 cargo "emacs-lsp-booster"
 uv "obsidian-tasks"

@@ -39,6 +39,7 @@ plugins=(
 # only when present.
 command -v zoxide >/dev/null 2>&1 && plugins+=(zoxide)
 command -v direnv >/dev/null 2>&1 && plugins+=(direnv)
+command -v thefuck >/dev/null 2>&1 && plugins+=(thefuck)  # `fuck` alias + ESC-ESC binding
 plugins+=(zsh-syntax-highlighting)  # must be last
 
 ZSH_THEME="powerlevel10k/powerlevel10k"
