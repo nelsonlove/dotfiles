@@ -4,9 +4,12 @@
 # terminal". Not `exec` — a clean detach (rc 0) closes the SSH session via
 # `exit`; a failed attach (rc != 0) falls through to a normal login shell.
 # `command tmux` skips the omz tmux-plugin alias; `-z "$TMUX"` avoids nesting.
-if [[ -n "$SSH_CONNECTION" && -z "$TMUX" ]] && command -v tmux >/dev/null; then
-    command tmux ls >/dev/null 2>&1 && { command tmux attach && exit; }
-fi
+# Disabled 2026-07-11: forces every SSH login into the existing session with no
+# opt-out at connect time (and detach closes the connection). Re-enable once it
+# has an escape hatch (e.g. a NOTMUX guard).
+# if [[ -n "$SSH_CONNECTION" && -z "$TMUX" ]] && command -v tmux >/dev/null; then
+#     command tmux ls >/dev/null 2>&1 && { command tmux attach && exit; }
+# fi
 
 # Enable Powerlevel10k instant prompt. Should stay close to the top of ~/.zshrc.
 # Initialization code that may require console input (password prompts, [y/n]
