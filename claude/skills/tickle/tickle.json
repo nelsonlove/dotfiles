@@ -1,0 +1,6 @@
+{
+  "version": "0.1.2",
+  "platform": "darwin-arm64",
+  "binary": "scripts/bin/tickle",
+  "schema": 1
+}
