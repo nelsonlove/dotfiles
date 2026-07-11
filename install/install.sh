@@ -253,7 +253,6 @@ launchagent_desc() {
     dev.tickle.daemon)               echo "Tickle job daemon (agent-approvals stack)";;
     love.nelson.obsidian)            echo "Obsidian at login w/ perf flags (8GB heap, no throttling)";;
     com.nelson.cloudflared-obsidian) echo "Cloudflare tunnel for remote vault MCP (needs token file)";;
-    com.nelson.comms-agent)          echo "Comms agent at login (tmux + claude --remote-control; needs ~/agents/comms)";;
     com.nelson.legal-mail.poll)      echo "Poll legal mail every 2h (needs ~/repos/legal-mail)";;
     com.nelson.refresh-contacts)     echo "Nightly contacts.json rebuild (needs refresh-contacts)";;
     com.nelson.vault-mcp-remote)     echo "Remote vault MCP proxy (needs plugin build + env file)";;

@@ -7,10 +7,7 @@
     "github@claude-plugins-official": true,
     "plugin-dev@claude-plugins-official": true,
     "code-review@claude-plugins-official": true,
-    "safari@claude-code-plugins-mac": true,
-    "agent-approvals@claude-code-plugins-mac": true,
-    "claude-notebook@claude-code-plugins-mac": true,
-    "vault-skills@claude-code-plugins-mac": true
+    "agent-approvals@claude-code-plugins-mac": true
   },
   "extraKnownMarketplaces": {
     "claude-code-plugins-mac": {
@@ -21,8 +18,6 @@
     }
   },
   "tui": "fullscreen",
-  "theme": "dark",
-  "model": "claude-fable-5[1m]",
   "autoMemoryDirectory": "~/obsidian/00-09 System/03 LLMs & agents/03.17 Claude Code memories",
-  "agentPushNotifEnabled": true
+  "theme": "dark"
 }
