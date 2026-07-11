@@ -292,6 +292,8 @@ brew "perl"  # group:dev
 brew "php"  # group:dev
 # Human approval inbox for agents (pickle/tickle agent-approvals stack)
 brew "pickle"  # group:llm
+# Go toolchain — builds tickle from agent-stack (setup.sh); tickle has no formula
+brew "go"  # group:llm
 # Execute binaries from Python packages in isolated environments
 brew "pipx"  # group:core
 # Draw UML diagrams
