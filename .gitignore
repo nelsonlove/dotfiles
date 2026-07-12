@@ -21,6 +21,10 @@ zsh/.zcompdump*
 zsh/.zsh_history
 .zsh_history
 
+# zsh — Terminal.app shell-session restore (per-tab state, can hold command history)
+zsh/.zsh_sessions/
+.zsh_sessions/
+
 # Backlog drafts
 backlog/drafts/*
 
