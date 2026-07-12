@@ -86,6 +86,26 @@ T
 if "$SH" "$tmp" 2>/dev/null | grep -q BUNDLE_OK; then ok "bundle resolution intact (no dropped/fabricated lines; review & browse run)"; else bad "bundle resolution failed: $("$SH" "$tmp" 2>&1 | grep -E '^ERR' | head -1)"; fi
 rm -f "$tmp" "$gen"
 
+# 8. step scoping (--only / --skip) and the step plan, under system bash.
+tmp="$(mktemp)"; sed '$d' "$INSTALL" > "$tmp"
+cat >> "$tmp" <<'T'
+ONLY_STEPS=" links "; SKIP_STEPS=""
+step_enabled links    || { echo ERR-only-links-enabled; exit 3; }
+step_enabled packages && { echo ERR-only-links-excludes-packages; exit 3; }
+ONLY_STEPS=""; SKIP_STEPS=" packages "
+step_enabled packages && { echo ERR-skip-packages-still-on; exit 3; }
+step_enabled shell    || { echo ERR-skip-hit-wrong-step; exit 3; }
+DRY_RUN=0; ONLY_STEPS=" links "; SKIP_STEPS=""
+# Capture via command substitution, not `| grep -q`: under `set -o pipefail` a
+# grep -q that exits early would SIGPIPE print_step_plan and fail the pipeline.
+plan="$(print_step_plan 2>/dev/null)"
+case "$plan" in *"links —"*) ;;    *) echo ERR-plan-missing-links; exit 3;; esac
+case "$plan" in *"packages —"*) echo ERR-plan-shows-excluded-packages; exit 3;; esac
+echo STEP_OK
+T
+if "$SH" "$tmp" 2>/dev/null | grep -q STEP_OK; then ok "step scoping (--only/--skip) + step plan run under /bin/bash"; else bad "step scoping failed: $("$SH" "$tmp" 2>&1 | grep -E '^ERR' | head -1)"; fi
+rm -f "$tmp"
+
 echo
 [[ $rc == 0 ]] && echo "smoke test PASSED" || echo "smoke test FAILED"
 exit $rc

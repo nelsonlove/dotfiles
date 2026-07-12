@@ -1,0 +1,27 @@
+name: CI
+
+# Guards the installer's two invariants: it stays bash-3.2-compatible (it runs on
+# a fresh Mac before Homebrew installs a newer bash) and shellcheck-clean.
+on:
+  pull_request:
+    paths: [install/**, .github/workflows/ci.yml]
+  push:
+    branches: [main]
+    paths: [install/**, .github/workflows/ci.yml]
+
+jobs:
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - name: shellcheck (warning level)
+        run: shellcheck -S warning install/install.sh install/smoke-test.sh install/bootstrap.sh
+
+  smoke-test:
+    # macOS runners still ship /bin/bash 3.2 — the exact interpreter a fresh
+    # machine uses, so this catches bash-4-only constructs the real target can't run.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: install/smoke-test.sh
