@@ -3,14 +3,23 @@
 Synced portion of `~/.claude/`. Symlinked into place by `install.sh` via
 `manifest.yaml` `home_symlinks` (`ln -sfn`, same as everything else).
 
+This is the **single source of truth for `settings.json` + `hooks/` across
+both hosts (mbp/mba)**. Machine-specific overrides go in
+`~/.claude/settings.local.json` (per-host, not synced here), which Claude Code
+merges on top of `settings.json`.
+
 ## What lives here
 
-- `settings.json` — user-level settings: model, theme, permissions,
+- `settings.json` — user-level settings: model, theme, permissions, `hooks`,
   `enabledPlugins` + `extraKnownMarketplaces` (plugins reinstall themselves
   from the marketplaces on a fresh machine — no plugin files are synced), and
   `autoMemoryDirectory`, which points auto-memory at the vault
   (`~/obsidian/00-09 System/03 LLMs & agents/03.17 Claude Code memories`) so
   memories ride Obsidian Sync across machines instead of this repo.
+- `hooks/` — hook scripts referenced by `settings.json` (`block-edit-shared-files.sh`
+  guards shared append-only vault files against Read→Edit races;
+  `protect-new-repo.sh` auto-applies a "Protect main" ruleset after
+  `gh repo create`). Symlinked to `~/.claude/hooks/` so both hosts run them.
 - `skills/` — user-level skills (`pickle`, `tickle`, …). New skills written
   to `~/.claude/skills/` land here automatically through the symlink; commit
   them when they settle. Exception: `skills/ops` is a committed symlink to

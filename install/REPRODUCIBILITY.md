@@ -39,8 +39,8 @@ intentionally not declared (sensitive or not declarable on macOS).
 | macOS `defaults` | `install/defaults/*.plist` | per-domain `defaults export` | ⏸ phase 2 |
 | TCC grants (Accessibility, FDA, Screen Recording, Automation) | n/a | not declarable without MDM | 🚫 |
 | Login Items / SMAppService | per-app bundles | not centrally exposed by macOS | 🚫 |
-| Claude Code config (`~/.claude/`) | external — `~/repos/claude-code-config` | separate repo, git-tracked | ✅ external |
-| Claude Code plugin enable list | `~/.claude/settings.json` | inside claude-code-config repo | ✅ external |
+| Claude Code `settings.json` + `hooks/` | `claude/settings.json`, `claude/hooks/` | this repo (single source, both hosts) | ✅ |
+| Claude Code runtime home (`~/.claude/` sessions, daemon, credentials) | external — `~/repos/claude-code-config` (mbp) | separate repo, git-tracked; on mba `~/.claude/` is a plain dir | ✅ external |
 | Vault content | external — Obsidian Sync | server-side | ✅ external |
 | SSH keys | `~/.ssh/id_ed25519` (per-machine) | `install.sh` generates if absent; register pubkey with GitHub/hosts | ✅ (private keys never migrate) |
 | GPG keys | `~/.gnupg/` | manual restore from 1Password | 🚫 by design |
