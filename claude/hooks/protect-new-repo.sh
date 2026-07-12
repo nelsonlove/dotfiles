@@ -48,9 +48,15 @@ result=$(gh api -X POST "repos/${repo}/rulesets" --input - 2>&1 <<EOF
 EOF
 )
 
-# Success body contains an `"id"` field. Anything else (404, 422, network
-# error) we silently swallow — the user can't act on it from here.
+# Success body contains an `"id"` field. On anything else, surface a warning on
+# stderr (Claude Code shows it) rather than swallowing it — an invalid/expired gh
+# token or a network error would otherwise leave the new repo unprotected with no
+# signal. Still exit 0: a PostToolUse hook must not fail the Bash tool call.
 if printf '%s' "$result" | grep -q '"id"'; then
   printf '[hook] applied "Protect main" ruleset to %s\n' "$repo" >&2
+elif printf '%s' "$result" | grep -q 'Upgrade to\|upgrade your plan'; then
+  : # private repo on a free-tier account — branch protection needs Pro; not actionable, stay quiet
+else
+  printf '[hook] WARNING: could not apply "Protect main" ruleset to %s — branch left UNPROTECTED. gh response:\n%s\n' "$repo" "$result" >&2
 fi
 exit 0

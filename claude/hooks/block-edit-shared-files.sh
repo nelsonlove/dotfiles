@@ -17,6 +17,15 @@
 
 input=$(cat)
 
+# This guard parses its input with jq. If jq isn't on the hook's PATH the guard
+# can't function — surface that on stderr instead of silently failing open (which
+# would let the shared-file race through with no signal). Non-blocking (exit 0):
+# a missing jq must not wedge every Edit/Write.
+command -v jq >/dev/null 2>&1 || {
+    echo "[block-edit-shared-files] jq not found on PATH — shared-file write guard DISABLED for this call" >&2
+    exit 0
+}
+
 # Defensive: only run for file-mutating tools. The matcher in
 # settings.json already restricts to these, but guard anyway.
 tool=$(jq -r '.tool_name // empty' <<<"$input")
