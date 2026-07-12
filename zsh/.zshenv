@@ -12,6 +12,11 @@ export ZDOTDIR="${XDG_CONFIG_HOME}/zsh"
 export DOTFILES="${HOME}/repos/dotfiles"
 export SECRETS_DIR="${HOME}/Documents/00-09 System/09 Secrets & credentials/09.11 Secrets"
 
+# Tickle reads jobs/scripts from dotfiles (versioned, mirrored across machines);
+# runtime state (runs/state/logs/bin) stays per-machine in the default DATA_HOME.
+# Must match the daemon plist's TICKLE_CONFIG_HOME (install/launchagents/dev.tickle.daemon.plist).
+export TICKLE_CONFIG_HOME="${HOME}/repos/dotfiles/tickle"
+
 # Machine-specific env & secrets — gitignored (zsh/*.local). Sourced after the
 # defaults so a machine can override DOTFILES/SECRETS_DIR or preset tokens.
 [[ -f "${ZDOTDIR}/zshenv.local" ]] && source "${ZDOTDIR}/zshenv.local"

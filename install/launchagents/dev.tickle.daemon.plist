@@ -9,6 +9,14 @@
     <string>/Users/nelson/Library/Application Support/tickle/bin/tickle</string>
     <string>daemon</string>
   </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <!-- Jobs/scripts are versioned in dotfiles (mirrored across machines);
+         runtime state (runs/state/logs/bin) stays per-machine in the default
+         DATA_HOME (~/Library/Application Support/tickle). -->
+    <key>TICKLE_CONFIG_HOME</key>
+    <string>/Users/nelson/repos/dotfiles/tickle</string>
+  </dict>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>

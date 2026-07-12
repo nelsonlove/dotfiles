@@ -1,0 +1,15 @@
+version: 1
+id: refresh-contacts
+name: Refresh contacts (daily 03:55)
+status: active
+
+# MBP-only (contacts refresh is MBP-specific). Was launchd com.nelson.refresh-contacts.
+triggers:
+  - type: script
+    schedule: "55 3 * * *"
+    command: ["@config/scripts/_lib/on-host.sh", "Nelsons-MacBook-Pro"]
+    timeout: 10s
+
+run:
+  command: ["@config/scripts/refresh-contacts/refresh.sh"]
+  timeout: 15m

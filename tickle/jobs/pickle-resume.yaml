@@ -1,0 +1,17 @@
+version: 1
+id: pickle-resume
+name: Pickle Resume
+status: active
+
+# MBP-only: the Pickle inbox is the SYNCED vault collection (01.10 Agent inbox),
+# but claims/processed state is per-machine — a single resumer avoids ops_handoff
+# double-runs. check.sh = hostname gate AND the original has-answers.sh check.
+triggers:
+  - type: script
+    every: 30s
+    command: ["@config/scripts/pickle-resume/check.sh"]
+    timeout: 20s
+
+run:
+  command: ["@config/scripts/pickle-resume/resume.sh"]
+  timeout: 2h

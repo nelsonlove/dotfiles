@@ -1,0 +1,14 @@
+version: 1
+id: vault-skills-export
+name: Vault Skills export (hourly freshness backstop)
+status: active
+
+# Runs on EVERY machine — ~/.claude (the generated plugin) is per-machine and
+# not synced, so each host must re-export from the (synced) vault notes.
+trigger:
+  type: cron
+  schedule: "17 * * * *"
+
+run:
+  command: ["@config/scripts/vault-skills-export/export.sh"]
+  timeout: 2m

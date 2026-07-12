@@ -1,0 +1,15 @@
+version: 1
+id: task-curator
+name: Task Curator (dry run)
+status: active
+
+# MBP-only: spawns a fleet worker; must not double-run on other hosts.
+triggers:
+  - type: script
+    schedule: "7 8 * * *"
+    command: ["@config/scripts/_lib/on-host.sh", "Nelsons-MacBook-Pro"]
+    timeout: 10s
+
+run:
+  command: ["@config/scripts/task-curator/dryrun.sh"]
+  timeout: 10m

@@ -1,0 +1,16 @@
+version: 1
+id: comms-ping
+name: Comms ping (gauge, 5-min until 10pm)
+status: active
+
+# MBP-only: gauge/supervisor job. The script trigger fires on the cron schedule,
+# runs only if the hostname gate exits 0.
+triggers:
+  - type: script
+    schedule: "*/5 21 * * *"
+    command: ["@config/scripts/_lib/on-host.sh", "Nelsons-MacBook-Pro"]
+    timeout: 10s
+
+run:
+  command: ["@config/scripts/comms-ping/ping.sh"]
+  timeout: 1m
