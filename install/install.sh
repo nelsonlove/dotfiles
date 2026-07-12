@@ -207,19 +207,16 @@ browse_group() {
 # Parse a `  source: ~/target` block ($1) and create the symlinks. Source is a
 # repo-relative path (may contain `/`); target is expanded from `~`. $2 = header.
 link_block() {
-  local block="$1"
+  local block="$1" src tgt abs bak
   hdr "$2"
   [[ -f "$MANIFEST" ]] || { warn "no manifest.yaml — skipping"; return; }
-  awk -v blk="$block" '
-    $0 ~ "^" blk ":"   {inblk=1; next}
-    /^[a-z_]+:/        {inblk=0}
-    inblk && /^[[:space:]]+[A-Za-z0-9_.\/-]+:[[:space:]]*/ {
-      sub(/#.*/, ""); gsub(/[[:space:]]/, "");
-      i = index($0, ":"); print substr($0, 1, i-1) "\t" substr($0, i+1)
-    }' "$MANIFEST" | while IFS=$'\t' read -r src tgt; do
+  # Feed awk's output via process substitution, NOT a pipe: a `... | while` runs
+  # the loop in a subshell, so warn()'s WARNINGS+= would be lost from the
+  # end-of-run summary (and any other parent-scope state).
+  while IFS=$'\t' read -r src tgt; do
     [[ -z "$src" || -z "$tgt" ]] && continue
     tgt="${tgt/#\~/$HOME}"
-    local abs="$REPO_ROOT/$src"
+    abs="$REPO_ROOT/$src"
     [[ -e "$abs" ]] || { warn "$src not in repo — skipping"; continue; }
     mkdir -p "$(dirname "$tgt")"
     if [[ -L "$tgt" && "$(readlink "$tgt")" == "$abs" ]]; then
@@ -227,13 +224,21 @@ link_block() {
     elif [[ -e "$tgt" && ! -L "$tgt" ]]; then
       # A pre-existing real file/dir (e.g. one an app created before install ran,
       # or an already-provisioned host). Without --adopt, leave it untouched so we
-      # never clobber real data. With --adopt, back it up, then link over it.
+      # never clobber real data. With --adopt, back it up, then link over it —
+      # rolling the backup back if the link step fails, so the target is never
+      # left missing entirely.
       if (( ADOPT )); then
-        local bak; bak="$tgt.bak-$(date +%Y%m%d%H%M%S)"
-        if mv "$tgt" "$bak" && ln -sfn "$abs" "$tgt"; then
-          ok "$tgt -> $src (adopted; previous contents saved to $(basename "$bak"))"
+        bak="$tgt.bak-$(date +%Y%m%d%H%M%S)"
+        if mv "$tgt" "$bak"; then
+          if ln -sfn "$abs" "$tgt"; then
+            ok "$tgt -> $src (adopted; previous contents saved to $(basename "$bak"))"
+          elif mv "$bak" "$tgt"; then
+            warn "$tgt — adopt failed at link step; restored original, not linked"
+          else
+            warn "$tgt — adopt failed at link step AND rollback failed; original is at $bak"
+          fi
         else
-          warn "$tgt — adopt failed (could not back up and relink)"
+          warn "$tgt — adopt failed (could not back it up); left untouched"
         fi
       else
         warn "$tgt exists and is not a symlink — leaving it (re-run with --adopt to back it up and link)"
@@ -241,7 +246,13 @@ link_block() {
     else
       ln -sfn "$abs" "$tgt" && ok "$tgt -> $src"
     fi
-  done
+  done < <(awk -v blk="$block" '
+    $0 ~ "^" blk ":"   {inblk=1; next}
+    /^[a-z_]+:/        {inblk=0}
+    inblk && /^[[:space:]]+[A-Za-z0-9_.\/-]+:[[:space:]]*/ {
+      sub(/#.*/, ""); gsub(/[[:space:]]/, "");
+      i = index($0, ":"); print substr($0, 1, i-1) "\t" substr($0, i+1)
+    }' "$MANIFEST")
 }
 link_configs() { link_block config_symlinks "Symlinking configs into ~/.config/"; }
 link_home()    { link_block home_symlinks   "Symlinking dotfiles into ~/"; }
@@ -535,9 +546,25 @@ run_bundle() {
 
 # ---------------------------------------------------------------------------
 # Prune — report (and with --prune-force, remove) things no longer in the
-# manifest. Opt-in and preview-by-default; the reproducibility loop is otherwise
-# one-directional (install-only), so drift accumulates silently.
+# manifest. Opt-in; the reproducibility loop is otherwise one-directional
+# (install-only), so drift accumulates silently. SAFETY: preview-then-confirm
+# on every removal, deletions prefer `trash` (recoverable) over `rm`, and
+# --dry-run never removes regardless of --prune-force.
 # ---------------------------------------------------------------------------
+# Ask for confirmation on a controlling terminal. No tty → non-interactive
+# --prune-force (the flag is the consent) → proceed. Explicit no → abort.
+confirm() {
+  local ans
+  [[ -e /dev/tty ]] || return 0
+  printf "  %s [y/N] > " "$1"
+  read -r ans </dev/tty 2>/dev/null || { echo; return 1; }
+  case "$ans" in y|Y|yes|YES) return 0 ;; *) return 1 ;; esac
+}
+# Prefer `trash` (recoverable via Finder) over rm, per the repo's file-safety
+# convention. Falls back to rm only if trash isn't installed (fresh machine,
+# pre-Homebrew). Only ever called on symlinks, so no target data is at risk.
+remove_link() { if have trash; then trash "$1" >/dev/null 2>&1 || rm -f "$1"; else rm -f "$1"; fi; }
+
 # Packages: brew bundle cleanup against the FULL Brewfile (every entry, all
 # groups) — anything installed but absent from it is surplus. Building the full
 # list (not a group-filtered subset) is critical: cleanup removes whatever the
@@ -547,37 +574,41 @@ prune_packages() {
   if ! have brew; then warn "Homebrew not found — skipping package prune"; return 0; fi
   local full; full="$(mktemp -t Brewfile.full.XXXXXX)"; TMPFILES+=("$full")
   grep -E '^(tap|brew|cask|mas) ' "$BREWFILE" > "$full"
-  if (( PRUNE_FORCE )); then
-    say "  ${ylw}removing packages not in the Brewfile…${rst}"
-    brew bundle cleanup --file="$full" --force
-  else
-    brew bundle cleanup --file="$full"    # lists what WOULD be removed
-    say "  ${dim}(preview — re-run with ${rst}--prune-force${dim} to actually remove)${rst}"
+  # Always show what would be removed first.
+  local preview; preview="$(brew bundle cleanup --file="$full" 2>&1)"
+  printf '%s\n' "$preview"
+  if (( ! PRUNE_FORCE )); then
+    say "  ${dim}(preview — re-run with ${rst}--prune-force${dim} to actually remove)${rst}"; return 0
   fi
+  printf '%s' "$preview" | grep -qiE 'would (uninstall|delete|remove|purge)' || { ok "nothing to prune"; return 0; }
+  confirm "Uninstall the packages listed above?" || { say "  ${dim}skipped${rst}"; return 0; }
+  brew bundle cleanup --file="$full" --force
 }
-# Symlinks: find links under the two link roots that point into this repo but
-# whose source no longer exists (i.e. the manifest entry was removed).
+# Symlinks: find links under the link roots that point into this repo but whose
+# source no longer exists (i.e. the manifest entry was removed). Collect first,
+# show the full list, then remove after confirmation.
 prune_links() {
   hdr "Prune — stale symlinks into this repo"
-  local root link target found=0
-  for root in "$HOME/.config" "$HOME"; do
-    [[ -d "$root" ]] || continue
-    while IFS= read -r link; do
-      target="$(readlink "$link")"
-      case "$target" in "$REPO_ROOT"/*) ;; *) continue ;; esac  # only links into this repo
-      [[ -e "$target" ]] && continue                            # source still exists → not stale
-      found=1
-      if (( PRUNE_FORCE )); then
-        rm -f "$link" && ok "removed $link (was -> $target)"
-      else
-        warn "stale: $link -> $target (source gone)"
-      fi
-    done < <(find "$root" -maxdepth 2 -type l 2>/dev/null)
-  done
-  (( found )) || ok "no stale symlinks into this repo"
-  (( found && ! PRUNE_FORCE )) && say "  ${dim}(preview — re-run with ${rst}--prune-force${dim} to remove)${rst}"
+  local link target stale=() l
+  # Scan both roots, dedup (a link in ~/.config is reachable from both $HOME and
+  # $HOME/.config at maxdepth 2), so nothing is reported or removed twice.
+  while IFS= read -r link; do
+    target="$(readlink "$link")"
+    case "$target" in "$REPO_ROOT"/*) ;; *) continue ;; esac  # only links into this repo
+    [[ -e "$target" ]] && continue                            # source still exists → not stale
+    stale+=("$link")
+  done < <(find "$HOME" "$HOME/.config" -maxdepth 2 -type l 2>/dev/null | sort -u)
+  if (( ${#stale[@]} == 0 )); then ok "no stale symlinks into this repo"; return 0; fi
+  say "  ${dim}stale symlinks (repo source gone):${rst}"
+  for l in "${stale[@]}"; do say "    $l -> $(readlink "$l")"; done
+  if (( ! PRUNE_FORCE )); then
+    say "  ${dim}(preview — re-run with ${rst}--prune-force${dim} to remove)${rst}"; return 0
+  fi
+  confirm "Remove the ${#stale[@]} stale symlink(s) above?" || { say "  ${dim}skipped${rst}"; return 0; }
+  for l in "${stale[@]}"; do remove_link "$l" && ok "removed $l"; done
 }
-run_prune() { prune_links; prune_packages; }
+# --dry-run must never mutate, even with --prune-force: downgrade to preview.
+run_prune() { (( DRY_RUN )) && PRUNE_FORCE=0; prune_links; prune_packages; }
 
 # Show the ordered steps this run will actually perform, so the non-package work
 # (symlinks, ssh key, launchagents, shell framework) is visible up front rather
@@ -665,6 +696,11 @@ main() {
     hdr "Packages"
     say "  ${dim}skipped (--no-packages / --skip packages / --only without 'packages')${rst}"
   else
+  # Prime the Brewfile row cache in THIS (parent) shell. rows()'s own lazy
+  # populate happens inside `< <(rows)` process-substitution subshells and would
+  # never persist, so without this the memoization is a no-op and every group in
+  # preview_plan re-parses the Brewfile. Priming here makes the cache effective.
+  ROWS_CACHE="$(all_rows)"
   case "$mode" in
     core) run_bundle "core" ;;
     all)  INCLUDE_STALE=1; run_bundle "core ${GROUP_ORDER[*]}" ;;
