@@ -6,12 +6,12 @@
 # associative arrays, no bash-4 features. Driven by the `# group:NAME` tags in
 # install/Brewfile (see install/REPRODUCIBILITY.md).
 #
-# Steps:
-#   1. Symlink configs into ~/.config/ (from manifest.yaml)
-#   2. Ensure a per-machine SSH key exists (~/.ssh/id_ed25519)
-#   3. Let you pick which package groups to install (browse contents with `v`)
-#   4. Review the exact package list, then brew bundle it (Core always included)
-#   5. Pick which LaunchAgents (install/launchagents/*.plist) this machine runs
+# Steps (each is scopable with --only / --skip / --no-packages):
+#   links        Symlink configs + dotfiles into place (from manifest.yaml)
+#   ssh          Ensure a per-machine SSH key exists (~/.ssh/id_ed25519)
+#   packages     Pick groups, review the list, then brew bundle it (Core included)
+#   launchagents Pick which LaunchAgents (install/launchagents/*.plist) run here
+#   shell        oh-my-zsh + powerlevel10k + plugins (required by the linked .zshrc)
 #
 # Usage:  install/install.sh                  # interactive group picker
 #         install/install.sh --core           # non-interactive, Core only
@@ -20,6 +20,15 @@
 #         install/install.sh --launchagents a,b   # non-interactive: install these launchagents (labels, or 'all'/'none')
 #         install/install.sh --include-stale  # also install not-recently-used apps
 #         install/install.sh --dry-run        # print the resolved package list and exit (no install)
+#
+# The run is a sequence of steps: links, ssh, packages, launchagents, shell.
+# Scope which ones run (e.g. re-link configs without touching packages):
+#         install/install.sh --no-packages    # every step except the package install (core not forced)
+#         install/install.sh --only links     # ONLY these steps (comma/space list from the five above)
+#         install/install.sh --skip shell,ssh # every step EXCEPT these
+#         install/install.sh --adopt          # back up a pre-existing real file, then symlink over it
+#         install/install.sh --prune          # report packages/symlinks no longer in the manifest (preview)
+#         install/install.sh --prune-force    # actually remove that surplus
 #
 # In the interactive menu: number toggles a group, `v` browses a group's
 # packages (kind, recent/stale, descriptions), and Enter shows a review of the
@@ -38,10 +47,19 @@ BREWFILE="$SCRIPT_DIR/Brewfile"
 MANIFEST="$SCRIPT_DIR/manifest.yaml"
 
 bold=$'\033[1m'; dim=$'\033[2m'; grn=$'\033[32m'; ylw=$'\033[33m'; cyn=$'\033[36m'; rst=$'\033[0m'
+
+# Non-fatal warnings are collected and reprinted as a summary at the end, so a
+# failure early in a long fresh-install run doesn't scroll off unseen. Temp
+# files are tracked and removed on exit (including Ctrl-C) via the EXIT trap.
+WARNINGS=()
+TMPFILES=()
+cleanup() { local f; for f in "${TMPFILES[@]:-}"; do [[ -n "$f" ]] && rm -f "$f"; done; }
+trap cleanup EXIT
+
 say()  { printf "%s\n" "$*"; }
 hdr()  { printf "\n%s==> %s%s\n" "$bold" "$*" "$rst"; }
 ok()   { printf "  %s✓%s %s\n" "$grn" "$rst" "$*"; }
-warn() { printf "  %s!%s %s\n" "$ylw" "$rst" "$*"; }
+warn() { printf "  %s!%s %s\n" "$ylw" "$rst" "$*"; WARNINGS+=("$*"); }
 have() { command -v "$1" &>/dev/null; }
 
 # Group menu order. 'core' is implicit (always installed) and never shown as a
@@ -93,6 +111,24 @@ DRY_RUN=0
 # Selection state, parallel to GROUP_ORDER (SEL[i]=1 means group i selected).
 SEL=()
 
+# The installer's top-level steps, in run order. Each can be included/excluded
+# with --only / --skip (or --no-packages) so a re-run can do just the config
+# housekeeping without being forced through a package install.
+STEPS="links ssh packages launchagents shell"
+ONLY_STEPS=""   # --only: space-separated whitelist (empty = all steps eligible)
+SKIP_STEPS=""   # --skip / --no-packages: space-separated blacklist
+ADOPT=0         # --adopt: back up a pre-existing real file/dir, then symlink over it
+PRUNE=0         # --prune: report packages/symlinks no longer in the manifest
+PRUNE_FORCE=0   # --prune-force: actually remove them (bare --prune only previews)
+
+# Is a given step in scope for this run? --only (whitelist) wins; then --skip.
+step_enabled() {
+  local s="$1"
+  [[ -n "$ONLY_STEPS" && " $ONLY_STEPS " != *" $s "* ]] && return 1
+  [[ " $SKIP_STEPS " == *" $s "* ]] && return 1
+  return 0
+}
+
 group_index() {
   local i
   for i in "${!GROUP_ORDER[@]}"; do
@@ -132,6 +168,12 @@ all_rows() {
   ' "$BREWFILE"
 }
 
+# Memoized wrapper around all_rows. all_rows re-parses the whole Brewfile every
+# call, and preview_plan calls it once per group (~26 awk passes per preview).
+# Parse once into a cache, then replay it. Callers read from `rows`, not all_rows.
+ROWS_CACHE=""
+rows() { [[ -n "$ROWS_CACHE" ]] || ROWS_CACHE="$(all_rows)"; printf '%s\n' "$ROWS_CACHE"; }
+
 # Would this entry be installed given the current INCLUDE_STALE setting?
 # Core and CLI (brew) entries are always eligible; recently-used apps too.
 # Not-recently-used casks/mas are skipped unless INCLUDE_STALE.  Args: group kind rec
@@ -152,7 +194,7 @@ browse_group() {
     elif (( rec )); then                              state="${cyn}recent${rst}"
     else                                              state="${ylw}stale ${rst}"; fi
     printf "  %-5s %-26s %b  %s\n" "$kind" "$name" "$state" "${desc:+$dim$desc$rst}"
-  done < <(all_rows)
+  done < <(rows)
   (( shown == 0 )) && say "  ${dim}(no packages in this group)${rst}"
   say ""
   printf "%s(Enter to return to the menu)%s " "$dim" "$rst"
@@ -183,7 +225,19 @@ link_block() {
     if [[ -L "$tgt" && "$(readlink "$tgt")" == "$abs" ]]; then
       ok "$tgt (already linked)"
     elif [[ -e "$tgt" && ! -L "$tgt" ]]; then
-      warn "$tgt exists and is not a symlink — leaving it; remove it manually to link"
+      # A pre-existing real file/dir (e.g. one an app created before install ran,
+      # or an already-provisioned host). Without --adopt, leave it untouched so we
+      # never clobber real data. With --adopt, back it up, then link over it.
+      if (( ADOPT )); then
+        local bak; bak="$tgt.bak-$(date +%Y%m%d%H%M%S)"
+        if mv "$tgt" "$bak" && ln -sfn "$abs" "$tgt"; then
+          ok "$tgt -> $src (adopted; previous contents saved to $(basename "$bak"))"
+        else
+          warn "$tgt — adopt failed (could not back up and relink)"
+        fi
+      else
+        warn "$tgt exists and is not a symlink — leaving it (re-run with --adopt to back it up and link)"
+      fi
     else
       ln -sfn "$abs" "$tgt" && ok "$tgt -> $src"
     fi
@@ -414,7 +468,7 @@ compute_bundle() {
     else
       skipped=$((skipped+1))
     fi
-  done < <(all_rows)
+  done < <(rows)
   echo "$skipped"
 }
 
@@ -444,7 +498,7 @@ preview_plan() {
       else
         skipped=$((skipped+1)); skipped_list+="     $kind $name"$'\n'
       fi
-    done < <(all_rows)
+    done < <(rows)
   done
   say ""
   say "${bold}$total package(s) will be installed.${rst}"
@@ -461,7 +515,7 @@ run_bundle() {
     hdr "Dry run — nothing installed"
     return 0
   fi
-  local tmp; tmp="$(mktemp -t Brewfile.XXXXXX)"
+  local tmp; tmp="$(mktemp -t Brewfile.XXXXXX)"; TMPFILES+=("$tmp")
   local skipped; skipped="$(compute_bundle "$selected" "$tmp")"
 
   local n; n="$(grep -cE '^(brew|cask|mas) ' "$tmp")"
@@ -480,10 +534,84 @@ run_bundle() {
 }
 
 # ---------------------------------------------------------------------------
+# Prune — report (and with --prune-force, remove) things no longer in the
+# manifest. Opt-in and preview-by-default; the reproducibility loop is otherwise
+# one-directional (install-only), so drift accumulates silently.
+# ---------------------------------------------------------------------------
+# Packages: brew bundle cleanup against the FULL Brewfile (every entry, all
+# groups) — anything installed but absent from it is surplus. Building the full
+# list (not a group-filtered subset) is critical: cleanup removes whatever the
+# file omits, so a filtered file would try to uninstall your other groups.
+prune_packages() {
+  hdr "Prune — Homebrew packages not in the Brewfile"
+  if ! have brew; then warn "Homebrew not found — skipping package prune"; return 0; fi
+  local full; full="$(mktemp -t Brewfile.full.XXXXXX)"; TMPFILES+=("$full")
+  grep -E '^(tap|brew|cask|mas) ' "$BREWFILE" > "$full"
+  if (( PRUNE_FORCE )); then
+    say "  ${ylw}removing packages not in the Brewfile…${rst}"
+    brew bundle cleanup --file="$full" --force
+  else
+    brew bundle cleanup --file="$full"    # lists what WOULD be removed
+    say "  ${dim}(preview — re-run with ${rst}--prune-force${dim} to actually remove)${rst}"
+  fi
+}
+# Symlinks: find links under the two link roots that point into this repo but
+# whose source no longer exists (i.e. the manifest entry was removed).
+prune_links() {
+  hdr "Prune — stale symlinks into this repo"
+  local root link target found=0
+  for root in "$HOME/.config" "$HOME"; do
+    [[ -d "$root" ]] || continue
+    while IFS= read -r link; do
+      target="$(readlink "$link")"
+      case "$target" in "$REPO_ROOT"/*) ;; *) continue ;; esac  # only links into this repo
+      [[ -e "$target" ]] && continue                            # source still exists → not stale
+      found=1
+      if (( PRUNE_FORCE )); then
+        rm -f "$link" && ok "removed $link (was -> $target)"
+      else
+        warn "stale: $link -> $target (source gone)"
+      fi
+    done < <(find "$root" -maxdepth 2 -type l 2>/dev/null)
+  done
+  (( found )) || ok "no stale symlinks into this repo"
+  (( found && ! PRUNE_FORCE )) && say "  ${dim}(preview — re-run with ${rst}--prune-force${dim} to remove)${rst}"
+}
+run_prune() { prune_links; prune_packages; }
+
+# Show the ordered steps this run will actually perform, so the non-package work
+# (symlinks, ssh key, launchagents, shell framework) is visible up front rather
+# than happening silently around the package picker.
+print_step_plan() {
+  local s desc plan=()
+  for s in $STEPS; do
+    (( DRY_RUN )) && [[ "$s" != packages ]] && continue   # dry-run only previews packages
+    step_enabled "$s" || continue
+    case "$s" in
+      links)        desc="symlink configs + dotfiles into place" ;;
+      ssh)          desc="ensure a per-machine ssh key exists" ;;
+      packages)     if (( DRY_RUN )); then desc="resolve the package list (preview only)"; else desc="brew bundle the selected groups (core included)"; fi ;;
+      launchagents) desc="install/select LaunchAgents" ;;
+      shell)        desc="oh-my-zsh + powerlevel10k + plugins" ;;
+      *)            desc="" ;;
+    esac
+    plan+=("$s — $desc")
+  done
+  hdr "This run will:"
+  if (( ${#plan[@]} == 0 )); then say "  ${dim}(no steps — everything skipped)${rst}"
+  else local i; for i in "${!plan[@]}"; do printf "  %d) %s\n" "$((i+1))" "${plan[$i]}"; done; fi
+  (( PRUNE )) && { local m; (( PRUNE_FORCE )) && m="REMOVE surplus packages/symlinks" || m="preview surplus only"; printf "  *) prune — %s\n" "$m"; }
+}
+
+# Print the leading comment block (shebang excluded) with the `# ` prefix
+# stripped. Robust to the block's length, unlike a hard-coded sed line range.
+print_usage() { awk 'NR==1{next} /^[^#]/{exit} {sub(/^# ?/,"");print}' "${BASH_SOURCE[0]}"; }
+
+# ---------------------------------------------------------------------------
 # main
 # ---------------------------------------------------------------------------
 main() {
-  local mode="" groups="" groups_given=0
+  local mode="" groups="" groups_given=0 only="" skip="" tok
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --include-stale) INCLUDE_STALE=1 ;;
@@ -494,20 +622,49 @@ main() {
       --groups=*) groups="${1#*=}"; groups_given=1 ;;
       --launchagents) shift; LAUNCHAGENTS="${1:-}" ;;
       --launchagents=*) LAUNCHAGENTS="${1#*=}" ;;
-      -h|--help) sed -n '2,31p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; return 0 ;;
+      --no-packages) SKIP_STEPS="$SKIP_STEPS packages" ;;
+      --only) shift; only="${1:-}" ;;
+      --only=*) only="${1#*=}" ;;
+      --skip) shift; skip="${1:-}" ;;
+      --skip=*) skip="${1#*=}" ;;
+      --adopt) ADOPT=1 ;;
+      --prune) PRUNE=1 ;;
+      --prune-force) PRUNE=1; PRUNE_FORCE=1 ;;
+      -h|--help) print_usage; return 0 ;;
       *) warn "ignoring unrecognized argument '$1' (see --help; --groups takes ONE comma-separated list)" ;;
     esac
     shift
   done
-  # --dry-run must not mutate anything — including symlinks (running from a
-  # secondary checkout would otherwise silently repoint live configs at it).
+
+  # Normalize --only/--skip (comma- or space-separated) into the space-delimited
+  # ONLY_STEPS/SKIP_STEPS, validating each against STEPS.
+  for tok in ${only//,/ }; do
+    [[ -z "$tok" ]] && continue
+    if [[ " $STEPS " == *" $tok "* ]]; then ONLY_STEPS="$ONLY_STEPS $tok"; else warn "unknown step '$tok' in --only (valid: $STEPS)"; fi
+  done
+  for tok in ${skip//,/ }; do
+    [[ -z "$tok" ]] && continue
+    if [[ " $STEPS " == *" $tok "* ]]; then SKIP_STEPS="$SKIP_STEPS $tok"; else warn "unknown step '$tok' in --skip (valid: $STEPS)"; fi
+  done
+
+  print_step_plan
+
+  # Steps 1-2 (links, ssh) mutate the filesystem — skipped in --dry-run, which
+  # (running from a secondary checkout) would otherwise silently repoint live
+  # configs. --only/--skip further scope them.
   if (( DRY_RUN )); then
-    say "${dim}dry-run: skipping symlinks${rst}"
+    say "${dim}dry-run: skipping symlinks + ssh key (no mutations)${rst}"
   else
-    link_configs
-    link_home
-    ensure_ssh_key
+    step_enabled links && { link_configs; link_home; }
+    step_enabled ssh   && ensure_ssh_key
   fi
+
+  # Step 3 (packages). Skippable via --no-packages / --skip packages / --only …,
+  # so a re-run isn't forced through a core package install.
+  if ! step_enabled packages; then
+    hdr "Packages"
+    say "  ${dim}skipped (--no-packages / --skip packages / --only without 'packages')${rst}"
+  else
   case "$mode" in
     core) run_bundle "core" ;;
     all)  INCLUDE_STALE=1; run_bundle "core ${GROUP_ORDER[*]}" ;;
@@ -558,11 +715,28 @@ main() {
       fi
       ;;
   esac
-  local ni=0; [[ -n "$mode" || $groups_given -eq 1 ]] && ni=1
-  (( DRY_RUN )) || install_launchagents "$ni"
-  install_shell_framework
+  fi  # end: step_enabled packages
+
+  # Steps 4-5 (launchagents, shell framework) mutate the machine, so they are
+  # skipped in --dry-run. (This is also the fix for the prior bug where the shell
+  # framework was git-cloned even during a dry run.) --only/--skip scope them too.
+  if (( ! DRY_RUN )); then
+    local ni=0; [[ -n "$mode" || $groups_given -eq 1 ]] && ni=1
+    step_enabled launchagents && install_launchagents "$ni"
+    step_enabled shell        && install_shell_framework
+  fi
+
+  # Opt-in: report/remove packages + symlinks no longer in the manifest.
+  (( PRUNE )) && run_prune
+
   hdr "Done"
   say "Re-run anytime to add more groups. Inventory drift: ${cyn}install/refresh-inventory.sh${rst}"
+
+  # Reprint everything that warned this run so nothing important scrolled off.
+  if (( ${#WARNINGS[@]} )); then
+    printf "\n%s%d warning(s) this run:%s\n" "$ylw" "${#WARNINGS[@]}" "$rst"
+    local w; for w in "${WARNINGS[@]}"; do printf "  %s!%s %s\n" "$ylw" "$rst" "$w"; done
+  fi
 }
 
 main "$@"
