@@ -1,0 +1,17 @@
+version: 1
+id: vault-backup
+name: Vault Backup (auto-commit, every 30m)
+status: active
+
+# MBP-only: the canonical local-only ~/vault-backup.git safety-net repo lives on
+# the MacBook Pro. The script trigger gates on hostname so it never runs (and
+# never creates a stray repo) on other machines.
+triggers:
+  - type: script
+    schedule: "*/30 * * * *"
+    command: ["@config/scripts/_lib/on-host.sh", "Nelsons-MacBook-Pro"]
+    timeout: 10s
+
+run:
+  command: ["@config/scripts/vault-backup/run.sh"]
+  timeout: 5m
