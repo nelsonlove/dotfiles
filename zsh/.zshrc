@@ -115,6 +115,19 @@ alias pxe='pipx environment'
 alias claude-safe="command claude"
 alias claude-remote="command claude remote-control"
 
+# Make `mv` fail loudly on collision. omz's common-aliases plugin sets
+# `mv='mv -i'`, which only *prompts* interactively — in scripts and the
+# non-interactive agent Bash tool the prompt is skipped and BSD `mv` silently
+# refuses to overwrite while still exiting 0, hiding bulk-move failures under
+# `set -e`. GNU coreutils' `--update=none-fail` (gmv 9.11+) refuses the
+# overwrite AND exits non-zero, leaving source and dest untouched; it handles
+# directory destinations natively (`mv f d/` checks `d/f`). Pinning to `gmv`
+# (not bare `mv`) also guarantees GNU even when a caller resolves `mv` to BSD
+# /bin/mv. Force a deliberate overwrite with the escape hatch
+# `mv --update=all src dst` (last --update flag wins; note `-f` does NOT
+# override none-fail). Must load after omz init above so it overrides the plugin.
+command -v gmv >/dev/null 2>&1 && alias mv='gmv --update=none-fail'
+
 # Auto-route to jd claude when inside the JD tree
 command -v jd >/dev/null 2>&1 && eval "$(jd claude --setup)"
 
