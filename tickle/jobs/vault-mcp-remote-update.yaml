@@ -1,0 +1,21 @@
+version: 1
+id: vault-mcp-remote-update
+name: Vault-MCP remote proxy — notify if behind origin/main
+status: active
+
+# MBP-only: the remote MCP proxy (com.nelson.vault-mcp-remote LaunchAgent) runs
+# only on the MacBook Pro, fronting the cloudflared tunnel for obsidian.nelson.love.
+# Its repo checkout drifts behind origin/main over time — and the real problem is
+# that the drift goes UNNOTICED (found 6 commits behind). This job DETECTS + PINGS
+# the comms relay once a day; it never auto-applies. Supervision (keep-it-running)
+# stays with launchd's KeepAlive; the actual pull/rebuild/restart is a manual step
+# so unvetted main commits never auto-deploy to the live endpoint. Host-gated to MBP.
+triggers:
+  - type: script
+    schedule: "0 9 * * *"
+    command: ["@config/scripts/_lib/on-host.sh", "Nelsons-MacBook-Pro"]
+    timeout: 10s
+
+run:
+  command: ["@config/scripts/vault-mcp-remote-update/run.sh"]
+  timeout: 2m
