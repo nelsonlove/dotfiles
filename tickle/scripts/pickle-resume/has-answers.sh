@@ -3,7 +3,7 @@
 # actionable (has a session_id to resume),
 # unprocessed, and not claimed by a live session.
 set -euo pipefail
-export PATH="/opt/homebrew/bin:/usr/bin:/bin:$PATH"
+export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:$PATH"
 STATE="$HOME/.claude/pickle-state"; PROC="$STATE/processed"; CLAIMS="$STATE/claims"
 mkdir -p "$PROC" "$CLAIMS"
 claim_live() { local c="$CLAIMS/$1"; [ -e "$c" ] || return 1; local a=$(( $(date +%s) - $(stat -f %m "$c" 2>/dev/null || echo 0) )); [ "$a" -lt 90 ]; }
