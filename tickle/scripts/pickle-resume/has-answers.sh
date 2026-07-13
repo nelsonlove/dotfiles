@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Gate: run iff there's an answered request that is OURS (workflow=pickle-ask),
-# actionable (has a session_id to resume OR an ops_handoff to rebuild from),
+# actionable (has a session_id to resume),
 # unprocessed, and not claimed by a live session.
 set -euo pipefail
 export PATH="/opt/homebrew/bin:/usr/bin:/bin:$PATH"
@@ -14,8 +14,8 @@ for id in $ids; do
   claim_live "$id" && continue
   meta=$(pickle show --json "$id" 2>/dev/null || echo '{}')
   [ "$(meta_get "$meta" workflow)" = "pickle-ask" ] || continue
-  sid=$(meta_get "$meta" session_id); handoff=$(meta_get "$meta" ops_handoff)
-  [ -n "$sid" ] || [ -n "$handoff" ] || continue        # need something to act on
+  sid=$(meta_get "$meta" session_id)
+  [ -n "$sid" ] || continue        # need a session to resume
   printf '{"run":true,"reason":"pickle %s answered (actionable)","event_id":"%s"}\n' "$id" "$id"
   exit 0
 done
