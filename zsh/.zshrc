@@ -115,6 +115,20 @@ alias pxe='pipx environment'
 alias claude-safe="command claude"
 alias claude-remote="command claude remote-control"
 
+# Make bare `mv` fail LOUD on collision. oh-my-zsh's common-aliases plugin sets
+# `mv='mv -i'`; under `set -e` in a non-interactive shell (e.g. the Claude Code
+# Bash tool, which sources this profile) `mv -i src dst` where dst exists hits
+# EOF on the prompt, silently SKIPS the move, and exits 0 — hiding bulk-move
+# failures (bit us 2026-04, W18 rollup, 2026-06-23 pattern-library flatten).
+# GNU coreutils' `--update=none-fail` instead prints "not replacing '<dst>'",
+# exits non-zero, and leaves both files untouched. Pin to `gmv` (not `mv`):
+# the Bash tool sometimes resolves `mv` to BSD /bin/mv, which has no --update.
+# Escape hatch for a DELIBERATE overwrite: `mv --update=all src dst` (last
+# --update wins). Note `-f` does NOT override none-fail. Guarded on `gmv` so a
+# shell without Homebrew coreutils keeps the default mv rather than erroring.
+# Task b9da027f-93eb-424a-b7ad-cdc65dbd18a0.
+command -v gmv >/dev/null 2>&1 && alias mv='gmv --update=none-fail'
+
 # Auto-route to jd claude when inside the JD tree
 command -v jd >/dev/null 2>&1 && eval "$(jd claude --setup)"
 
