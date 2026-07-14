@@ -3,7 +3,7 @@
 #
 # Blocks Edit/Write/MultiEdit against shared append-only files where
 # concurrent writers cause Read→Edit races (see ~/.claude/CLAUDE.md
-# § Notebook & Shared File Writes, and 03.50 Agent friction log entry
+# § Notebook & Shared File Writes, and 05.50 Agent friction log entry
 # 2026-05-11T11:02 documenting the exact race).
 #
 # Match policy: the file's basename matches one of the shared-write
@@ -42,7 +42,7 @@ basename=$(basename -- "$file_path")
 # Shared append-only files. Add new patterns here as the fleet adopts
 # more shared coordination surfaces.
 case "$basename" in
-    "03.50 Agent friction log.md")
+    "05.50 Agent friction log.md")
         target="$file_path"
         ;;
     "Agent note for "????-??-??.md)
