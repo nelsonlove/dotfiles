@@ -5,7 +5,7 @@
 # Makes NO changes to the task store.
 set -uo pipefail
 export PATH="$HOME/.local/bin:/opt/homebrew/bin:$PATH"
-SCOPE="${1:-$HOME/obsidian/00-09 System/03 LLMs & agents/03.02 Tasks for 03 LLMs & agents}"
+SCOPE="${1:-$HOME/obsidian/00-09 System/05 AI agents/05.02 Tasks for 05 AI agents}"
 COMMS_SEND="${COMMS_SEND:-$HOME/repos/agent-stack/plugins/agent-approvals/skills/comms-send/comms-send.sh}"
 TODAY=$(date +%Y-%m-%d)
 SCOPE_NAME="${SCOPE:t}"
