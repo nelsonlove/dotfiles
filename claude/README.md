@@ -14,7 +14,7 @@ merges on top of `settings.json`.
   `enabledPlugins` + `extraKnownMarketplaces` (plugins reinstall themselves
   from the marketplaces on a fresh machine — no plugin files are synced), and
   `autoMemoryDirectory`, which points auto-memory at the vault
-  (`~/obsidian/00-09 System/03 LLMs & agents/03.17 Claude Code memories`) so
+  (`~/obsidian/00-09 System/05 AI agents/05.17 Claude Code memories`) so
   memories ride Obsidian Sync across machines instead of this repo.
 - `hooks/` — hook scripts referenced by `settings.json` (`block-edit-shared-files.sh`
   guards shared append-only vault files against Read→Edit races;
