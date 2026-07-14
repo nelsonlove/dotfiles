@@ -4,7 +4,7 @@
   },
   "theme": "dark",
   "tui": "fullscreen",
-  "autoMemoryDirectory": "~/obsidian/00-09 System/03 LLMs & agents/03.17 Claude Code memories",
+  "autoMemoryDirectory": "~/obsidian/00-09 System/05 AI agents/05.17 Claude Code memories",
   "skipDangerousModePermissionPrompt": true,
   "extraKnownMarketplaces": {
     "claude-code-plugins-mac": {
