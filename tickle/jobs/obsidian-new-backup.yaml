@@ -1,0 +1,18 @@
+version: 1
+id: obsidian-new-backup
+name: obsidian-new Backup (auto-commit, every 30m)
+status: active
+
+# Air-only: ~/obsidian-new (the ground-up vault rebuild) lives on the MacBook
+# Air; its local-only safety-net repo is ~/obsidian-new-backup.git. The script
+# trigger gates on hostname so it never runs (and never creates a stray repo)
+# on other machines. Mirrors the MBP-only vault-backup job.
+triggers:
+  - type: script
+    schedule: "*/30 * * * *"
+    command: ["@config/scripts/_lib/on-host.sh", "Nelsons-MacBook-Air"]
+    timeout: 10s
+
+run:
+  command: ["@config/scripts/obsidian-new-backup/run.sh"]
+  timeout: 5m
