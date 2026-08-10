@@ -1,0 +1,17 @@
+version: 1
+id: rex-briefing
+name: Rex morning briefing (daily 8am)
+status: active
+
+# Air-only (the always-on tickle host). Rebuilt 2026-08-10 from the gen1 Rex spec
+# (Feature ledger §10). v2 candidates: calendar + custody flag (TCC), email
+# highlights (himalaya), OmniFocus — see scripts/rex-briefing/run.sh header.
+triggers:
+  - type: script
+    schedule: "0 8 * * *"
+    command: ["@config/scripts/_lib/on-host.sh", "Nelsons-MacBook-Air"]
+    timeout: 10s
+
+run:
+  command: ["@config/scripts/rex-briefing/run.sh"]
+  timeout: 15m
