@@ -42,7 +42,14 @@ basename=$(basename -- "$file_path")
 # Shared append-only files. Add new patterns here as the fleet adopts
 # more shared coordination surfaces.
 case "$basename" in
+    "Agent friction log.md")
+        # Current home since 2026-08-09:
+        # /Users/nelson/obsidian/00-09 System/03 Agents/03.04 Records for 03 Agents/Agent friction log.md
+        target="$file_path"
+        ;;
     "05.50 Agent friction log.md")
+        # Pre-2026-08-02 home; a tombstone keeps this basename at the
+        # old path and stale sessions may still target it.
         target="$file_path"
         ;;
     "Agent note for "????-??-??.md)
