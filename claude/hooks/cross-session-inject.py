@@ -100,17 +100,28 @@ def main():
         payload = {}
     session_id = str(payload.get("session_id") or "unknown")
 
+    # No vault on this host at all (the settings.json + hooks pair is shared
+    # across machines, and not every machine carries ~/obsidian): the hook does
+    # not apply, so stay silent. Warning here would fire on every single
+    # session start of a vault-less machine, which is noise, not signal.
+    if not VAULT.is_dir():
+        return
+
     log = find_log()
     if log is None:
-        # Say so out loud. A silent return here is indistinguishable from "the
-        # log was read and had nothing", so a vault move that strands the file
-        # would go unnoticed for as long as it took someone to wonder why the
-        # channel was quiet — and a session that cannot see the log is liable
-        # to recreate it somewhere wrong.
+        # Vault present but no log in it — say so out loud. A silent return
+        # here is indistinguishable from "the log was read and had nothing", so
+        # a vault move that strands the file would go unnoticed for as long as
+        # it took someone to wonder why the channel was quiet — and a session
+        # that cannot see the log is liable to recreate it somewhere wrong.
+        # The path below is a hint for that case only; find_log() still
+        # discovers by name, so the log moving does not need an edit here.
         emit(
-            f"Cross-session log: NOT FOUND under {VAULT}. The coordination channel is "
-            "unreadable this session — do not assume it is empty and do not create a new "
-            f"one; its home is '00-09 System/03 Agents/03.16 Cross-session log/CROSS-SESSION.md'."
+            f"Cross-session log: NOT FOUND under {VAULT}, though the vault exists. The "
+            "coordination channel is unreadable this session — do not assume it is empty "
+            "and do not create a new one. As of 2026-08-18 its home was "
+            "'00-09 System/03 Agents/03.16 Cross-session log/CROSS-SESSION.md'; search "
+            "the vault before concluding it is gone."
         )
         return
 
