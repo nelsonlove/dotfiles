@@ -137,9 +137,13 @@ Machine-specific files are gitignored (`zsh/*.local`) and sourced if present:
 
 ## Johnny Decimal integration
 
-This repo is the source of truth for system policy. The JD tree has symlinks back:
+The JD tree symlinks back to this repo:
 
 ```
-~/Documents/00-09 System/00 System/00.00 System - Meta/POLICY.md → ~/repos/system/dotfiles/docs/POLICY.md
-~/Documents/.../07 Apps & config/07.11 Dotfiles                  → ~/repos/system/dotfiles/
+~/Documents/.../07 Apps & config/07.11 Dotfiles/+REPO dotfiles → ~/repos/system/dotfiles/
 ```
+
+The `POLICY.md` pair that used to be documented here is gone: neither
+`docs/POLICY.md` nor its JD counterpart at `00.00 System - Meta/POLICY.md`
+exists any more, so the "source of truth for system policy" claim went with
+them. System policy now lives in the Obsidian vault, not this repo.
