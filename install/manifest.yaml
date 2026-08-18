@@ -73,4 +73,4 @@ config_symlinks:
 
 jd_symlinks:
   # Source (on the system) → target (in JD tree, relative to ~/Documents/)
-  ~/repos/dotfiles: "00-09 System/07 Apps & config/07.11 Dotfiles/+REPO dotfiles"
+  ~/repos/system/dotfiles: "00-09 System/07 Apps & config/07.11 Dotfiles/+REPO dotfiles"

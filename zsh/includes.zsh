@@ -5,7 +5,7 @@ export XDG_DATA_HOME="${XDG_LOCAL_HOME}/share"
 # Make bare `brew bundle <check|cleanup|install>` use the canonical Brewfile
 # instead of looking for ./Brewfile in the cwd. DOTFILES comes from .zshenv;
 # the fallback covers non-zsh callers that source this file directly.
-export HOMEBREW_BUNDLE_FILE="${DOTFILES:-${HOME}/repos/dotfiles}/install/Brewfile"
+export HOMEBREW_BUNDLE_FILE="${DOTFILES:-${HOME}/repos/system/dotfiles}/install/Brewfile"
 
 
 touch_and_execute() {

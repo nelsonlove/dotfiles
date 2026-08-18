@@ -80,7 +80,7 @@ There is no Nix toolchain installed on the Mac. Instead, a NixOS aarch64 VM runn
 
 ```sh
 # 1. push the current flake to the VM
-rsync -av --exclude '.git' ~/repos/dotfiles/nix/ root@192.168.64.10:/root/nix-config/
+rsync -av --exclude '.git' ~/repos/system/dotfiles/nix/ root@192.168.64.10:/root/nix-config/
 
 # 2. build + switch on the Pi via the VM
 ssh root@192.168.64.10 \
@@ -90,7 +90,7 @@ ssh root@192.168.64.10 \
      --use-remote-sudo'
 
 # 3. pull back the updated flake.lock (only needed when inputs changed)
-scp root@192.168.64.10:/root/nix-config/flake.lock ~/repos/dotfiles/nix/flake.lock
+scp root@192.168.64.10:/root/nix-config/flake.lock ~/repos/system/dotfiles/nix/flake.lock
 ```
 
 If the VM is stopped, start it with `utmctl start <UUID>` (UUID `0AC1C031-2E24-4289-97E3-9F3DD7618D26`). The VM has 64 GB disk (large enough for the vendor RPi kernel compile, which the cache misses) and 16 GB RAM. See "VM provisioning" below if it ever needs to be rebuilt.
@@ -104,7 +104,7 @@ Edit `default.nix`. Push + rebuild as above. The closure builds on the VM, gets 
 ### Add/rotate a secret
 
 ```sh
-cd ~/repos/dotfiles
+cd ~/repos/system/dotfiles
 sops nix/secrets/pi400.yaml   # opens $EDITOR with decrypted plaintext
 # save + exit → file re-encrypts automatically
 ```
@@ -156,7 +156,7 @@ The minimum manual steps to go from a fresh microSD to a fully-configured Pi:
    ```
    Edit `.sops.yaml`: replace the **age public key value** on the `&pi400` line with the new recipient. Keep the `&pi400` anchor label itself — it's referenced by `*pi400` in `creation_rules`. Then:
    ```sh
-   cd ~/repos/dotfiles
+   cd ~/repos/system/dotfiles
    sops updatekeys nix/secrets/pi400.yaml
    git add .sops.yaml nix/secrets/pi400.yaml
    git commit -m "chore(sops): rekey pi400 after reflash"

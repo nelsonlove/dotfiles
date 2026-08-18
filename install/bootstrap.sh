@@ -9,7 +9,7 @@
 set -euo pipefail
 
 REPO="https://github.com/nelsonlove/dotfiles.git"
-DOTFILES="$HOME/repos/dotfiles"
+DOTFILES="$HOME/repos/system/dotfiles"
 
 bold=$'\033[1m'; rst=$'\033[0m'
 hdr() { printf "\n%s==> %s%s\n" "$bold" "$*" "$rst"; }

@@ -119,7 +119,12 @@ inactive/                 ← retired configs kept as reference
 Canonical locations are declared **once**, in `zsh/.zshenv`, and everything
 else derives from them:
 
-- `DOTFILES` — this repo (`~/repos/dotfiles`)
+- `DOTFILES` — this repo (`~/repos/system/dotfiles`). Derived from the
+  `~/.zshenv` symlink rather than hardcoded, so moving the repo only needs
+  `install/install.sh --only links` — no edit here. The one path that does not
+  follow is `TICKLE_CONFIG_HOME` in `install/launchagents/dev.tickle.daemon.plist`
+  (launchd plists take no expansion); a move means editing that string and
+  re-running `install/install.sh --only launchagents`.
 - `SECRETS_DIR` — the JD secrets slot (`…/09 Secrets & credentials/09.11 Secrets`);
   a JD renumber is a one-line change here (plus the mirrored let-bindings in
   `nix/home/default.nix`)
@@ -135,6 +140,6 @@ Machine-specific files are gitignored (`zsh/*.local`) and sourced if present:
 This repo is the source of truth for system policy. The JD tree has symlinks back:
 
 ```
-~/Documents/00-09 System/00 System/00.00 System - Meta/POLICY.md → ~/repos/dotfiles/docs/POLICY.md
-~/Documents/.../07 Apps & config/07.11 Dotfiles                  → ~/repos/dotfiles/
+~/Documents/00-09 System/00 System/00.00 System - Meta/POLICY.md → ~/repos/system/dotfiles/docs/POLICY.md
+~/Documents/.../07 Apps & config/07.11 Dotfiles                  → ~/repos/system/dotfiles/
 ```

@@ -15,7 +15,7 @@
          runtime state (runs/state/logs/bin) stays per-machine in the default
          DATA_HOME (~/Library/Application Support/tickle). -->
     <key>TICKLE_CONFIG_HOME</key>
-    <string>/Users/nelson/repos/dotfiles/tickle</string>
+    <string>/Users/nelson/repos/system/dotfiles/tickle</string>
   </dict>
   <key>RunAtLoad</key>
   <true/>

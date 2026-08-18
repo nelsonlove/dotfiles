@@ -2,7 +2,7 @@
 
 let
   # Canonical locations, declared once — mirrors DOTFILES / SECRETS_DIR in zsh/.zshenv.
-  dotfiles = "${config.home.homeDirectory}/repos/dotfiles";
+  dotfiles = "${config.home.homeDirectory}/repos/system/dotfiles";
   secretsDir = "${config.home.homeDirectory}/Documents/00-09 System/09 Secrets & credentials/09.11 Secrets";
 in
 {
