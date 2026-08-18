@@ -28,6 +28,16 @@ FIRST_RUN_WINDOW_HOURS = 48
 HEADING = re.compile(r"^## (20\d\d-\d\d-\d\dT[0-9:x]+)", re.M)
 
 
+def emit(context):
+    """Write one SessionStart additionalContext payload to stdout."""
+    print(json.dumps({
+        "hookSpecificOutput": {
+            "hookEventName": "SessionStart",
+            "additionalContext": context,
+        }
+    }))
+
+
 def find_log():
     for p in sorted(VAULT.rglob("CROSS-SESSION.md")):
         if ".trash" not in p.parts:
@@ -92,11 +102,25 @@ def main():
 
     log = find_log()
     if log is None:
+        # Say so out loud. A silent return here is indistinguishable from "the
+        # log was read and had nothing", so a vault move that strands the file
+        # would go unnoticed for as long as it took someone to wonder why the
+        # channel was quiet — and a session that cannot see the log is liable
+        # to recreate it somewhere wrong.
+        emit(
+            f"Cross-session log: NOT FOUND under {VAULT}. The coordination channel is "
+            "unreadable this session — do not assume it is empty and do not create a new "
+            f"one; its home is '00-09 System/03 Agents/03.16 Cross-session log/CROSS-SESSION.md'."
+        )
         return
 
     text = log.read_text(errors="replace")
     entries = split_entries(text)
     if not entries:
+        emit(
+            f"Cross-session log: found at {log} but it contains no parseable entries "
+            "(expected '## YYYY-MM-DDTHH:MM' headings). Treat as unread, not as empty."
+        )
         return
 
     STATE_DIR.mkdir(parents=True, exist_ok=True)
@@ -152,12 +176,7 @@ def main():
         )
         new_state = last
 
-    print(json.dumps({
-        "hookSpecificOutput": {
-            "hookEventName": "SessionStart",
-            "additionalContext": context,
-        }
-    }))
+    emit(context)
     # State advances only after the context was successfully emitted, and only
     # to the last entry actually shown — injection of an entry, not attestation
     # of the whole file, is what the stamp records.
