@@ -61,8 +61,16 @@ def channel_index():
         return []
     return [
         p for p in out.splitlines()
-        if ".trash" not in p and has_frontmatter_audience(p)
+        if ".trash" not in p
+        and Path(p).stem == Path(p).parent.name  # folder notes only
+        and has_frontmatter_audience(p)
     ]
+
+
+def norm(stamp):
+    """Comparable form of a stamp: 'x' placeholders (e.g. 21:2x) sort as 0,
+    so a sloppy stamp never outranks a later real one."""
+    return stamp.replace("x", "0")
 
 
 def split_entries(text):
@@ -99,34 +107,50 @@ def main():
             "%Y-%m-%dT%H:%M"
         )
 
-    unread = [(s, e) for s, e in entries if s > last]
-    newest = max(s for s, _ in entries)
-    state_file.write_text(newest)
+    unread = [(s, e) for s, e in entries if norm(s) > norm(last)]
 
     channels = channel_index()
     chan_lines = "\n".join(f"- {c}" for c in channels) or f"- {log}"
 
     if unread:
-        dropped = max(0, len(unread) - MAX_ENTRIES)
-        shown = unread[-MAX_ENTRIES:]
+        # Page oldest-first by stamp (file order is not reliably chronological):
+        # entries beyond the cap stay unread — the state stamp only advances to
+        # a value strictly below every unshown entry — so they surface on the
+        # next start instead of being silently marked read.
+        unread.sort(key=lambda pair: norm(pair[0]))
+        shown = unread[:MAX_ENTRIES]
+        while len(shown) > 1 and sum(len(e) for _, e in shown) > MAX_CHARS:
+            shown.pop()
+        remaining = len(unread) - len(shown)
         body = "\n\n".join(e for _, e in shown)
-        if len(body) > MAX_CHARS:
-            body = body[-MAX_CHARS:]
-            body = "[oldest entries truncated]\n" + body[body.index("\n## ") + 1:] if "\n## " in body else body
-        note = f"[{dropped} older unread entries not shown — read them in the file]\n\n" if dropped else ""
+        note = (
+            f"[{remaining} newer unread entries not shown — read them in the file now; "
+            "they will also resurface at the next session start]\n\n"
+            if remaining else ""
+        )
         context = (
             f"UNREAD CROSS-SESSION LOG ENTRIES ({log}):\n"
             "Per the 'Cross-session log reading discipline' rule in CLAUDE.md, read each entry below in full "
             "and give each a disposition (act / reply in the log / consciously dismiss). "
             "A reply is mandatory if an entry names your scope, files, or claims.\n\n"
-            f"{note}{body}\n\n"
+            f"{body}\n\n{note}"
             f"Cross-session channels discovered (audience: frontmatter):\n{chan_lines}"
         )
+        if remaining:
+            min_unshown = min(norm(s) for s, _ in unread[len(shown):])
+            below = [norm(s) for s, _ in shown if norm(s) < min_unshown]
+            # No candidate below the unshown floor (a stamp tie across the cap
+            # boundary): keep the old stamp — tied entries reshow next start
+            # rather than any being lost.
+            new_state = max(below) if below else last
+        else:
+            new_state = max(norm(s) for s, _ in shown)
     else:
         context = (
             f"Cross-session log: no unread entries since {last} ({log}). "
             "The reading-discipline rule in CLAUDE.md still applies to entries arriving mid-session."
         )
+        new_state = last
 
     print(json.dumps({
         "hookSpecificOutput": {
@@ -134,6 +158,10 @@ def main():
             "additionalContext": context,
         }
     }))
+    # State advances only after the context was successfully emitted, and only
+    # to the last entry actually shown — injection of an entry, not attestation
+    # of the whole file, is what the stamp records.
+    state_file.write_text(norm(new_state))
 
 
 if __name__ == "__main__":
