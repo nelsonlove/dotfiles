@@ -1,12 +1,12 @@
 # Dotfiles
 
-Personal macOS system config and bootstrap. Repo lives at `~/repos/dotfiles/`, symlinked into `~/.config/`.
+Personal macOS system config and bootstrap. Repo lives at `~/repos/system/dotfiles/`, symlinked into `~/.config/`.
 
 ## Conventions
 
 - **JD references**: `92` means `~/Documents/90-99*/92*` — user references JD IDs as shorthand
 - **XDG layout**: config in `~/.config/`, data in `~/.local/share/`, cache in `~/.cache/`
-- **Repos**: live in `~/repos/`, plain names (no JD IDs, no spaces). JD tree has symlinks to them.
+- **Repos**: live under `~/repos/`, plain names (no JD IDs, no spaces). JD tree has symlinks to them. Since 2026-08-18 they are grouped one level down by kind rather than sitting flat — this repo is at `~/repos/system/dotfiles`. Resolve a repo by searching, not by assuming `~/repos/<name>`.
 - **JD conventions**: source of truth is `00.05 Conventions & policies for the system` in the Obsidian vault
 - **.gitignore is a targeted blacklist**: switched from whitelist 2026-03-04. Excludes specific noise (`.DS_Store`, `*.elc`, `*.eln`, `eln-cache/`, `*~`, `emacs/custom.el`, `zsh/*.local`, etc.); everything else is tracked by default.
 

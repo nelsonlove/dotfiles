@@ -9,13 +9,24 @@ export ZDOTDIR="${XDG_CONFIG_HOME}/zsh"
 
 # Canonical locations, declared once — everything downstream (zprofile,
 # includes.zsh, scripts) derives from these instead of hardcoding paths.
-export DOTFILES="${HOME}/repos/dotfiles"
+#
+# DOTFILES is derived from this file instead of hardcoded: %x is the path of the
+# file currently being sourced (~/.zshenv), :A resolves that symlink back into
+# the repo, and :h:h climbs zsh/ -> repo root. Moving the repo therefore needs
+# no edit here — re-running `install/install.sh --only links` is enough. The
+# literal fallback only covers a zsh that reports no %x, or a ~/.zshenv that is
+# a real file rather than the symlink install.sh creates.
+DOTFILES="${${(%):-%x}:A:h:h}"
+[[ -f "${DOTFILES}/install/manifest.yaml" ]] || DOTFILES="${HOME}/repos/system/dotfiles"
+export DOTFILES
 export SECRETS_DIR="${HOME}/Documents/00-09 System/09 Secrets & credentials/09.11 Secrets"
 
 # Tickle reads jobs/scripts from dotfiles (versioned, mirrored across machines);
 # runtime state (runs/state/logs/bin) stays per-machine in the default DATA_HOME.
-# Must match the daemon plist's TICKLE_CONFIG_HOME (install/launchagents/dev.tickle.daemon.plist).
-export TICKLE_CONFIG_HOME="${HOME}/repos/dotfiles/tickle"
+# Must match the daemon plist's TICKLE_CONFIG_HOME (install/launchagents/dev.tickle.daemon.plist),
+# which is a plain string with no expansion — move the repo and that plist needs
+# a matching edit plus `install/install.sh --only launchagents`.
+export TICKLE_CONFIG_HOME="${DOTFILES}/tickle"
 
 # Machine-specific env & secrets — gitignored (zsh/*.local). Sourced after the
 # defaults so a machine can override DOTFILES/SECRETS_DIR or preset tokens.
