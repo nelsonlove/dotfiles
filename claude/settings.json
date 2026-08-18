@@ -47,6 +47,12 @@
           {
             "type": "command",
             "command": "if [ -n \"$TMUX\" ]; then echo \"Running inside tmux session: $(tmux display-message -p '#S')\"; else echo \"Not running inside tmux\"; fi"
+          },
+          {
+            "type": "command",
+            "command": "/Users/nelson/.claude/hooks/cross-session-inject.py",
+            "timeout": 15,
+            "statusMessage": "Checking cross-session log..."
           }
         ]
       }
