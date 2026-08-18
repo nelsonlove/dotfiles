@@ -52,6 +52,12 @@ case "$basename" in
         # old path and stale sessions may still target it.
         target="$file_path"
         ;;
+    "CROSS-SESSION.md")
+        # Fleet cross-session coordination log. Home since 2026-08-18:
+        # /Users/nelson/obsidian/00-09 System/03 Agents/03.16 Cross-session log/CROSS-SESSION.md
+        # (has moved several times; matching by basename covers future moves).
+        target="$file_path"
+        ;;
     "Agent note for "????-??-??.md)
         # Legacy daily-rollup notebook (deprecated 2026-05-27 in favor of
         # per-session files). Still blocking in case one is ever revived
