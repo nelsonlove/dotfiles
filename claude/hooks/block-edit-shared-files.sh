@@ -45,7 +45,7 @@ basename=$(basename -- "$file_path")
 # with a literal command string — restored from backup). Matched by path
 # segment, not basename, so every file in the folder is covered wherever
 # the folder itself moves within a vault.
-case "$file_path" in
+case "/$file_path" in
     */"Machinery record"/*.md)
         cat >&2 <<EOF
 BLOCKED: '$file_path' is a record-class file (record: true) — folded content is
@@ -53,14 +53,14 @@ byte-verbatim and write-once; Edit/Write here is refused.
 
 To add a correction or new record, APPEND a dated entry instead:
 
-  cat <<'EOF_ENTRY' >> '$file_path'
+cat <<'EOF_ENTRY' >> '$file_path'
 
-  ---
+---
 
-  ## $(date '+%Y-%m-%d') — <title>
+## $(date '+%Y-%m-%d') — <title>
 
-  <your entry — never modify text between %% fold %% markers>
-  EOF_ENTRY
+<your entry — never modify text between %% fold %% markers>
+EOF_ENTRY
 
 Reading rules: the 'Machinery record' spine note in the same folder.
 EOF
@@ -104,12 +104,12 @@ Edit/Write on it races with concurrent agent writers (see ~/.claude/CLAUDE.md §
 
 Use atomic Bash heredoc append instead:
 
-  cat <<'EOF_ENTRY' >> '$target'
+cat <<'EOF_ENTRY' >> '$target'
 
-  ## $(date '+%Y-%m-%dT%H:%M') · <handle>
+## $(date '+%Y-%m-%dT%H:%M') · <handle>
 
-  <your entry>
-  EOF_ENTRY
+<your entry>
+EOF_ENTRY
 
 The '>>' redirect is atomic at the OS level — no Read step, no race.
 EOF
