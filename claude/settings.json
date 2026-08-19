@@ -24,6 +24,21 @@
             "type": "command",
             "command": "/Users/nelson/.claude/hooks/shell-move-safety.sh",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "/Users/nelson/.claude/hooks/block-record-writes.sh",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__vault-mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/nelson/.claude/hooks/block-record-writes.sh",
+            "timeout": 10
           }
         ]
       }
