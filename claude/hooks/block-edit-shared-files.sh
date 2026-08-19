@@ -39,6 +39,35 @@ file_path=$(jq -r '.tool_input.file_path // empty' <<<"$input")
 
 basename=$(basename -- "$file_path")
 
+# Record-class surfaces: write-once archives where in-place edits destroy
+# byte-verified content (see the Machinery record spine's reading rules;
+# 2026-08-19: a mis-quoted shell write-back replaced an 86 KB record file
+# with a literal command string — restored from backup). Matched by path
+# segment, not basename, so every file in the folder is covered wherever
+# the folder itself moves within a vault.
+case "/$file_path" in
+    */"Machinery record"/*.md)
+        cat >&2 <<EOF
+BLOCKED: '$file_path' is a record-class file (record: true) — folded content is
+byte-verbatim and write-once; Edit/Write here is refused.
+
+To add a correction or new record, APPEND a dated entry instead:
+
+cat <<'EOF_ENTRY' >> '$file_path'
+
+---
+
+## $(date '+%Y-%m-%d') — <title>
+
+<your entry — never modify text between %% fold %% markers>
+EOF_ENTRY
+
+Reading rules: the 'Machinery record' spine note in the same folder.
+EOF
+        exit 2
+        ;;
+esac
+
 # Shared append-only files. Add new patterns here as the fleet adopts
 # more shared coordination surfaces.
 case "$basename" in
@@ -75,12 +104,12 @@ Edit/Write on it races with concurrent agent writers (see ~/.claude/CLAUDE.md §
 
 Use atomic Bash heredoc append instead:
 
-  cat <<'EOF_ENTRY' >> '$target'
+cat <<'EOF_ENTRY' >> '$target'
 
-  ## $(date '+%Y-%m-%dT%H:%M') · <handle>
+## $(date '+%Y-%m-%dT%H:%M') · <handle>
 
-  <your entry>
-  EOF_ENTRY
+<your entry>
+EOF_ENTRY
 
 The '>>' redirect is atomic at the OS level — no Read step, no race.
 EOF
