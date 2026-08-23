@@ -33,6 +33,14 @@ if [[ ! -d "$HOME/.claude/governor/history" ]]; then
   echo "FATAL: ~/.claude/governor/history does not exist — the Governor standing chain moved or was deleted (obsidian-governor#337); investigate before trusting this backup." >&2
   exit 1
 fi
+# Present-but-EMPTY is the same emergency wearing green: the helper would
+# find nothing to add and the run would pass — "backed up, 0 files" is the
+# failure that reads as success. The store always holds at least its
+# vault-slug gitdir (config + HEAD) once created, so zero files means wiped.
+if [[ -z "$(find "$HOME/.claude/governor/history" -type f 2>/dev/null | head -1)" ]]; then
+  echo "FATAL: ~/.claude/governor/history exists but holds no files — the standing chain store was emptied (obsidian-governor#337); investigate before trusting this backup." >&2
+  exit 1
+fi
 # Restore note: a backup taken before the chain's first commit holds only
 # config+HEAD (git does not track empty dirs) — on copy-back, `mkdir -p
 # objects refs` inside the store before git will read it.
