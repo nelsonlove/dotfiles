@@ -10,6 +10,11 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
 GITDIR="$1"; WT="$2"
 G(){ git --git-dir="$GITDIR" --work-tree="$WT" "$@"; }
 
+# DOCTRINE (obsidian-backup's own scar): this silent green exit is exactly
+# what turned "vault deleted" into months of green runs once before. It
+# survives here ONLY because every current caller FATALs on absence BEFORE
+# calling this helper — if you are writing a third caller, add that loud
+# guard there; do not let this line be your only absence check.
 [[ -d "$WT" ]] || exit 0                 # target not present — nothing to back up
 [[ -d "$GITDIR" ]] || git init --bare -q "$GITDIR"
 
