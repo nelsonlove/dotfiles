@@ -25,9 +25,15 @@ fi
 # it. Missing dir fails LOUDLY, same doctrine as the vault guard above: after
 # the authority cutover this directory IS standing, and a green run over its
 # absence would hide exactly the loss #337 exists to prevent.
+# The vault backup runs FIRST, guard second (review finding): a missing
+# governor dir must scream, but it must not suppress the vault safety net —
+# the job still exits non-zero and the run log carries the FATAL.
+"$(dirname "$0")/../_lib/git-autocommit.sh" "$HOME/obsidian-backup.git" "$HOME/obsidian"
 if [[ ! -d "$HOME/.claude/governor/history" ]]; then
   echo "FATAL: ~/.claude/governor/history does not exist — the Governor standing chain moved or was deleted (obsidian-governor#337); investigate before trusting this backup." >&2
   exit 1
 fi
-"$(dirname "$0")/../_lib/git-autocommit.sh" "$HOME/obsidian-backup.git" "$HOME/obsidian"
+# Restore note: a backup taken before the chain's first commit holds only
+# config+HEAD (git does not track empty dirs) — on copy-back, `mkdir -p
+# objects refs` inside the store before git will read it.
 exec "$(dirname "$0")/../_lib/git-autocommit.sh" "$HOME/governor-history-backup.git" "$HOME/.claude/governor/history"
