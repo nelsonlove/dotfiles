@@ -73,7 +73,7 @@ esac
 case "$basename" in
     "Agent friction log.md")
         # Current home since 2026-08-09:
-        # /Users/nelson/obsidian/00-09 System/03 Agents/03.04 Records for 03 Agents/Agent friction log.md
+        # /Users/nelson/obsidian/00-09 System/03 Agents/03.04 Records/Agent friction log.md
         target="$file_path"
         ;;
     "05.50 Agent friction log.md")
