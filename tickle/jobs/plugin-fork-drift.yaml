@@ -1,0 +1,25 @@
+version: 1
+id: plugin-fork-drift
+name: Obsidian plugin forks — notify if behind upstream or off-convention
+status: active
+
+# The vault's forked Obsidian plugins (origin = upstream, fork = nelsonlove/<repo>, local
+# patches on nl-main) drift behind upstream silently. A 2026-08-27 audit found folder-notes
+# 4 behind, meta-bind 4 behind including a CodeMirror perf fix, tag-wrangler 1 behind, and
+# execute-code on a detached HEAD — none of it visible anywhere until someone fetched by hand.
+#
+# This DETECTS + PINGS the comms relay once a day; it never pulls, rebases, or rebuilds.
+# Rebasing a fork can conflict (tag-wrangler did, on manifest.json and versions.json), so
+# applying an update stays a deliberate manual step, same rationale as vault-mcp-remote-update.
+#
+# NOT host-gated by hostname. The job is only meaningful where the vault and the checkouts
+# both live, and that machine moves (Air-only during the rebuild, MBP after). run.sh tests
+# for the vault plugin dir instead and exits 0 quietly elsewhere, so it follows the vault
+# without an edit here.
+triggers:
+  - type: cron
+    schedule: "0 10 * * *"
+
+run:
+  command: ["@config/scripts/plugin-fork-drift/run.sh"]
+  timeout: 5m
