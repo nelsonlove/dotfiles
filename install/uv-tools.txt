@@ -1,5 +1,22 @@
-obsidian-tasks v0.1.0
-- obsidian-tasks
-zotero-mcp-server v0.4.1
-- zotero-cli
-- zotero-mcp
+# uv tools — installed by the `uv` step of install/install.sh.
+#
+# Format: one package per line, then optional tokens.
+#
+#     <package>[  from=<source>]  [<flag> …]
+#
+# `from=` names what to install when it differs from the package name; `from=?`
+# means the source is not recorded, and those entries are SKIPPED rather than
+# guessed (a same-named package on PyPI is not necessarily the right one). Fill
+# in the real path, or run install/refresh-inventory.sh on the machine that has
+# the tool. See install/pipx-list.txt for the same format at more length.
+#
+# This list is a UNION across Nelson's machines and refresh-inventory.sh never
+# removes from it — `uv tool list` reports nothing on the MacBook Air, so the
+# previous dump-and-overwrite emptied this file whenever it ran there. To drop
+# a tool, delete its line by hand.
+#
+# zotero-mcp-server is the published package (54yyyu/zotero-mcp): the recorded
+# 0.4.1 matches a real PyPI release, so the bare name resolves correctly.
+
+obsidian-tasks  from=?
+zotero-mcp-server

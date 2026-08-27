@@ -6,7 +6,7 @@ Personal system configuration and bootstrap for macOS.
 
 This repo owns:
 - **Config files** — shell, editor, terminal, git, tmux
-- **Inventory dumps** — Brewfile, npm-globals, pipx-list, uv-tools, cargo-list (see `install/REPRODUCIBILITY.md` for the gap matrix)
+- **Package manifests** — Brewfile plus the four language lists (npm-globals, pipx-list, uv-tools, cargo-list), all of them installed by `install.sh` (see `install/REPRODUCIBILITY.md` for the gap matrix)
 - **Install/bootstrap scripts** — `bootstrap.sh` + interactive `install.sh` (see Bootstrap below)
 - **LaunchAgents** — Nelson-authored plists in `install/launchagents/`, installed per machine via the `install.sh` picker
 - **System policy docs** — JD conventions, XDG layout, repo management
@@ -48,8 +48,8 @@ interactive `install.sh`:
 2. **install.sh** — symlinks configs into `~/.config/` (from
    `manifest.yaml`), ensures a per-machine SSH key, then opens a
    pick-what-you-want menu of package **groups**, `brew bundle`s the
-   selection, installs the global npm packages listed in
-   `npm-globals.txt`, and finishes with a per-machine LaunchAgents picker
+   selection, installs the npm/pipx/uv/cargo packages listed in the four
+   language lists, and finishes with a per-machine LaunchAgents picker
 
 You don't have to install everything. The installer groups packages
 (shell, editor, dev, cloud, media, apps, games, …) and you toggle which
@@ -81,10 +81,10 @@ install/                  ← bootstrap + installer + inventory
   smoke-test.sh           ← runs install.sh checks under system bash 3.2
   audit-unmanaged-apps.sh ← classifies /Applications: MAS / brew / unmanaged
   Brewfile                ← formulae + casks + taps + mas, # group:-tagged
-  npm-globals.txt         ← global npm packages (+ per-package flags); union of machines
-  pipx-list.txt           ← pipx-installed apps
-  uv-tools.txt            ← uv tools
-  cargo-list.txt          ← cargo --globals
+  npm-globals.txt         ← global npm packages; union of machines
+  pipx-list.txt           ← pipx apps          ┐ same format: <package> [from=…] [flags]
+  uv-tools.txt            ← uv tools           │ each is an install.sh step; refresh
+  cargo-list.txt          ← cargo binaries     ┘ merges rather than overwrites
 docs/                     ← system policy (symlinked into JD tree)
   POLICY.md
 emacs/                    ← Emacs config (standalone, not Doom)

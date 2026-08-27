@@ -6,9 +6,9 @@ inventory dumps live alongside it (`Brewfile`, `pipx-list.txt`, etc.).
 
 The goal was **inventory-only** first — spot every place declarative
 documentation is missing. As of the TUI installer, `install/install.sh`
-now *consumes* the Brewfile (grouped by `# group:` tags) and
-`npm-globals.txt` (its `npm` step); the remaining dumps (pipx/uv/cargo)
-are inventory-only.
+now *consumes* the Brewfile (grouped by `# group:` tags) and all four
+language-package lists (its `npm` / `pipx` / `uv` / `cargo` steps).
+Nothing here is inventory-only any more.
 
 Narrative discussion lives in the vault at
 `00-09 System/07 Apps & config/07.11 Dotfiles.md` (why some surfaces
@@ -29,10 +29,10 @@ intentionally not declared (sensitive or not declarable on macOS).
 | Homebrew formulae + casks + taps + mas | `install/Brewfile` (`# group:`-tagged) | `install/refresh-inventory.sh` (dump + tag-merge) | ✅ |
 | Homebrew services | none | `brew services list` (no dump format) | ❌ |
 | Homebrew tap trust | none | `brew tap-info --json` | ❌ |
-| pipx apps | `install/pipx-list.txt` | `pipx list --short` | ❌ |
-| uv tools | `install/uv-tools.txt` | `uv tool list` | ❌ |
-| cargo --globals | `install/cargo-list.txt` | `cargo install --list` | ❌ |
-| npm globals | `install/npm-globals.txt` | `install/refresh-inventory.sh` (merge: adds new, keeps flags) | ✅ |
+| pipx apps | `install/pipx-list.txt` | `install/refresh-inventory.sh` (merge) | ✅ (9 of 10 still need a `from=` path) |
+| uv tools | `install/uv-tools.txt` | `install/refresh-inventory.sh` (merge) | ✅ (1 of 2 still needs a `from=` path) |
+| cargo --globals | `install/cargo-list.txt` | `install/refresh-inventory.sh` (merge) | ✅ |
+| npm globals | `install/npm-globals.txt` | `install/refresh-inventory.sh` (merge) | ✅ |
 | pnpm globals | `install/pnpm-globals.txt` | `pnpm list -g --depth=0 --json` | ⏸ |
 | Gem globals | `install/gems.txt` | `gem list --no-versions` | ⏸ |
 | Mac App Store apps | (rolls into `install/Brewfile`) | covered by `brew bundle dump` | ❌ |
@@ -68,9 +68,13 @@ build-time deps, version-only churn). The commit history of these
 files becomes a record of deliberate config evolution; uncommitted
 local state becomes the unblessed tail.
 
-This is why first-cut scope is "inventory-only": you can't get
-drift visibility without committing the dump format, but you can
-get it without writing an installer that consumes it.
+First-cut scope was deliberately "inventory-only": you can't get drift
+visibility without committing the dump format, but you can get it
+without writing an installer that consumes it. Every surface here has
+since grown a consumer, so that staging is historical — but the
+merge-don't-overwrite rule on the language lists is a direct
+consequence of it, because a dump written for *reading* truncates
+happily and a dump written for *installing* must not.
 
 ## Per-surface notes
 
@@ -91,8 +95,9 @@ through `refresh-inventory.sh`, which backs up the tagged file and
 re-applies the tags afterward (`merge-brewfile-tags.py`). New, untagged
 packages are reported on stderr and default to `_untagged` until you
 assign a group. The tag-merge also carries over the non-`brew bundle`
-lines (`cargo`/`uv`), which a raw dump would drop. The `npm "…"` lines
-that used to sit there moved to `npm-globals.txt` — see below.
+lines, of which there are now none: the `npm`/`cargo`/`uv` entries that
+used to sit at the bottom of the Brewfile moved to the language-package
+lists — see below. A smoke-test check keeps them from creeping back.
 
 **Staleness flag.** Apps (casks/mas) confirmed opened recently also carry
 `used:recent`. The installer skips not-recently-used apps by default
@@ -110,56 +115,66 @@ untrusted taps currently in use (`bun`, `wrangler-cli`, `supabase`,
 A separate `brew tap-info --json` dump would close this; not in scope
 for first cut.
 
-### npm globals
+### Language packages (npm / pipx / uv / cargo)
 
-`install/npm-globals.txt`, installed by the `npm` step of `install.sh`
-(`install/install.sh --only npm` to run just that step). One package per
-line, with an optional flags column:
+Four lists, one format, one code path in `install.sh`:
+`npm-globals.txt`, `pipx-list.txt`, `uv-tools.txt`, `cargo-list.txt`.
+Each is its own step (`install/install.sh --only pipx`, etc.). All four
+run after `packages`, because brew supplies node/pipx/uv/rust, and
+`--no-packages` suppresses all of them along with `brew bundle`.
 
 ```
-@earendil-works/pi-coding-agent  --ignore-scripts
-tailwindcss
+<package>[  from=<source>]  [<flag> …]
 ```
 
-The flags column is why this is a purpose-built file rather than more
-`npm "…"` lines in the Brewfile. Those lines existed for a while and
-looked declarative, but nothing ever read them: `install.sh` filters the
-Brewfile to `^(brew|cask|mas) ` before handing it to `brew bundle`, and
-`brew bundle` has no `npm` verb anyway. They were notes. They are gone
-now; their 23 packages seeded this file.
+**Why not a raw tool dump.** The two columns carry things no dump can
+rediscover. `--ignore-scripts` on `@earendil-works/pi-coding-agent` is a
+flag; and most of Nelson's pipx apps are local repos rather than
+published packages, so `from=` names what to actually install.
+
+**`from=?` means the source is unknown, and those entries are skipped,
+loudly.** That is a safety rule, not tidiness. `apple-notes` is a local
+package whose name is *also* taken by an unrelated project on PyPI, so
+installing it by bare name would fetch a stranger's code onto the
+machine. Nine of the ten pipx apps and one of the two uv tools are
+`from=?` today because their sources live on the MacBook Pro and could
+not be resolved from the Air. Filling those in — or just running
+`refresh-inventory.sh` on the Pro — is the remaining work. Until then
+the step installs what it can verify and reports exactly what it
+skipped.
+
+Bare names that *were* checked against the public index, and so resolve
+correctly: `osxphotos`, `zotero-mcp-server` (54yyyu/zotero-mcp, whose
+0.4.1 matches the recorded version), `emacs-lsp-booster` (blahgeek,
+crates.io 0.2.1), and all 25 npm packages.
+
+**These lists merge on refresh; they do not overwrite.** That is a bug
+fix rather than a preference. pipx, uv and cargo each report *zero*
+packages on the MacBook Air while the Pro has a dozen, so the previous
+`tool list > file` dumps truncated all three files to empty whenever the
+refresh ran on the Air — printing a green ✓ while doing it.
+`refresh-inventory.sh` now adds what is newly installed, preserves the
+`from=` and flag columns, and never removes. The cost, stated plainly:
+removals are no longer detected automatically, so dropping a package is
+a hand-edit. Same philosophy as `install/launchagents/`, which is
+already an explicit union across machines.
 
 Already-installed packages are left alone rather than upgraded, matching
-`brew bundle --no-upgrade`. A package that fails to install warns and the
-run continues, like the rest of the installer.
+`brew bundle --no-upgrade`; a failure warns and the run continues.
+`cargo` builds from source and is the slow step — `--skip cargo` if you
+do not want to wait.
 
-**This list is a union across machines**, like `install/launchagents/`.
-`refresh-inventory.sh` *merges*: it adds whatever is newly installed on
-the machine running it, preserves the flags column, and never removes.
-That is a deliberate departure from the Brewfile's dump-and-overwrite,
-because the two Macs have very different global sets — the MacBook Air
-has 4 where the MacBook Pro has two dozen, so an overwrite from the Air
-would silently delete most of the list. **To drop a package, delete its
-line by hand.** The cost is that removals aren't detected automatically;
-the alternative was losing packages without noticing, which is worse.
+Excluded from `npm-globals.txt` on purpose: `npm`, `pnpm`, `corepack`,
+`yarn`. Homebrew owns those (the `node` and `pnpm` formulae ship them),
+and managing them through `npm -g` makes the two package managers fight
+over the same files.
 
-Deliberately excluded: `npm`, `pnpm`, `corepack`, `yarn`. Homebrew owns
-those (the `node` and `pnpm` formulae ship them), and managing them
-through `npm -g` makes the two package managers fight over the same
-files. `refresh-inventory.sh` filters them out of every dump.
-
-`install/smoke-test.sh` validates the file's shape. That matters more
-than it looks: `install_npm_globals` passes the flags column *unquoted*
-to `npm install -g` so it word-splits into separate arguments, which
-means a stray bare word in column 2 would be handed to npm as an extra
-package to install. The test rejects anything in column 2+ that isn't a
-flag.
-
-### pipx / uv / cargo
-
-All produce `<app> <version>` style output. The dumps capture the list
-of installed apps; restoring is `xargs -L1 pipx install <app>` etc.
-Version pinning is intentionally not captured — pipx/uv resolve to
-latest by default and that matches Nelson's actual workflow.
+`install/smoke-test.sh` validates all four files. That matters more than
+it looks: `install_pkg_list` passes the flag tokens *unquoted* so they
+word-split into separate arguments, which means a stray bare word in
+column 2 would reach the tool as an extra package to install. The test
+rejects any column-2 token that is neither `from=…` nor a flag, plus
+duplicates and multiple `from=` on one line.
 
 ### Mac App Store
 

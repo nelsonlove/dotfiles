@@ -629,6 +629,3 @@ mas "Tot", id: 1491071483  # group:writing used:recent
 mas "Ulysses", id: 1225570693  # group:writing
 mas "Wayback Machine", id: 1472432422  # group:safari-extensions used:recent
 mas "Xcode", id: 497799835  # group:dev-apps
-cargo "emacs-lsp-booster"
-uv "obsidian-tasks"
-uv "zotero-mcp-server"

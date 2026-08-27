@@ -106,48 +106,61 @@ T
 if "$SH" "$tmp" 2>/dev/null | grep -q STEP_OK; then ok "step scoping (--only/--skip) + step plan run under /bin/bash"; else bad "step scoping failed: $("$SH" "$tmp" 2>&1 | grep -E '^ERR' | head -1)"; fi
 rm -f "$tmp"
 
-# 9. npm-globals.txt is well-formed. install_npm_globals splits each line into
-#    `pkg flags` and passes $flags UNQUOTED to `npm install -g`, so a malformed
-#    line is not a cosmetic problem: a second bare word in column 2 would be
-#    handed to npm as an extra package to install.
-NPMLIST="$DIR/npm-globals.txt"
-if [[ ! -f "$NPMLIST" ]]; then
-  bad "install/npm-globals.txt missing (the npm step reads it)"
-else
-  entries="$(sed -e 's/#.*//' -e 's/[[:space:]]*$//' "$NPMLIST" | grep -v '^[[:space:]]*$')"
-  # column 1: an npm package name, optionally @scoped
+# 9. every language-package list is well-formed. install_pkg_list word-splits
+#    the tokens after the package name and passes the flag ones UNQUOTED to the
+#    tool, so a malformed line is not cosmetic: a stray bare word in column 2
+#    would be handed over as an extra package to install.
+for LIST in npm-globals.txt pipx-list.txt uv-tools.txt cargo-list.txt; do
+  F="$DIR/$LIST"
+  if [[ ! -f "$F" ]]; then bad "install/$LIST missing (a language-package step reads it)"; continue; fi
+  entries="$(sed -e 's/#.*//' -e 's/[[:space:]]*$//' "$F" | grep -v '^[[:space:]]*$')"
+  # column 1: a package name, optionally @scoped (npm)
   badnames="$(printf '%s\n' "$entries" | awk '$1 !~ /^(@[A-Za-z0-9._~-]+\/)?[A-Za-z0-9._~-]+$/ { print $1 }')"
-  # column 2+: flags only — a bare word here would silently become a package
-  badflags="$(printf '%s\n' "$entries" | awk '{ for (i = 2; i <= NF; i++) if ($i !~ /^--?[A-Za-z]/) print $i }')"
+  # column 2+: only `from=…` or a flag. Anything else would become a package.
+  badtok="$(printf '%s\n' "$entries" | awk '{ for (i = 2; i <= NF; i++) if ($i !~ /^from=/ && $i !~ /^--?[A-Za-z]/) print $i }')"
+  # at most one from= per line, or the last one silently wins
+  multifrom="$(printf '%s\n' "$entries" | awk '{ n = 0; for (i = 2; i <= NF; i++) if ($i ~ /^from=/) n++; if (n > 1) print $1 }')"
   dupes="$(printf '%s\n' "$entries" | awk '{ print $1 }' | sort | uniq -d)"
-  if   [[ -n "$badnames" ]]; then bad "npm-globals.txt: invalid package name(s): $(echo $badnames)"
-  elif [[ -n "$badflags" ]]; then bad "npm-globals.txt: column 2+ must be flags, got: $(echo $badflags)"
-  elif [[ -n "$dupes"    ]]; then bad "npm-globals.txt: duplicate entries: $(echo $dupes)"
-  else ok "npm-globals.txt parses ($(printf '%s\n' "$entries" | wc -l | tr -d ' ') packages)"; fi
-fi
+  if   [[ -n "$badnames"  ]]; then bad "$LIST: invalid package name(s): $(echo $badnames)"
+  elif [[ -n "$badtok"    ]]; then bad "$LIST: column 2+ must be from=… or a flag, got: $(echo $badtok)"
+  elif [[ -n "$multifrom" ]]; then bad "$LIST: more than one from= on: $(echo $multifrom)"
+  elif [[ -n "$dupes"     ]]; then bad "$LIST: duplicate entries: $(echo $dupes)"
+  else ok "$LIST parses ($(printf '%s\n' "$entries" | wc -l | tr -d ' ') entries)"; fi
+done
 
-# 10. the npm step is actually wired into install.sh (a valid list nothing runs
-#     is the failure mode this catches), under system bash.
+# 10. the four language-package steps are wired into install.sh (a valid list
+#     that nothing runs is the failure mode this catches), under system bash.
 tmp="$(mktemp)"; sed '$d' "$INSTALL" > "$tmp"
-cat >> "$tmp" <<T
-NPM_GLOBALS="$NPMLIST"
-case " \$STEPS " in *" npm "*) ;; *) echo ERR-npm-not-a-step; exit 3;; esac
-type install_npm_globals >/dev/null 2>&1 || { echo ERR-no-install_npm_globals; exit 3; }
-# the parse helper must round-trip the list without losing or inventing lines
-want="\$(sed -e 's/#.*//' -e 's/[[:space:]]*\$//' "\$NPM_GLOBALS" | grep -cv '^[[:space:]]*\$')"
-got="\$(npm_globals_entries | grep -c .)"
-[ "\$want" = "\$got" ] || { echo "ERR-entry-count want=\$want got=\$got"; exit 3; }
-# --no-packages must suppress npm too, or it installs during a config-only run
-SKIP_STEPS=" packages npm "; ONLY_STEPS=""
-step_enabled npm && { echo ERR-no-packages-leaves-npm-on; exit 3; }
-DRY_RUN=0; ONLY_STEPS=" npm "; SKIP_STEPS=""
-plan="\$(print_step_plan 2>/dev/null)"
-case "\$plan" in *"npm —"*) ;; *) echo ERR-plan-missing-npm; exit 3;; esac
-case "\$plan" in *"packages —"*) echo ERR-plan-shows-excluded-packages; exit 3;; esac
-echo NPM_OK
+cat >> "$tmp" <<'T'
+SCRIPT_DIR_TEST=1
+for t in npm pipx uv cargo; do
+  case " $STEPS " in *" $t "*) ;; *) echo "ERR-$t-not-a-step"; exit 3;; esac
+  [ -n "$(pkg_list_file "$t")" ]  || { echo "ERR-$t-no-file";  exit 3; }
+  [ -n "$(pkg_list_label "$t")" ] || { echo "ERR-$t-no-label"; exit 3; }
+  # the parse helper must round-trip its list without losing or inventing lines
+  f="$(pkg_list_file "$t")"
+  want="$(sed -e 's/#.*//' -e 's/[[:space:]]*$//' "$f" | grep -cv '^[[:space:]]*$')"
+  got="$(pkg_list_entries "$t" | grep -c .)"
+  [ "$want" = "$got" ] || { echo "ERR-$t-entry-count want=$want got=$got"; exit 3; }
+  # --no-packages must suppress every one of them
+  SKIP_STEPS=" packages npm pipx uv cargo "; ONLY_STEPS=""
+  step_enabled "$t" && { echo "ERR-no-packages-leaves-$t-on"; exit 3; }
+  DRY_RUN=0; ONLY_STEPS=" $t "; SKIP_STEPS=""
+  plan="$(print_step_plan 2>/dev/null)"
+  case "$plan" in *"$t —"*) ;; *) echo "ERR-plan-missing-$t"; exit 3;; esac
+  case "$plan" in *"packages —"*) echo "ERR-plan-shows-excluded-packages"; exit 3;; esac
+done
+type install_pkg_list >/dev/null 2>&1 || { echo ERR-no-install_pkg_list; exit 3; }
+echo PKG_OK
 T
-if "$SH" "$tmp" 2>/dev/null | grep -q NPM_OK; then ok "npm step wired in (STEPS, plan, --no-packages, list parse)"; else bad "npm step failed: $("$SH" "$tmp" 2>&1 | grep -E '^ERR' | head -1)"; fi
+if "$SH" "$tmp" 2>/dev/null | grep -q PKG_OK; then ok "npm/pipx/uv/cargo steps wired in (STEPS, plan, --no-packages, list parse)"; else bad "language-package steps failed: $("$SH" "$tmp" 2>&1 | grep -E '^ERR' | head -1)"; fi
 rm -f "$tmp"
+
+# 11. the Brewfile carries no non-bundle lines. These looked declarative for a
+#     long time and installed nothing; keep them from creeping back.
+nb="$(grep -nE '^(cargo|uv|npm|pnpm|gem) ' "$BREWFILE" || true)"
+[[ -z "$nb" ]] && ok "no dead non-bundle lines in the Brewfile" || bad "non-bundle line(s) in Brewfile — brew bundle never installs these:
+$(printf '%s\n' "$nb" | sed 's/^/      /')"
 
 echo
 [[ $rc == 0 ]] && echo "smoke test PASSED" || echo "smoke test FAILED"

@@ -11,6 +11,9 @@
 #   ssh          Ensure a per-machine SSH key exists (~/.ssh/id_ed25519)
 #   packages     Pick groups, review the list, then brew bundle it (Core included)
 #   npm          Install the global npm packages in install/npm-globals.txt
+#   pipx         Install the pipx apps in install/pipx-list.txt
+#   uv           Install the uv tools in install/uv-tools.txt
+#   cargo        Install the cargo binaries in install/cargo-list.txt (builds from source)
 #   launchagents Pick which LaunchAgents (install/launchagents/*.plist) run here
 #   shell        oh-my-zsh + powerlevel10k + plugins (required by the linked .zshrc)
 #
@@ -22,11 +25,13 @@
 #         install/install.sh --include-stale  # also install not-recently-used apps
 #         install/install.sh --dry-run        # print the resolved package list and exit (no install)
 #
-# The run is a sequence of steps: links, ssh, packages, npm, launchagents, shell.
+# The run is a sequence of steps: links, ssh, packages, npm, pipx, uv, cargo,
+# launchagents, shell. The four language-package steps share one list format
+# (see install/REPRODUCIBILITY.md); npm/pipx/uv/cargo each read their own file.
 # Scope which ones run (e.g. re-link configs without touching packages):
-#         install/install.sh --no-packages    # every step except the package installs, brew AND npm (core not forced)
-#         install/install.sh --only links     # ONLY these steps (comma/space list from the six above)
-#         install/install.sh --only npm       # just refresh the global npm packages
+#         install/install.sh --no-packages    # every step except the package installs, brew AND npm/pipx/uv/cargo (core not forced)
+#         install/install.sh --only links     # ONLY these steps (comma/space list from the nine above)
+#         install/install.sh --only npm,pipx  # just the language-package steps you name
 #         install/install.sh --skip shell,ssh # every step EXCEPT these
 #         install/install.sh --adopt          # back up a pre-existing real file, then symlink over it
 #         install/install.sh --prune          # report packages/symlinks no longer in the manifest (preview)
@@ -47,7 +52,6 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BREWFILE="$SCRIPT_DIR/Brewfile"
 MANIFEST="$SCRIPT_DIR/manifest.yaml"
-NPM_GLOBALS="$SCRIPT_DIR/npm-globals.txt"
 
 bold=$'\033[1m'; dim=$'\033[2m'; grn=$'\033[32m'; ylw=$'\033[33m'; cyn=$'\033[36m'; rst=$'\033[0m'
 
@@ -117,7 +121,7 @@ SEL=()
 # The installer's top-level steps, in run order. Each can be included/excluded
 # with --only / --skip (or --no-packages) so a re-run can do just the config
 # housekeeping without being forced through a package install.
-STEPS="links ssh packages npm launchagents shell"
+STEPS="links ssh packages npm pipx uv cargo launchagents shell"
 ONLY_STEPS=""   # --only: space-separated whitelist (empty = all steps eligible)
 SKIP_STEPS=""   # --skip / --no-packages: space-separated blacklist
 ADOPT=0         # --adopt: back up a pre-existing real file/dir, then symlink over it
@@ -546,51 +550,127 @@ run_bundle() {
 }
 
 # ---------------------------------------------------------------------------
-# Global npm packages (install/npm-globals.txt)
+# Language-package steps: npm / pipx / uv / cargo
 # ---------------------------------------------------------------------------
-# One package per line, optionally followed by npm flags:  <name> [flags…]
-# The flags column is the reason this isn't a bare name list: some packages must
-# be installed a specific way (e.g. --ignore-scripts to suppress a postinstall)
-# and nothing else in the repo can record that. Comments and blank lines are
-# ignored. Runs after `packages` because node/npm arrive with the `dev` group.
+# Four tools, one file format, one code path. Each has a list file in this dir:
 #
-# Strip trailing comments, drop blank lines. Emitted for the read loop below.
-npm_globals_entries() {
-  sed -e 's/#.*//' -e 's/[[:space:]]*$//' "$NPM_GLOBALS" | grep -v '^[[:space:]]*$'
+#     <package>[  <token> <token> …]
+#
+# where each trailing token is either a flag passed straight to the tool, or
+# `from=SPEC` naming what to install when that differs from the package name.
+# `#` comments and blank lines are ignored. install/REPRODUCIBILITY.md is the
+# reference for the format.
+#
+# Both columns earn their keep:
+#   - flags, because @earendil-works/pi-coding-agent must install with
+#     --ignore-scripts and a bare name list has nowhere to record that;
+#   - from=, because most of Nelson's pipx apps are local repos, not published
+#     packages. `from=?` marks a source we do not know — those are SKIPPED, not
+#     guessed. That is a safety rule, not tidiness: `apple-notes` is a local
+#     package whose name is also taken by an unrelated project on PyPI, so
+#     installing it by bare name would fetch a stranger's code.
+#
+# These run after `packages` because brew supplies node, pipx, uv and rust.
+pkg_list_file() {
+  case "$1" in
+    npm)   echo "$SCRIPT_DIR/npm-globals.txt" ;;
+    pipx)  echo "$SCRIPT_DIR/pipx-list.txt" ;;
+    uv)    echo "$SCRIPT_DIR/uv-tools.txt" ;;
+    cargo) echo "$SCRIPT_DIR/cargo-list.txt" ;;
+  esac
+}
+pkg_list_label() {
+  case "$1" in
+    npm)   echo "Global npm packages" ;;
+    pipx)  echo "pipx apps" ;;
+    uv)    echo "uv tools" ;;
+    cargo) echo "cargo binaries" ;;
+  esac
+}
+# Where each tool's binary comes from, for the "not installed" hint.
+pkg_list_source() {
+  case "$1" in
+    npm)   echo "the 'dev' group (node)" ;;
+    pipx)  echo "the 'dev' group (pipx)" ;;
+    uv)    echo "the 'dev' group (uv)" ;;
+    cargo) echo "the 'dev' group (rust)" ;;
+  esac
 }
 
-install_npm_globals() {
-  hdr "Global npm packages"
-  [[ -f "$NPM_GLOBALS" ]] || { warn "no npm-globals.txt — skipping"; return 0; }
-  if ! have npm; then
-    warn "npm not found — install the 'dev' group (node), then re-run: install/install.sh --only npm"
+# Strip trailing comments, drop blank lines. Feeds the read loop.
+pkg_list_entries() {
+  sed -e 's/#.*//' -e 's/[[:space:]]*$//' "$(pkg_list_file "$1")" | grep -v '^[[:space:]]*$'
+}
+
+# One installed package name per line — the "already present?" check. Queried
+# once per tool rather than once per package: these are all slow to start.
+pkg_list_installed() {
+  case "$1" in
+    # …/lib/node_modules/<name> or …/lib/node_modules/@scope/<name>; stripping
+    # through the last `node_modules/` keeps the scope intact.
+    npm)   npm ls -g --depth=0 --parseable 2>/dev/null | sed -n 's|.*/node_modules/||p' ;;
+    pipx)  pipx list --short 2>/dev/null | awk 'NF { print $1 }' ;;
+    # both print a `<name> v<ver>` header per tool, then indented detail lines
+    uv)    NO_COLOR=1 uv tool list 2>/dev/null | awk '/^[^[:space:]-]/ { print $1 }' ;;
+    cargo) cargo install --list 2>/dev/null | awk '/^[^[:space:]]/ { sub(/:$/, "", $1); print $1 }' ;;
+  esac
+}
+
+# Install $2 (already resolved through from=) with flags $3… for tool $1.
+pkg_list_install() {
+  local tool="$1" target="$2"; shift 2
+  case "$tool" in
+    npm)   npm install -g "$@" "$target" ;;
+    pipx)  pipx install "$@" "$target" ;;
+    uv)    uv tool install "$@" "$target" ;;
+    cargo) cargo install "$@" "$target" ;;
+  esac
+}
+
+install_pkg_list() {
+  local tool="$1" file installed pkg rest tok src fl target
+  local added=0 present=0 failed=0 unresolved=0
+  file="$(pkg_list_file "$tool")"
+  hdr "$(pkg_list_label "$tool")"
+  [[ -f "$file" ]] || { warn "no $(basename "$file") — skipping"; return 0; }
+  if ! have "$tool"; then
+    warn "$tool not found — install $(pkg_list_source "$tool"), then re-run: install/install.sh --only $tool"
     return 0
   fi
-  # One `npm ls` up front rather than one per package: each npm invocation costs
-  # the better part of a second and this list is dozens long. Paths look like
-  # …/lib/node_modules/<name> or …/lib/node_modules/@scope/<name>, so stripping
-  # through the last `node_modules/` yields the package name with its scope
-  # intact. Padded with spaces so the membership test can anchor on both sides.
-  local installed
-  installed=" $(npm ls -g --depth=0 --parseable 2>/dev/null | sed -n 's|.*/node_modules/||p' | tr '\n' ' ') "
-  local pkg flags added=0 present=0 failed=0
+  [[ "$tool" == cargo ]] && say "  ${dim}(cargo builds from source — this step can take a while)${rst}"
+  # Padded with spaces so the membership test can anchor on both sides.
+  installed=" $(pkg_list_installed "$tool" | tr '\n' ' ') "
   # Process substitution, not a pipe: a `... | while` loop runs in a subshell,
   # which would lose warn()'s WARNINGS+= from the end-of-run summary.
-  while read -r pkg flags; do
+  while read -r pkg rest; do
     [[ -z "$pkg" ]] && continue
     if [[ "$installed" == *" $pkg "* ]]; then
       ok "$pkg (present)"; present=$((present+1)); continue
     fi
-    # $flags is deliberately unquoted: it holds zero or more whitespace-separated
-    # npm flags read from the file and must word-split into separate arguments.
-    # shellcheck disable=SC2086
-    if npm install -g $flags "$pkg"; then
-      ok "$pkg${flags:+  ${dim}$flags${rst}}"; added=$((added+1))
-    else
-      warn "npm install -g $pkg failed"; failed=$((failed+1))
+    # $rest is deliberately unquoted here: it holds zero or more whitespace-
+    # separated tokens and must word-split so each can be classified.
+    src=""; fl=""
+    for tok in $rest; do
+      case "$tok" in
+        from=*) src="${tok#from=}" ;;
+        *)      fl="${fl:+$fl }$tok" ;;
+      esac
+    done
+    if [[ "$src" == "?" ]]; then
+      warn "$pkg — source unknown, not installing (a same-named public package may not be the right one). Record its path as from=… in $(basename "$file"), or run refresh-inventory.sh on the machine that has it."
+      unresolved=$((unresolved+1)); continue
     fi
-  done < <(npm_globals_entries)
-  say "  ${dim}$added installed, $present already present$( (( failed )) && printf ', %d failed' "$failed" )${rst}"
+    target="${src:-$pkg}"
+    target="${target/#\~/$HOME}"
+    # $fl unquoted for the same word-splitting reason as above.
+    # shellcheck disable=SC2086
+    if pkg_list_install "$tool" "$target" $fl; then
+      ok "$pkg${src:+  ${dim}from $src${rst}}${fl:+  ${dim}$fl${rst}}"; added=$((added+1))
+    else
+      warn "$tool: installing $pkg failed"; failed=$((failed+1))
+    fi
+  done < <(pkg_list_entries "$tool")
+  say "  ${dim}$added installed, $present already present$( (( failed )) && printf ', %d failed' "$failed" )$( (( unresolved )) && printf ', %d unresolved' "$unresolved" )${rst}"
 }
 
 # ---------------------------------------------------------------------------
@@ -672,6 +752,9 @@ print_step_plan() {
       ssh)          desc="ensure a per-machine ssh key exists" ;;
       packages)     if (( DRY_RUN )); then desc="resolve the package list (preview only)"; else desc="brew bundle the selected groups (core included)"; fi ;;
       npm)          desc="install global npm packages (npm-globals.txt)" ;;
+      pipx)         desc="install pipx apps (pipx-list.txt)" ;;
+      uv)           desc="install uv tools (uv-tools.txt)" ;;
+      cargo)        desc="install cargo binaries (cargo-list.txt; builds from source)" ;;
       launchagents) desc="install/select LaunchAgents" ;;
       shell)        desc="oh-my-zsh + powerlevel10k + plugins" ;;
       *)            desc="" ;;
@@ -703,9 +786,10 @@ main() {
       --groups=*) groups="${1#*=}"; groups_given=1 ;;
       --launchagents) shift; LAUNCHAGENTS="${1:-}" ;;
       --launchagents=*) LAUNCHAGENTS="${1#*=}" ;;
-      # Both package-installing steps, not just brew: --no-packages means "do the
-      # config housekeeping, install nothing", and npm globals hit the network too.
-      --no-packages) SKIP_STEPS="$SKIP_STEPS packages npm" ;;
+      # Every package-installing step, not just brew: --no-packages means "do the
+      # config housekeeping, install nothing", and the language steps hit the
+      # network (and, for cargo, the compiler) too.
+      --no-packages) SKIP_STEPS="$SKIP_STEPS packages npm pipx uv cargo" ;;
       --only) shift; only="${1:-}" ;;
       --only=*) only="${1#*=}" ;;
       --skip) shift; skip="${1:-}" ;;
@@ -805,14 +889,17 @@ main() {
   esac
   fi  # end: step_enabled packages
 
-  # Steps 4-6 (npm globals, launchagents, shell framework) mutate the machine, so
-  # they are skipped in --dry-run. (This is also the fix for the prior bug where
-  # the shell framework was git-cloned even during a dry run.) --only/--skip
-  # scope them too. npm goes first: it needs the node that `packages` just
-  # installed, and it belongs next to the brew install it mirrors.
+  # The remaining steps (the four language-package installs, launchagents, shell
+  # framework) mutate the machine, so they are skipped in --dry-run. (This is
+  # also the fix for the prior bug where the shell framework was git-cloned even
+  # during a dry run.) --only/--skip scope them too. The language steps go first:
+  # they need the runtimes `packages` just installed, and they belong next to the
+  # brew install they mirror.
   if (( ! DRY_RUN )); then
-    local ni=0; [[ -n "$mode" || $groups_given -eq 1 ]] && ni=1
-    step_enabled npm          && install_npm_globals
+    local ni=0 _pkgstep; [[ -n "$mode" || $groups_given -eq 1 ]] && ni=1
+    for _pkgstep in npm pipx uv cargo; do
+      step_enabled "$_pkgstep" && install_pkg_list "$_pkgstep"
+    done
     step_enabled launchagents && install_launchagents "$ni"
     step_enabled shell        && install_shell_framework
   fi
