@@ -106,6 +106,49 @@ T
 if "$SH" "$tmp" 2>/dev/null | grep -q STEP_OK; then ok "step scoping (--only/--skip) + step plan run under /bin/bash"; else bad "step scoping failed: $("$SH" "$tmp" 2>&1 | grep -E '^ERR' | head -1)"; fi
 rm -f "$tmp"
 
+# 9. npm-globals.txt is well-formed. install_npm_globals splits each line into
+#    `pkg flags` and passes $flags UNQUOTED to `npm install -g`, so a malformed
+#    line is not a cosmetic problem: a second bare word in column 2 would be
+#    handed to npm as an extra package to install.
+NPMLIST="$DIR/npm-globals.txt"
+if [[ ! -f "$NPMLIST" ]]; then
+  bad "install/npm-globals.txt missing (the npm step reads it)"
+else
+  entries="$(sed -e 's/#.*//' -e 's/[[:space:]]*$//' "$NPMLIST" | grep -v '^[[:space:]]*$')"
+  # column 1: an npm package name, optionally @scoped
+  badnames="$(printf '%s\n' "$entries" | awk '$1 !~ /^(@[A-Za-z0-9._~-]+\/)?[A-Za-z0-9._~-]+$/ { print $1 }')"
+  # column 2+: flags only — a bare word here would silently become a package
+  badflags="$(printf '%s\n' "$entries" | awk '{ for (i = 2; i <= NF; i++) if ($i !~ /^--?[A-Za-z]/) print $i }')"
+  dupes="$(printf '%s\n' "$entries" | awk '{ print $1 }' | sort | uniq -d)"
+  if   [[ -n "$badnames" ]]; then bad "npm-globals.txt: invalid package name(s): $(echo $badnames)"
+  elif [[ -n "$badflags" ]]; then bad "npm-globals.txt: column 2+ must be flags, got: $(echo $badflags)"
+  elif [[ -n "$dupes"    ]]; then bad "npm-globals.txt: duplicate entries: $(echo $dupes)"
+  else ok "npm-globals.txt parses ($(printf '%s\n' "$entries" | wc -l | tr -d ' ') packages)"; fi
+fi
+
+# 10. the npm step is actually wired into install.sh (a valid list nothing runs
+#     is the failure mode this catches), under system bash.
+tmp="$(mktemp)"; sed '$d' "$INSTALL" > "$tmp"
+cat >> "$tmp" <<T
+NPM_GLOBALS="$NPMLIST"
+case " \$STEPS " in *" npm "*) ;; *) echo ERR-npm-not-a-step; exit 3;; esac
+type install_npm_globals >/dev/null 2>&1 || { echo ERR-no-install_npm_globals; exit 3; }
+# the parse helper must round-trip the list without losing or inventing lines
+want="\$(sed -e 's/#.*//' -e 's/[[:space:]]*\$//' "\$NPM_GLOBALS" | grep -cv '^[[:space:]]*\$')"
+got="\$(npm_globals_entries | grep -c .)"
+[ "\$want" = "\$got" ] || { echo "ERR-entry-count want=\$want got=\$got"; exit 3; }
+# --no-packages must suppress npm too, or it installs during a config-only run
+SKIP_STEPS=" packages npm "; ONLY_STEPS=""
+step_enabled npm && { echo ERR-no-packages-leaves-npm-on; exit 3; }
+DRY_RUN=0; ONLY_STEPS=" npm "; SKIP_STEPS=""
+plan="\$(print_step_plan 2>/dev/null)"
+case "\$plan" in *"npm —"*) ;; *) echo ERR-plan-missing-npm; exit 3;; esac
+case "\$plan" in *"packages —"*) echo ERR-plan-shows-excluded-packages; exit 3;; esac
+echo NPM_OK
+T
+if "$SH" "$tmp" 2>/dev/null | grep -q NPM_OK; then ok "npm step wired in (STEPS, plan, --no-packages, list parse)"; else bad "npm step failed: $("$SH" "$tmp" 2>&1 | grep -E '^ERR' | head -1)"; fi
+rm -f "$tmp"
+
 echo
 [[ $rc == 0 ]] && echo "smoke test PASSED" || echo "smoke test FAILED"
 exit $rc

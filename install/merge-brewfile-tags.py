@@ -2,15 +2,19 @@
 """Re-apply `# group:NAME` tags after `brew bundle dump` regenerates the Brewfile.
 
 `brew bundle dump --force` rewrites the whole file, dropping both the group
-tags and any non-bundle lines (cargo/uv/npm). This restores them:
+tags and any non-bundle lines (cargo/uv). This restores them:
 
   merge-brewfile-tags.py OLD_TAGGED_BREWFILE NEW_DUMPED_BREWFILE
 
 - Each brew/cask/mas entry in NEW gets its group from OLD (matched by name).
 - Entries with no known tag get `# group:_untagged` and are reported on stderr
   so you can categorize them.
-- Non-bundle lines (cargo/uv/npm) + their preceding comment are carried over.
+- Non-bundle lines (cargo/uv) + their preceding comment are carried over.
 NEW is rewritten in place.
+
+NONBUNDLE still matches npm/pnpm/gem so a stray line survives a dump, but the
+Brewfile no longer carries any: global npm packages moved to npm-globals.txt,
+which install.sh's `npm` step actually installs. Nothing here ever did.
 """
 import re
 import sys

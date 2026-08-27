@@ -6,8 +6,9 @@ inventory dumps live alongside it (`Brewfile`, `pipx-list.txt`, etc.).
 
 The goal was **inventory-only** first — spot every place declarative
 documentation is missing. As of the TUI installer, `install/install.sh`
-now *consumes* the Brewfile (grouped by `# group:` tags); the other dumps
-(pipx/uv/cargo) remain inventory-only.
+now *consumes* the Brewfile (grouped by `# group:` tags) and
+`npm-globals.txt` (its `npm` step); the remaining dumps (pipx/uv/cargo)
+are inventory-only.
 
 Narrative discussion lives in the vault at
 `00-09 System/07 Apps & config/07.11 Dotfiles.md` (why some surfaces
@@ -31,7 +32,7 @@ intentionally not declared (sensitive or not declarable on macOS).
 | pipx apps | `install/pipx-list.txt` | `pipx list --short` | ❌ |
 | uv tools | `install/uv-tools.txt` | `uv tool list` | ❌ |
 | cargo --globals | `install/cargo-list.txt` | `cargo install --list` | ❌ |
-| npm globals | `install/npm-globals.txt` | `npm ls -g --depth=0 --json` | ⏸ |
+| npm globals | `install/npm-globals.txt` | `install/refresh-inventory.sh` (merge: adds new, keeps flags) | ✅ |
 | pnpm globals | `install/pnpm-globals.txt` | `pnpm list -g --depth=0 --json` | ⏸ |
 | Gem globals | `install/gems.txt` | `gem list --no-versions` | ⏸ |
 | Mac App Store apps | (rolls into `install/Brewfile`) | covered by `brew bundle dump` | ❌ |
@@ -90,7 +91,8 @@ through `refresh-inventory.sh`, which backs up the tagged file and
 re-applies the tags afterward (`merge-brewfile-tags.py`). New, untagged
 packages are reported on stderr and default to `_untagged` until you
 assign a group. The tag-merge also carries over the non-`brew bundle`
-lines (`cargo`/`uv`/`npm`), which a raw dump would drop.
+lines (`cargo`/`uv`), which a raw dump would drop. The `npm "…"` lines
+that used to sit there moved to `npm-globals.txt` — see below.
 
 **Staleness flag.** Apps (casks/mas) confirmed opened recently also carry
 `used:recent`. The installer skips not-recently-used apps by default
@@ -107,6 +109,50 @@ untrusted taps currently in use (`bun`, `wrangler-cli`, `supabase`,
 `minio`, `twilio`, etc.), `brew outdated` is silently blind for those.
 A separate `brew tap-info --json` dump would close this; not in scope
 for first cut.
+
+### npm globals
+
+`install/npm-globals.txt`, installed by the `npm` step of `install.sh`
+(`install/install.sh --only npm` to run just that step). One package per
+line, with an optional flags column:
+
+```
+@earendil-works/pi-coding-agent  --ignore-scripts
+tailwindcss
+```
+
+The flags column is why this is a purpose-built file rather than more
+`npm "…"` lines in the Brewfile. Those lines existed for a while and
+looked declarative, but nothing ever read them: `install.sh` filters the
+Brewfile to `^(brew|cask|mas) ` before handing it to `brew bundle`, and
+`brew bundle` has no `npm` verb anyway. They were notes. They are gone
+now; their 23 packages seeded this file.
+
+Already-installed packages are left alone rather than upgraded, matching
+`brew bundle --no-upgrade`. A package that fails to install warns and the
+run continues, like the rest of the installer.
+
+**This list is a union across machines**, like `install/launchagents/`.
+`refresh-inventory.sh` *merges*: it adds whatever is newly installed on
+the machine running it, preserves the flags column, and never removes.
+That is a deliberate departure from the Brewfile's dump-and-overwrite,
+because the two Macs have very different global sets — the MacBook Air
+has 4 where the MacBook Pro has two dozen, so an overwrite from the Air
+would silently delete most of the list. **To drop a package, delete its
+line by hand.** The cost is that removals aren't detected automatically;
+the alternative was losing packages without noticing, which is worse.
+
+Deliberately excluded: `npm`, `pnpm`, `corepack`, `yarn`. Homebrew owns
+those (the `node` and `pnpm` formulae ship them), and managing them
+through `npm -g` makes the two package managers fight over the same
+files. `refresh-inventory.sh` filters them out of every dump.
+
+`install/smoke-test.sh` validates the file's shape. That matters more
+than it looks: `install_npm_globals` passes the flags column *unquoted*
+to `npm install -g` so it word-splits into separate arguments, which
+means a stray bare word in column 2 would be handed to npm as an extra
+package to install. The test rejects anything in column 2+ that isn't a
+flag.
 
 ### pipx / uv / cargo
 
