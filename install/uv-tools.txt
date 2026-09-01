@@ -6,9 +6,10 @@
 #
 # `from=` names what to install when it differs from the package name; `from=?`
 # means the source is not recorded, and those entries are SKIPPED rather than
-# guessed (a same-named package on PyPI is not necessarily the right one). Fill
-# in the real path, or run install/refresh-inventory.sh on the machine that has
-# the tool. See install/pipx-list.txt for the same format at more length.
+# guessed (a same-named package on PyPI is not necessarily the right one).
+# Resolving a `?` is a hand-edit — refresh-inventory.sh keys on package names
+# and never revisits one already listed here. See install/pipx-list.txt for the
+# same format at more length.
 #
 # This list is a UNION across Nelson's machines and refresh-inventory.sh never
 # removes from it — `uv tool list` reports nothing on the MacBook Air, so the

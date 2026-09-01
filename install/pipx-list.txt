@@ -9,8 +9,13 @@
 # packages. `from=?` means the source is not recorded — the installer SKIPS
 # those and says so, rather than guessing. Do not replace a `?` with a bare
 # name to make it install: `apple-notes` is also an unrelated project on PyPI,
-# and a bare name would fetch a stranger's code. Fill in the real path, or run
-# install/refresh-inventory.sh on the machine that has the app.
+# and a bare name would fetch a stranger's code.
+#
+# Resolving a `?` is a HAND-EDIT. refresh-inventory.sh cannot do it: the merge
+# keys on package names, and a name already listed here is never revisited. On
+# the machine that has the app, `pipx list --json` reports each app's real
+# source as `.venvs.<name>.metadata.main_package.package_or_url` — paste that
+# in as the `from=` value.
 #
 # `#` comments and blank lines are ignored. Already-installed apps are left
 # alone rather than upgraded, matching `brew bundle --no-upgrade`.

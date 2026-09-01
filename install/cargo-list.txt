@@ -4,10 +4,14 @@
 #
 #     <crate>[  from=<source>]  [<flag> …]
 #
-# `from=` names what to install when it differs from the crate name (e.g. a
-# local path or a --git spec); `from=?` marks a source we do not know, and
-# those entries are SKIPPED rather than guessed. See install/pipx-list.txt for
-# the same format at more length.
+# `from=` names what to install when it differs from the crate name. A `from=`
+# pointing at an existing directory is installed with `cargo install --path`,
+# because cargo — unlike npm/pipx/uv — accepts only a registry crate NAME in
+# the package position and errors on a path. For a git source, put the flags in
+# the flags column (`--git <url> --tag <t>`) rather than in `from=`.
+# `from=?` marks a source we do not know, and those entries are SKIPPED rather
+# than guessed; resolving one is a hand-edit, not something the refresh can do.
+# See install/pipx-list.txt for the same format at more length.
 #
 # This step builds from source, so it is the slow one. It is scopable like any
 # other: `install/install.sh --skip cargo` to leave it out.

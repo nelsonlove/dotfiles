@@ -29,7 +29,7 @@ intentionally not declared (sensitive or not declarable on macOS).
 | Homebrew formulae + casks + taps + mas | `install/Brewfile` (`# group:`-tagged) | `install/refresh-inventory.sh` (dump + tag-merge) | ✅ |
 | Homebrew services | none | `brew services list` (no dump format) | ❌ |
 | Homebrew tap trust | none | `brew tap-info --json` | ❌ |
-| pipx apps | `install/pipx-list.txt` | `install/refresh-inventory.sh` (merge) | ✅ (9 of 10 still need a `from=` path) |
+| pipx apps | `install/pipx-list.txt` | `install/refresh-inventory.sh` (merge) | ✅ (8 of 10 still need a `from=` path) |
 | uv tools | `install/uv-tools.txt` | `install/refresh-inventory.sh` (merge) | ✅ (1 of 2 still needs a `from=` path) |
 | cargo --globals | `install/cargo-list.txt` | `install/refresh-inventory.sh` (merge) | ✅ |
 | npm globals | `install/npm-globals.txt` | `install/refresh-inventory.sh` (merge) | ✅ |
@@ -136,10 +136,17 @@ published packages, so `from=` names what to actually install.
 loudly.** That is a safety rule, not tidiness. `apple-notes` is a local
 package whose name is *also* taken by an unrelated project on PyPI, so
 installing it by bare name would fetch a stranger's code onto the
-machine. Nine of the ten pipx apps and one of the two uv tools are
-`from=?` today because their sources live on the MacBook Pro and could
-not be resolved from the Air. Filling those in — or just running
-`refresh-inventory.sh` on the Pro — is the remaining work. Until then
+machine. Eight of the ten pipx apps and one of the two uv tools are
+`from=?` today, because their sources live on the MacBook Pro and could
+not be resolved from the Air.
+
+Filling those in is a **hand-edit**, and the remaining work.
+`refresh-inventory.sh` cannot do it: the merge keys on package names,
+and a name already present in the file is never revisited, so a refresh
+on the Pro would copy every `from=?` through untouched. What the Pro can
+give you is the answer to paste in — `pipx list --json` reports each
+app's real source at
+`.venvs.<name>.metadata.main_package.package_or_url`. Until those land,
 the step installs what it can verify and reports exactly what it
 skipped.
 

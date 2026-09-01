@@ -113,7 +113,9 @@ rm -f "$tmp"
 for LIST in npm-globals.txt pipx-list.txt uv-tools.txt cargo-list.txt; do
   F="$DIR/$LIST"
   if [[ ! -f "$F" ]]; then bad "install/$LIST missing (a language-package step reads it)"; continue; fi
-  entries="$(sed -e 's/#.*//' -e 's/[[:space:]]*$//' "$F" | grep -v '^[[:space:]]*$')"
+  # same comment stripper as install.sh's pkg_list_entries, so this test sees
+  # exactly what the installer will
+  entries="$(sed -e 's/[[:space:]]#.*//' -e 's/^#.*//' -e 's/[[:space:]]*$//' "$F" | grep -v '^[[:space:]]*$')"
   # column 1: a package name, optionally @scoped (npm)
   badnames="$(printf '%s\n' "$entries" | awk '$1 !~ /^(@[A-Za-z0-9._~-]+\/)?[A-Za-z0-9._~-]+$/ { print $1 }')"
   # column 2+: only `from=…` or a flag. Anything else would become a package.
@@ -131,16 +133,24 @@ done
 # 10. the four language-package steps are wired into install.sh (a valid list
 #     that nothing runs is the failure mode this catches), under system bash.
 tmp="$(mktemp)"; sed '$d' "$INSTALL" > "$tmp"
+cat >> "$tmp" <<T
+# Point SCRIPT_DIR at the real install/ dir: the harness runs a copy of
+# install.sh from mktemp, where SCRIPT_DIR would otherwise resolve to /var/…/T
+# and every pkg_list_file() would name a nonexistent path — making the
+# round-trip assertion below compare 0 to 0 and pass unconditionally.
+SCRIPT_DIR="$DIR"
+T
 cat >> "$tmp" <<'T'
-SCRIPT_DIR_TEST=1
 for t in npm pipx uv cargo; do
   case " $STEPS " in *" $t "*) ;; *) echo "ERR-$t-not-a-step"; exit 3;; esac
   [ -n "$(pkg_list_file "$t")" ]  || { echo "ERR-$t-no-file";  exit 3; }
   [ -n "$(pkg_list_label "$t")" ] || { echo "ERR-$t-no-label"; exit 3; }
   # the parse helper must round-trip its list without losing or inventing lines
   f="$(pkg_list_file "$t")"
-  want="$(sed -e 's/#.*//' -e 's/[[:space:]]*$//' "$f" | grep -cv '^[[:space:]]*$')"
+  [ -f "$f" ] || { echo "ERR-$t-file-missing: $f"; exit 3; }
+  want="$(sed -e 's/[[:space:]]#.*//' -e 's/^#.*//' -e 's/[[:space:]]*$//' "$f" | grep -cv '^[[:space:]]*$')"
   got="$(pkg_list_entries "$t" | grep -c .)"
+  [ "$want" -gt 0 ] || { echo "ERR-$t-no-entries (assertion would be vacuous)"; exit 3; }
   [ "$want" = "$got" ] || { echo "ERR-$t-entry-count want=$want got=$got"; exit 3; }
   # --no-packages must suppress every one of them
   SKIP_STEPS=" packages npm pipx uv cargo "; ONLY_STEPS=""
@@ -151,6 +161,16 @@ for t in npm pipx uv cargo; do
   case "$plan" in *"packages —"*) echo "ERR-plan-shows-excluded-packages"; exit 3;; esac
 done
 type install_pkg_list >/dev/null 2>&1 || { echo ERR-no-install_pkg_list; exit 3; }
+# a `from=…#ref` git pin must survive comment-stripping: an unanchored
+# `s/#.*//` would silently turn a pinned ref into the default branch.
+pin="$(mktemp)"
+printf 'foo  from=github:u/r#v1.2.3  --save-exact\n# whole-line comment\nbar  from=x  # trailing comment\n' > "$pin"
+pkg_list_file() { echo "$pin"; }
+got="$(pkg_list_entries npm)"
+case "$got" in *'#v1.2.3'*) ;; *) echo "ERR-git-pin-stripped: $got"; rm -f "$pin"; exit 3;; esac
+case "$got" in *'trailing comment'*) echo "ERR-trailing-comment-kept: $got"; rm -f "$pin"; exit 3;; esac
+[ "$(printf '%s\n' "$got" | grep -c .)" = 2 ] || { echo "ERR-pin-entry-count: $got"; rm -f "$pin"; exit 3; }
+rm -f "$pin"
 echo PKG_OK
 T
 if "$SH" "$tmp" 2>/dev/null | grep -q PKG_OK; then ok "npm/pipx/uv/cargo steps wired in (STEPS, plan, --no-packages, list parse)"; else bad "language-package steps failed: $("$SH" "$tmp" 2>&1 | grep -E '^ERR' | head -1)"; fi
@@ -161,6 +181,39 @@ rm -f "$tmp"
 nb="$(grep -nE '^(cargo|uv|npm|pnpm|gem) ' "$BREWFILE" || true)"
 [[ -z "$nb" ]] && ok "no dead non-bundle lines in the Brewfile" || bad "non-bundle line(s) in Brewfile — brew bundle never installs these:
 $(printf '%s\n' "$nb" | sed 's/^/      /')"
+
+# 12. refresh-inventory.sh's merge must WRITE even when it finds nothing new,
+#     and must not leave a .tmp behind. This is the regression that shipped:
+#     `[ -n "$added" ] && …` as a pipeline's first stage exits 1 when $added is
+#     empty, which under `set -o pipefail` skipped the mv — so the file was
+#     never rewritten while a green ✓ claimed it was. An idempotence check
+#     cannot catch that (unchanged file looks identical either way); asserting
+#     on the .tmp and on a known normalisation can.
+REFRESH="$DIR/refresh-inventory.sh"
+if [[ ! -f "$REFRESH" ]]; then
+  bad "install/refresh-inventory.sh missing"
+else
+  wd="$(mktemp -d)"
+  # deliberately mis-spaced so a real rewrite is observable in the output
+  printf '# hdr\n\nbeta\t\nalpha   from=x\n' | tr '\t' ' ' > "$wd/list.txt"
+  : > "$wd/observed"        # nothing installed -> $added empty -> the bug case
+  ( set -uo pipefail
+    REFRESH_LIB_ONLY=1 . "$REFRESH"
+    merge_pkg_list "$wd/list.txt" "$wd/observed" things ) > "$wd/log" 2>&1
+  leftover="$(ls "$wd"/*.tmp 2>/dev/null || true)"
+  if [[ -n "$leftover" ]]; then
+    bad "merge_pkg_list left a .tmp behind (the write was skipped): $leftover"
+  elif grep -q 'merge failed' "$wd/log"; then
+    bad "merge_pkg_list reported failure on a no-new-packages run: $(cat "$wd/log")"
+  elif ! grep -qx 'alpha  from=x' "$wd/list.txt"; then
+    bad "merge_pkg_list did not rewrite the file (normalisation absent): $(cat "$wd/list.txt")"
+  elif ! grep -qx '# hdr' "$wd/list.txt"; then
+    bad "merge_pkg_list dropped the header comment block"
+  else
+    ok "merge writes (and cleans up) when nothing new is installed"
+  fi
+  rm -rf "$wd"
+fi
 
 echo
 [[ $rc == 0 ]] && echo "smoke test PASSED" || echo "smoke test FAILED"

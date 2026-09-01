@@ -16,6 +16,58 @@ fail() { printf "  \033[31m✗\033[0m %s\n" "$*"; }
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
+# merge_pkg_list <listfile> <observed-names-file> <noun>
+# <observed-names-file> must be LC_ALL=C sorted and unique.
+#
+# NOTE it cannot resolve a `from=?`: <observed> holds names, and a name already
+# present in the file is excluded from `added`, so its line is copied through
+# verbatim. Recording a source is a hand-edit; `pipx list --json` reports each
+# app's `main_package.package_or_url`, which is where the real path comes from.
+merge_pkg_list() {
+  local out="$1" observed="$2" noun="$3"
+  local prev names header added n
+  prev="$(mktemp -t pkglist.prev.XXXXXX)"
+  names="$(mktemp -t pkglist.names.XXXXXX)"
+  header="$(mktemp -t pkglist.hdr.XXXXXX)"
+  # existing entries as name<TAB>rest; the file may not exist yet. The comment
+  # stripper is anchored on whitespace-or-start so a `from=…#ref` git pin keeps
+  # its fragment instead of being silently truncated to the default branch.
+  sed -e 's/[[:space:]]#.*//' -e 's/^#.*//' -e 's/[[:space:]]*$//' "$out" 2>/dev/null \
+    | awk 'NF { name = $1; $1 = ""; sub(/^[[:space:]]+/, ""); print name "\t" $0 }' \
+    | LC_ALL=C sort -u > "$prev"
+  cut -f1 "$prev" | LC_ALL=C sort -u > "$names"
+  added="$(LC_ALL=C comm -13 "$names" "$observed")"
+  # the leading `#` block is the file's documentation — keep it verbatim
+  awk '/^[[:space:]]*#/ { print; next } { exit }' "$out" 2>/dev/null > "$header"
+  # `if`, not `[ -n "$added" ] && …`: a false AND-list exits 1, which under
+  # `set -o pipefail` propagates out of the group and skips the mv entirely —
+  # leaving a stray .tmp and reporting success for a write that never happened.
+  # That is the exact failure this whole change set exists to remove.
+  if {
+       [ -s "$header" ] && { cat "$header"; echo; }
+       {
+         cat "$prev"
+         if [ -n "$added" ]; then printf '%s\n' "$added" | sed 's/$/\t/'; fi
+       } | LC_ALL=C sort -u -k1,1 \
+         | awk -F'\t' '{ if ($2 != "") printf "%s  %s\n", $1, $2; else print $1 }'
+     } > "$out.tmp" && [ -s "$out.tmp" ] && mv "$out.tmp" "$out"; then
+    n=$(grep -cvE '^[[:space:]]*(#|$)' "$out")
+    if [ -n "$added" ]; then
+      ok "$(basename "$out") ($n $noun; added: $(printf '%s' "$added" | tr '\n' ' '))"
+    else
+      ok "$(basename "$out") ($n $noun; nothing new on this machine)"
+    fi
+  else
+    rm -f "$out.tmp"
+    fail "$(basename "$out") — merge failed; file left unchanged"
+  fi
+  rm -f "$prev" "$names" "$header"
+}
+
+# install/smoke-test.sh sources this file with REFRESH_LIB_ONLY=1 to exercise
+# merge_pkg_list without running any dumps. Everything past here does real work.
+if [ -n "${REFRESH_LIB_ONLY:-}" ]; then return 0 2>/dev/null || exit 0; fi
+
 echo "Writing inventory dumps to $SCRIPT_DIR/"
 
 # --- Homebrew ----------------------------------------------------------------
@@ -54,40 +106,7 @@ fi
 #
 # So: ADD what is newly installed on this machine, PRESERVE the existing
 # `from=` and flag columns (no dump can rediscover those), never REMOVE.
-# Dropping a package is a deliberate hand-edit.
-
-# merge_pkg_list <listfile> <observed-names-file> <noun>
-# <observed-names-file> must be LC_ALL=C sorted and unique.
-merge_pkg_list() {
-  local out="$1" observed="$2" noun="$3"
-  local prev names header added n
-  prev="$(mktemp -t pkglist.prev.XXXXXX)"
-  names="$(mktemp -t pkglist.names.XXXXXX)"
-  header="$(mktemp -t pkglist.hdr.XXXXXX)"
-  # existing entries as name<TAB>rest; the file may not exist yet
-  sed -e 's/#.*//' -e 's/[[:space:]]*$//' "$out" 2>/dev/null \
-    | awk 'NF { name = $1; $1 = ""; sub(/^[[:space:]]+/, ""); print name "\t" $0 }' \
-    | LC_ALL=C sort -u > "$prev"
-  cut -f1 "$prev" | LC_ALL=C sort -u > "$names"
-  added="$(LC_ALL=C comm -13 "$names" "$observed")"
-  # the leading `#` block is the file's documentation — keep it verbatim
-  awk '/^[[:space:]]*#/ { print; next } { exit }' "$out" 2>/dev/null > "$header"
-  {
-    [ -s "$header" ] && { cat "$header"; echo; }
-    {
-      cat "$prev"
-      [ -n "$added" ] && printf '%s\n' "$added" | sed 's/$/\t/'
-    } | LC_ALL=C sort -u -k1,1 \
-      | awk -F'\t' '{ if ($2 != "") printf "%s  %s\n", $1, $2; else print $1 }'
-  } > "$out.tmp" && mv "$out.tmp" "$out"
-  n=$(grep -cvE '^[[:space:]]*(#|$)' "$out")
-  if [ -n "$added" ]; then
-    ok "$(basename "$out") ($n $noun; added: $(printf '%s' "$added" | tr '\n' ' '))"
-  else
-    ok "$(basename "$out") ($n $noun; nothing new on this machine)"
-  fi
-  rm -f "$prev" "$names" "$header"
-}
+# Dropping a package — or resolving a `from=?` — is a deliberate hand-edit.
 
 echo "pipx:"
 if have pipx; then

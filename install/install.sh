@@ -597,9 +597,13 @@ pkg_list_source() {
   esac
 }
 
-# Strip trailing comments, drop blank lines. Feeds the read loop.
+# Strip comments, drop blank lines. Feeds the read loop. The `#` match is
+# anchored on whitespace-or-start rather than bare `s/#.*//`, so a git pin like
+# `from=github:u/r#v1.2.3` keeps its fragment: an unanchored strip would quietly
+# turn a pinned ref into the default branch.
 pkg_list_entries() {
-  sed -e 's/#.*//' -e 's/[[:space:]]*$//' "$(pkg_list_file "$1")" | grep -v '^[[:space:]]*$'
+  sed -e 's/[[:space:]]#.*//' -e 's/^#.*//' -e 's/[[:space:]]*$//' "$(pkg_list_file "$1")" \
+    | grep -v '^[[:space:]]*$'
 }
 
 # One installed package name per line — the "already present?" check. Queried
@@ -623,7 +627,12 @@ pkg_list_install() {
     npm)   npm install -g "$@" "$target" ;;
     pipx)  pipx install "$@" "$target" ;;
     uv)    uv tool install "$@" "$target" ;;
-    cargo) cargo install "$@" "$target" ;;
+    # cargo takes only a registry crate NAME positionally — a directory needs
+    # --path, and it errors with "invalid character `/` in package name"
+    # otherwise. npm/pipx/uv all accept a path in the package position, so
+    # cargo is the one that needs the special case.
+    cargo) if [ -d "$target" ]; then cargo install "$@" --path "$target"
+           else                      cargo install "$@" "$target"; fi ;;
   esac
 }
 
@@ -657,7 +666,10 @@ install_pkg_list() {
       esac
     done
     if [[ "$src" == "?" ]]; then
-      warn "$pkg — source unknown, not installing (a same-named public package may not be the right one). Record its path as from=… in $(basename "$file"), or run refresh-inventory.sh on the machine that has it."
+      # Deliberately does NOT say "run refresh-inventory.sh": the merge keys on
+      # package NAMES, and a name already in the file is never revisited, so a
+      # refresh can never fill a from=? in. Only a hand-edit can.
+      warn "$pkg — source unknown, not installing (a same-named package on the public index may not be the right one). Record it as from=<path-or-spec> in $(basename "$file"); the refresh cannot discover it for you."
       unresolved=$((unresolved+1)); continue
     fi
     target="${src:-$pkg}"
