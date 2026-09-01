@@ -1,10 +1,38 @@
-apple-contacts-py 0.2.0
-apple-mail-py 0.1.0
-apple-notes 0.1.0
-apple-notes-py 0.2.0
-johnnydecimal 0.3.0
-omnifocus-py 3.0.0
-osxphotos 0.75.9
-paprika-py 0.1.0
-safari-bookmarks 0.1.0
-wham-ctl 0.1.0
+# pipx apps — installed by the `pipx` step of install/install.sh.
+#
+# Format: one package per line, then optional tokens.
+#
+#     <package>[  from=<source>]  [<flag> …]
+#
+# `from=` names what to install when it differs from the package name, which is
+# the normal case here: most of these are Nelson's own repos, not published
+# packages. `from=?` means the source is not recorded — the installer SKIPS
+# those and says so, rather than guessing. Do not replace a `?` with a bare
+# name to make it install: `apple-notes` is also an unrelated project on PyPI,
+# and a bare name would fetch a stranger's code.
+#
+# Resolving a `?` is a HAND-EDIT. refresh-inventory.sh cannot do it: the merge
+# keys on package names, and a name already listed here is never revisited. On
+# the machine that has the app, `pipx list --json` reports each app's real
+# source as `.venvs.<name>.metadata.main_package.package_or_url` — paste that
+# in as the `from=` value.
+#
+# `#` comments and blank lines are ignored. Already-installed apps are left
+# alone rather than upgraded, matching `brew bundle --no-upgrade`.
+#
+# This list is a UNION across Nelson's machines, like install/launchagents/.
+# refresh-inventory.sh ADDS what is newly installed and never removes. That is
+# not a preference: pipx reports zero apps on the MacBook Air and ten on the
+# MacBook Pro, so the previous dump-and-overwrite truncated this file to empty
+# whenever it ran on the Air. To drop an app, delete its line here by hand.
+
+apple-contacts-py  from=?
+apple-mail-py  from=?
+apple-notes  from=?
+apple-notes-py  from=?
+johnnydecimal  from=?
+omnifocus-py  from=?
+osxphotos
+paprika-py  from=?
+safari-bookmarks  from=?
+wham-ctl  from=~/repos/etc/WHAM.studio/whamctl

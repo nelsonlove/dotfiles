@@ -1,0 +1,50 @@
+# Global npm packages — installed by the `npm` step of install/install.sh.
+#
+# Format: one package per line, optionally followed by npm flags.
+#
+#     <package>[  <flag> <flag> …]
+#
+# Flags exist because some packages must not be installed the default way — see
+# @earendil-works/pi-coding-agent below, which is installed with
+# --ignore-scripts so its postinstall never runs. A bare name list has nowhere
+# to record that, which is why these live here and not as `npm "…"` lines in
+# the Brewfile (brew bundle never read those; they were inventory notes only).
+#
+# `#` comments and blank lines are ignored. Already-installed packages are left
+# alone rather than upgraded, matching `brew bundle --no-upgrade`.
+#
+# This list is a UNION across Nelson's machines, like install/launchagents/.
+# install/refresh-inventory.sh ADDS anything newly installed and never removes:
+# each Mac has a different subset, so a plain overwrite from whichever machine
+# ran the refresh would silently drop the other machine's packages. To drop a
+# package, delete its line here by hand.
+#
+# Not listed on purpose: npm, pnpm, corepack, yarn. Homebrew owns those (the
+# node and pnpm formulae ship them), and managing them through `npm -g` makes
+# the two package managers fight over the same files.
+
+@earendil-works/pi-coding-agent  --ignore-scripts
+@stephendolan/ynab-cli
+@vue/cli
+agent-browser
+brv
+claude-max-api-proxy
+clawhub
+commit-assist
+defuddle
+dockerfile-language-server-nodejs
+firecrawl-cli
+freyr
+graphql-language-service-cli
+js-beautify
+mcp-quickbase
+mcporter
+obsidian-mcp-server
+openclaw
+package-json-merge
+paprika-recipe-cli
+squirrelscan
+stylelint-config-standard
+tailwindcss
+task-master-ai
+textlint
