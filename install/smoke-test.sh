@@ -197,6 +197,10 @@ else
   # deliberately mis-spaced so a real rewrite is observable in the output
   printf '# hdr\n\nbeta\t\nalpha   from=x\n' | tr '\t' ' ' > "$wd/list.txt"
   : > "$wd/observed"        # nothing installed -> $added empty -> the bug case
+  # SC1090: $REFRESH is built from $DIR at runtime, so shellcheck cannot follow
+  # it. The source= directive names the file for anyone reading, and the disable
+  # keeps the CI shellcheck job green.
+  # shellcheck source=install/refresh-inventory.sh disable=SC1090
   ( set -uo pipefail
     REFRESH_LIB_ONLY=1 . "$REFRESH"
     merge_pkg_list "$wd/list.txt" "$wd/observed" things ) > "$wd/log" 2>&1
