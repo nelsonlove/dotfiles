@@ -1,0 +1,12 @@
+version: 1
+id: governor-docs-mirror
+name: Governor docs mirror (repo → vault)
+status: active
+
+trigger:
+  type: cron
+  schedule: "*/30 * * * *"
+
+run:
+  command: ["@config/scripts/governor-docs-mirror/mirror.sh"]
+  timeout: 2m
