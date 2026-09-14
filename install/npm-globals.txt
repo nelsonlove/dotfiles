@@ -39,7 +39,6 @@ graphql-language-service-cli
 js-beautify
 mcp-quickbase
 mcporter
-obsidian-mcp-server
 openclaw
 package-json-merge
 paprika-recipe-cli
