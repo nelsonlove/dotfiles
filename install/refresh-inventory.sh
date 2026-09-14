@@ -143,10 +143,25 @@ fi
 
 # `npm ls -g --depth=0 --parseable` prints one install path per top-level
 # package; the name is everything after the last `node_modules/`, which keeps
-# `@scope/name` intact. Skipped: package managers Homebrew owns (the node and
-# pnpm formulae ship them). Managing those through `npm -g` makes the two
-# package managers fight over the same files.
-NPM_SKIP=" npm pnpm corepack yarn "
+# `@scope/name` intact.
+#
+# NPM_SKIP is the never-track list: names that must never enter
+# npm-globals.txt even when this machine has them installed. Two reasons land
+# a name here, and both are load-bearing because this merge NEVER REMOVES —
+# so without a skip entry, an unwanted package re-enters the list on the next
+# refresh from whichever Mac still has it, gets committed as routine inventory
+# churn, and the `npm` step installs it again.
+#
+#   1. Homebrew owns it. The node and pnpm formulae ship npm/pnpm/corepack/yarn;
+#      managing those through `npm -g` makes the two package managers fight over
+#      the same files.
+#   2. Deliberately dropped. obsidian-mcp-server is cyanheads' third-party
+#      package (NOT our vault-mcp) and Nelson dropped it on 2026-09-14. It may
+#      still be globally installed on the MacBook Pro, so this entry is what
+#      makes the removal durable rather than self-undoing.
+#
+# install/smoke-test.sh asserts no name here also appears in npm-globals.txt.
+NPM_SKIP=" npm pnpm corepack yarn obsidian-mcp-server "
 echo "npm globals:"
 if have npm; then
   obs="$(mktemp -t pkglist.obs.XXXXXX)"
