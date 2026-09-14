@@ -219,6 +219,26 @@ else
   rm -rf "$wd"
 fi
 
+# 13. nothing on refresh-inventory.sh's never-track list may appear in
+#     npm-globals.txt. The merge never removes, so a name on both lists means
+#     either the skip entry is not working or someone hand-added the package
+#     back — and the `npm` step would then install something we decided to drop.
+SKIPLINE="$(grep -E '^NPM_SKIP=' "$REFRESH" 2>/dev/null | head -1 | sed -E 's/^NPM_SKIP="?//; s/"$//')"
+if [[ -z "$SKIPLINE" ]]; then
+  bad "refresh-inventory.sh: NPM_SKIP not found (the never-track list moved or was renamed)"
+elif [[ ! -f "$DIR/npm-globals.txt" ]]; then
+  : # already reported by check 9
+else
+  both=""
+  for n in $SKIPLINE; do
+    if sed -e 's/[[:space:]]#.*//' -e 's/^#.*//' "$DIR/npm-globals.txt" | awk 'NF {print $1}' | grep -qxF "$n"; then
+      both="$both $n"
+    fi
+  done
+  [[ -z "$both" ]] && ok "no never-track name leaked into npm-globals.txt ($(printf '%s' "$SKIPLINE" | wc -w | tr -d ' ') on the list)" \
+    || bad "these are on NPM_SKIP but present in npm-globals.txt — the npm step would install them:$both"
+fi
+
 echo
 [[ $rc == 0 ]] && echo "smoke test PASSED" || echo "smoke test FAILED"
 exit $rc

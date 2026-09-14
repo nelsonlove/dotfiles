@@ -16,7 +16,7 @@
 - [ ] `bvanrijn/wrangler` tap: untap or declare in Brewfile
 - [ ] `pickle-ios` (~/repos) has no git remote — push it somewhere
 - [ ] Duplicate clones in ~/repos AND ~/src: claude-code-plugins, ops — pick one home each
-- [ ] `obsidian-mcp-server` in `install/npm-globals.txt` is third-party (cyanheads), not installed on MBA — keep or drop? (moved out of the Brewfile when the npm step landed; it now actually gets installed, so this decision has teeth)
+- [x] `obsidian-mcp-server`: dropped (Nelson, 2026-09-14). Third-party (cyanheads' package, not our vault-mcp) and unused on this Mac; removed from `install/npm-globals.txt`, which was the only place installing it.
 
 ## Other TODOs
 
