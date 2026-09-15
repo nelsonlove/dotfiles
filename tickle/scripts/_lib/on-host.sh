@@ -9,7 +9,12 @@
 # `Nelsons-MacBook-Air` — this gate then failed closed and `obsidian-backup`
 # silently skipped every run for about 29 hours, with no error anywhere,
 # because a skipped trigger is indistinguishable from a healthy quiet period.
-# LocalHostName is user-set in Sharing preferences and does not drift.
+# LocalHostName is user-set in Sharing preferences and is far steadier — but it
+# is NOT immune: it is also the Bonjour .local name, so mDNSResponder can suffix
+# it (Nelsons-MacBook-Air-2) when that name collides on the LAN. If that happens
+# both names drift at once and this gate fails closed again. That is the
+# residual failure this script cannot fix, and the reason nothing here should be
+# the only thing watching whether a scheduled job is still running.
 #
 # Matching EITHER name is deliberate: any host that passes today keeps passing,
 # so this cannot break a job on a machine whose two names already agree. An
