@@ -17,7 +17,10 @@
 # tell" must never mean "carry on". Only two states allow a call through: the
 # note is absent, or the note parsed and says not paused. An unreadable note,
 # a note with no frontmatter block, a missing or unrecognised `paused` value,
-# and any unexpected shell failure all BLOCK with exit 2. Claude Code treats
+# and any unexpected shell failure all BLOCK with exit 2 — but only for
+# write-shaped calls. Reads continue in every case, including a broken flag:
+# a guard that blocks reads locks the session out of fixing the note that is
+# the problem. Claude Code treats
 # every exit code other than 0 and 2 as a non-blocking error — i.e. as allow —
 # so the EXIT trap rewrites them all to 2, including the 1 that `set -u`
 # returns for an unbound variable.
@@ -140,18 +143,6 @@ case "$flag_state" in
     absent|clear) exit 0 ;;
 esac
 
-if [ "$flag_state" = "bad" ]; then
-    cat >&2 <<EOM
-BLOCKED: the fleet pause flag could not be read, so the pause cannot be ruled out.
-Note: '$PAUSE_NOTE'
-Problem: $flag_reason
-
-Fix the note (or set PAUSE_NOTE) and retry. The guard fails closed on purpose:
-an unreadable flag must not silently become "not paused".
-EOM
-    exit 2
-fi
-
 # jq missing -> cannot classify the call. Unchanged from the original: allow,
 # and say so loudly. This is the one remaining fail-open path.
 command -v jq >/dev/null 2>&1 || {
@@ -159,7 +150,10 @@ command -v jq >/dev/null 2>&1 || {
     exit 0
 }
 
-# ---- Paused. Decide whether this call is write-shaped. ----
+# ---- Paused, or the flag is unreadable. Either way the call is refused only
+# if it is write-shaped: classify FIRST, so a broken flag never blocks a read.
+# Blocking reads would wedge the session out of reading or fixing the note
+# that is the whole problem. ----
 
 is_readonly_segment() {
     local seg="$1"
@@ -260,7 +254,23 @@ case "$tool" in
         ;;
 esac
 
+# Not write-shaped -> allow, paused or broken flag alike. Reads always continue.
 [ "$shaped" = "yes" ] || exit 0
+
+# Write-shaped and the flag could not be read: refuse, because the pause
+# cannot be ruled out.
+if [ "$flag_state" = "bad" ]; then
+    cat >&2 <<EOM
+BLOCKED: the fleet pause flag could not be read, so the pause cannot be ruled out.
+Note: '$PAUSE_NOTE'
+Problem: $flag_reason
+
+Reads continue; only write-shaped tool calls are refused. Fix the note (or set
+PAUSE_NOTE) and retry. The guard fails closed on purpose: an unreadable flag
+must not silently become "not paused".
+EOM
+    exit 2
+fi
 
 paused_by=$(fm_value "paused-by")
 paused_since=$(fm_value "paused-since")
