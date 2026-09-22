@@ -7,7 +7,7 @@ status: active
 triggers:
   - type: script
     schedule: "55 3 * * *"
-    command: ["@config/scripts/_lib/on-host.sh", "Nelsons-MacBook-Pro"]
+    command: ["@config/scripts/_lib/gated.sh", "Nelsons-MacBook-Pro", "refresh-contacts"]
     timeout: 10s
 
 run:
