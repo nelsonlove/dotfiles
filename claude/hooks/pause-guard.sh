@@ -298,6 +298,18 @@ is_readonly_bash() {
     cmd="$(printf '%s' "$cmd" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
     [ -n "$cmd" ] || return 1
 
+    # The stage scan is a character loop, and bash 3.2 indexes a substring by
+    # walking to the offset, which makes the loop quadratic: 4 KB costs about
+    # 0.7s and 16 KB about 10s. A hook that takes ten seconds is one the
+    # harness can give up on, and a guard that does not answer is a guard that
+    # does not block — so refuse a long command unscanned rather than sit in
+    # the loop. Nothing is lost: a read that wants the pause exemption is
+    # short, and anything this size is a heredoc or an inline script, which is
+    # write-shaped anyway. Worst case is now about 0.2s.
+    if [ "${#cmd}" -gt 2000 ]; then
+        return 1
+    fi
+
     split_bash_stages "$cmd" || return 1
 
     local seg
