@@ -13,7 +13,7 @@ status: active
 triggers:
   - type: script
     schedule: "0 9 * * *"
-    command: ["@config/scripts/_lib/on-host.sh", "Nelsons-MacBook-Pro"]
+    command: ["@config/scripts/_lib/gated.sh", "Nelsons-MacBook-Pro", "vault-mcp-remote-update"]
     timeout: 10s
 
 run:

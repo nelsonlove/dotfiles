@@ -3,9 +3,11 @@ id: governor-docs-mirror
 name: Governor docs mirror (repo → vault)
 status: active
 
-trigger:
-  type: cron
-  schedule: "*/30 * * * *"
+triggers:
+  - type: script
+    schedule: "*/30 * * * *"
+    command: ["@config/scripts/_lib/pause-gate.sh", "governor-docs-mirror"]
+    timeout: 10s
 
 run:
   command: ["@config/scripts/governor-docs-mirror/mirror.sh"]

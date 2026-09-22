@@ -5,9 +5,11 @@ status: active
 
 # Runs on EVERY machine — ~/.claude (the generated plugin) is per-machine and
 # not synced, so each host must re-export from the (synced) vault notes.
-trigger:
-  type: cron
-  schedule: "17 * * * *"
+triggers:
+  - type: script
+    schedule: "17 * * * *"
+    command: ["@config/scripts/_lib/pause-gate.sh", "vault-skills-export"]
+    timeout: 10s
 
 run:
   command: ["@config/scripts/vault-skills-export/export.sh"]

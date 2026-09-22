@@ -8,7 +8,7 @@ status: active
 triggers:
   - type: script
     schedule: "*/5 21 * * *"
-    command: ["@config/scripts/_lib/on-host.sh", "Nelsons-MacBook-Pro"]
+    command: ["@config/scripts/_lib/gated.sh", "Nelsons-MacBook-Pro", "comms-ping"]
     timeout: 10s
 
 run:

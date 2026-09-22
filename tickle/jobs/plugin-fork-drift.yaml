@@ -17,8 +17,10 @@ status: active
 # for the vault plugin dir instead and exits 0 quietly elsewhere, so it follows the vault
 # without an edit here.
 triggers:
-  - type: cron
+  - type: script
     schedule: "0 10 * * *"
+    command: ["@config/scripts/_lib/pause-gate.sh", "plugin-fork-drift"]
+    timeout: 10s
 
 run:
   command: ["@config/scripts/plugin-fork-drift/run.sh"]
