@@ -197,25 +197,121 @@ is_readonly_segment() {
     return 1  # unknown command -> when in doubt, write-shaped
 }
 
+# Split a Bash command line into the stages a shell would run it as, on the
+# unquoted operators `|`, `||`, `&&` and `;`. It scans character by character
+# rather than splitting on the bytes, so a pipe inside a quoted string is a
+# literal pipe and not a stage boundary: `grep 'a|b' f` is one read, not two.
+#
+# Sets SEGMENTS to the stages, in order. Returns 1 — write-shaped, stop here,
+# do not look at the stages — when it meets anything that could smuggle a
+# write past a read-only-looking stage: an unquoted `>` (any redirection),
+# `<(` (process substitution), a lone `&` (backgrounding), a backtick or `$(`
+# anywhere a shell would expand them (which includes inside double quotes,
+# where single quotes expand nothing), or a line that ends inside a quote.
+split_bash_stages() {
+    local cmd="$1"
+    local n=${#cmd}
+    local i=0
+    local ch next
+    local state="none"   # none | sq (inside '...') | dq (inside "...")
+    local cur=""
+    SEGMENTS=()
+
+    while [ "$i" -lt "$n" ]; do
+        ch="${cmd:$i:1}"
+        next="${cmd:$((i + 1)):1}"
+
+        if [ "$state" = "sq" ]; then
+            # Single quotes expand nothing at all; only the closing quote ends it.
+            [ "$ch" = "'" ] && state="none"
+            cur="$cur$ch"; i=$((i + 1)); continue
+        fi
+
+        if [ "$state" = "dq" ]; then
+            if [ "$ch" = "\\" ]; then
+                cur="$cur$ch$next"; i=$((i + 2)); continue
+            fi
+            # Command substitution still runs inside double quotes.
+            [ "$ch" = '`' ] && return 1
+            [ "$ch" = '$' ] && [ "$next" = "(" ] && return 1
+            [ "$ch" = '"' ] && state="none"
+            cur="$cur$ch"; i=$((i + 1)); continue
+        fi
+
+        # state = none: this is where the shell's metacharacters mean something.
+        case "$ch" in
+            "\\")
+                cur="$cur$ch$next"; i=$((i + 2)); continue
+                ;;
+            "'")
+                state="sq"; cur="$cur$ch"; i=$((i + 1)); continue
+                ;;
+            '"')
+                state="dq"; cur="$cur$ch"; i=$((i + 1)); continue
+                ;;
+            '`'|'>')
+                return 1
+                ;;
+            '$')
+                [ "$next" = "(" ] && return 1
+                cur="$cur$ch"; i=$((i + 1)); continue
+                ;;
+            '<')
+                # `<(` is process substitution; a bare `<` only reads a file,
+                # and was allowed before this change too.
+                [ "$next" = "(" ] && return 1
+                cur="$cur$ch"; i=$((i + 1)); continue
+                ;;
+            '&')
+                # `&&` is a stage boundary. A lone `&` backgrounds the job,
+                # which no read-only call needs and which hides its own exit.
+                [ "$next" = "&" ] || return 1
+                SEGMENTS[${#SEGMENTS[@]}]="$cur"; cur=""; i=$((i + 2)); continue
+                ;;
+            '|')
+                if [ "$next" = "|" ]; then
+                    SEGMENTS[${#SEGMENTS[@]}]="$cur"; cur=""; i=$((i + 2)); continue
+                fi
+                SEGMENTS[${#SEGMENTS[@]}]="$cur"; cur=""; i=$((i + 1)); continue
+                ;;
+            ';')
+                SEGMENTS[${#SEGMENTS[@]}]="$cur"; cur=""; i=$((i + 1)); continue
+                ;;
+        esac
+
+        cur="$cur$ch"; i=$((i + 1))
+    done
+
+    # A line that ends mid-quote is malformed; do not guess what it meant.
+    [ "$state" = "none" ] || return 1
+
+    SEGMENTS[${#SEGMENTS[@]}]="$cur"
+    return 0
+}
+
+# 01.65 rule 10: reads continue during a pause. A pipeline of reads is a read,
+# so classify every stage and allow the call only when all of them are
+# read-only. `cat a | tee b` is still refused, because `tee` is not on the
+# allow-list and an unknown command is write-shaped.
 is_readonly_bash() {
     local cmd="$1"
     cmd="$(printf '%s' "$cmd" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
     [ -n "$cmd" ] || return 1
 
-    # Any chaining/redirection/substitution metacharacter -> could smuggle a
-    # write past a read-only-looking prefix. Conservative: treat as write-shaped.
-    case "$cmd" in
-        *';'*|*'&&'*|*'||'*|*'`'*|*'$('*|*'>'*|*'<('*)
-            return 1
-            ;;
-    esac
+    split_bash_stages "$cmd" || return 1
 
-    local IFS='|'
     local seg
-    for seg in $cmd; do
+    local seen="no"
+    for seg in "${SEGMENTS[@]}"; do
         seg="$(printf '%s' "$seg" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+        # A trailing `;` leaves an empty stage, which runs nothing.
+        [ -n "$seg" ] || continue
+        seen="yes"
         is_readonly_segment "$seg" || return 1
     done
+    # Operators with no command between them: nothing recognisable ran, so do
+    # not call it a read.
+    [ "$seen" = "yes" ] || return 1
     return 0
 }
 
