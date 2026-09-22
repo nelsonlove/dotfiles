@@ -60,6 +60,8 @@ home_symlinks:
   claude/settings.json: ~/.claude/settings.json
   claude/hooks: ~/.claude/hooks
   claude/skills: ~/.claude/skills
+  # fleet mechanics scripts (promote-session.sh); reached as ~/.claude/bin/<name>
+  claude/bin: ~/.claude/bin
   # settings.local.json is a committed symlink into 09.11 Secrets (iCloud) — secret content never enters this repo
   claude/settings.local.json: ~/.claude/settings.local.json
   # CLAUDE.md is a committed symlink into the vault (05.11 folder's global-conventions note,
