@@ -198,7 +198,7 @@ is_readonly_segment() {
 }
 
 # Split a Bash command line into the stages a shell would run it as, on the
-# unquoted operators `|`, `||`, `&&` and `;`. It scans character by character
+# unquoted operators `|`, `||`, `&&`, `;` and the newline. It scans character by character
 # rather than splitting on the bytes, so a pipe inside a quoted string is a
 # literal pipe and not a stage boundary: `grep 'a|b' f` is one read, not two.
 #
@@ -215,6 +215,8 @@ split_bash_stages() {
     local ch next
     local state="none"   # none | sq (inside '...') | dq (inside "...")
     local cur=""
+    local nl=$'\n'
+    local cr=$'\r'
     SEGMENTS=()
 
     while [ "$i" -lt "$n" ]; do
@@ -277,6 +279,12 @@ split_bash_stages() {
             ';')
                 SEGMENTS[${#SEGMENTS[@]}]="$cur"; cur=""; i=$((i + 1)); continue
                 ;;
+            "$nl"|"$cr")
+                # A newline separates two commands exactly as `;` does. Without
+                # this the allow-list sees `cat f<newline>rm -rf x` as one
+                # stage, matches its `cat ` prefix and allows the `rm`.
+                SEGMENTS[${#SEGMENTS[@]}]="$cur"; cur=""; i=$((i + 1)); continue
+                ;;
         esac
 
         cur="$cur$ch"; i=$((i + 1))
@@ -319,6 +327,32 @@ is_readonly_bash() {
         # A trailing `;` leaves an empty stage, which runs nothing.
         [ -n "$seg" ] || continue
         seen="yes"
+
+        # The classifier this replaced refused these anywhere in the command,
+        # quoted or not. That was blunt, but it was also doing a second job by
+        # accident: it backstopped the allow-listed commands that can write
+        # through their own quoted arguments, where the stage scan cannot see
+        # them — `awk 'BEGIN{print "x" > "f"}'`, `python3 -c 'import os;
+        # os.remove(...)'`, `find . -exec rm {} \;`. Splitting on unquoted
+        # operators alone would drop that backstop and make all three legal
+        # during a pause, so keep it, per stage: a stage carrying one of these
+        # is write-shaped even when it is quoted.
+        #
+        # This is what keeps the change from granting anything new. Every
+        # stage of an allowed command is now free of these AND on the
+        # allow-list, which is exactly the test the old classifier applied to
+        # the whole command — so any stage allowed here would have been
+        # allowed on its own before. The only thing that changed is that a
+        # command may now be split into stages at all.
+        #
+        # The pipeline from the issue is unaffected: `sed -n '1,12p' <note>`
+        # and `grep -E '^paused'` carry none of these.
+        case "$seg" in
+            *';'*|*'&&'*|*'||'*|*'`'*|*'$('*|*'>'*|*'<('*)
+                return 1
+                ;;
+        esac
+
         is_readonly_segment "$seg" || return 1
     done
     # Operators with no command between them: nothing recognisable ran, so do
