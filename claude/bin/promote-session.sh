@@ -58,13 +58,13 @@ trap on_exit EXIT
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --session) session="${2:-}"; shift 2 ;;
-    --to)      to="${2:-}"; shift 2 ;;
-    --name)    name="${2:-}"; shift 2 ;;
-    --by)      by="${2:-}"; shift 2 ;;
-    --why)     why="${2:-}"; shift 2 ;;
-    --prompt)  prompt="${2:-}"; shift 2 ;;
-    --log)     log="${2:-}"; shift 2 ;;
+    --session) [ $# -ge 2 ] || die "--session needs a value"; session="$2"; shift 2 ;;
+    --to)      [ $# -ge 2 ] || die "--to needs a value"; to="$2"; shift 2 ;;
+    --name)    [ $# -ge 2 ] || die "--name needs a value"; name="$2"; shift 2 ;;
+    --by)      [ $# -ge 2 ] || die "--by needs a value"; by="$2"; shift 2 ;;
+    --why)     [ $# -ge 2 ] || die "--why needs a value"; why="$2"; shift 2 ;;
+    --prompt)  [ $# -ge 2 ] || die "--prompt needs a value"; prompt="$2"; shift 2 ;;
+    --log)     [ $# -ge 2 ] || die "--log needs a value"; log="$2"; shift 2 ;;
     --dry-run) dry_run=1; shift ;;
     -h|--help) awk 'NR>1 && !/^#/ {exit} NR>1 {sub(/^# ?/, ""); print}' "$0"; exit 0 ;;
     *) die "unknown argument: $1" ;;
@@ -115,7 +115,7 @@ name_rank=$(rank_of_name "$name"); [ "$name_rank" = "$to_rank" ] || die "--name 
 
 # --- the target session ----------------------------------------------------------------------
 listing=$(claude agents --json --all 2>/dev/null) || die "claude agents --json failed"
-row=$(printf '%s' "$listing" | jq -c --arg s "$session" '[.[] | select(.id==$s or .sessionId==$s)] | first // empty')
+row=$(printf '%s' "$listing" | jq -c --arg s "$session" '[.[] | select(.id==$s or .sessionId==$s)] | first // empty') || die "could not parse claude agents --json"
 [ -n "$row" ] || die "no background session with id or sessionId '$session' in claude agents --json --all"
 old_id=$(printf '%s' "$row" | jq -r .id)
 session_id=$(printf '%s' "$row" | jq -r .sessionId)
@@ -165,10 +165,9 @@ fi
 
 # --- resume as the new rank, under a new id ---------------------------------------------------
 out=$(cd "$old_cwd" && claude --bg --resume "$session_id" --agent "$to" --name "$name" --system-prompt-snapshot off "$prompt" 2>&1) || die "claude --bg --resume failed: $out"
-new_id=$(printf '%s' "$out" | sed 's/\x1b\[[0-9;]*m//g' | awk '/^backgrounded/ {print $3; exit}')
+new_id=$(printf '%s' "$out" | tr -d '\r' | sed -E $'s/\x1b\\[[0-9;?]*[A-Za-z]//g' | awk '/^backgrounded/ {print $3; exit}') || true
 [ -n "$new_id" ] || die "could not read the new id from: $out"
 stopped_id=""
-new_session_id=$(claude agents --json --all 2>/dev/null | jq -r --arg s "$new_id" '.[] | select(.id==$s) | .sessionId' | head -1)
 
 # --- the record ------------------------------------------------------------------------------
 stamp=$(date '+%Y-%m-%dT%H:%M')
@@ -179,4 +178,6 @@ cat <<EOF >> "$log"
 $by $verb the session \`$old_name\` (background id $old_id, agent \`$old_agent\`, $(word_of_rank "$old_rank")) to \`$name\` (background id $new_id, agent \`$to\`, $(word_of_rank "$to_rank")). Why: $why. The conversation continues under the new id with the same context; the old id is stopped and stays as the record of the earlier rank. Posted by \`promote-session.sh\` on behalf of $by, who attests its own log position in its own entries. — $by
 EOF
 
+# Cosmetic: the new sessionId for the closing line. It must never abort the script; the record is already written.
+new_session_id=$( { claude agents --json --all 2>/dev/null || true; } | { jq -r --arg s "$new_id" '.[] | select(.id==$s) | .sessionId' 2>/dev/null || true; } | head -n 1) || new_session_id=""
 printf 'done: %s is now %s (%s); new id %s, sessionId %s; old id %s stopped; record appended to %s\n' "$old_name" "$name" "$to" "$new_id" "${new_session_id:-?}" "$old_id" "$log"
