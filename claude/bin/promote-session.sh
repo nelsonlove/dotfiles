@@ -24,6 +24,9 @@
 #            rank the rule is checked against.
 #   --log    the cross-session log to append the record to (default: the fleet log).
 #   --dry-run  print the plan and stop before touching anything.
+#   -h, --help  print this header.
+#
+# Refuses while the fleet Pause note reads `paused: true`.
 #
 # Works under /bin/bash 3.2 (macOS). Needs jq and the claude CLI.
 
@@ -48,7 +51,7 @@ while [ $# -gt 0 ]; do
     --prompt)  prompt="${2:-}"; shift 2 ;;
     --log)     log="${2:-}"; shift 2 ;;
     --dry-run) dry_run=1; shift ;;
-    -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
+    -h|--help) awk 'NR>1 && !/^#/ {exit} NR>1 {sub(/^# ?/, ""); print}' "$0"; exit 0 ;;
     *) die "unknown argument: $1" ;;
   esac
 done
