@@ -26,20 +26,34 @@
 #   --dry-run  print the plan and stop before touching anything.
 #   -h, --help  print this header.
 #
-# Refuses while the fleet Pause note reads `paused: true`.
+# Refuses while the fleet is paused, and fails closed: the flag is read by the same parser the
+# tickle jobs use (tickle/scripts/_lib/pause-gate.sh in this repo), so an unreadable or malformed
+# Pause note refuses too, and a gate that cannot be found refuses.
 #
 # Works under /bin/bash 3.2 (macOS). Needs jq and the claude CLI.
 
 set -euo pipefail
 
 FLEET_LOG="$HOME/obsidian/00-09 System/03 Agents/03.16 Cross-session log/CROSS-SESSION.md"
-PAUSE_NOTE="$HOME/obsidian/00-09 System/00 System management/00.08 Operator's console/Pause.md"
+# The repo root, resolved through the ~/.claude/bin symlink, so the tickle gate beside us is found.
+REPO_ROOT=$(cd "$(dirname "$0")/.." 2>/dev/null && pwd -P) || REPO_ROOT=""
+PAUSE_GATE="$REPO_ROOT/tickle/scripts/_lib/pause-gate.sh"
 AGENTS_DIR="$HOME/.claude/agents"
 JOBS_DIR="$HOME/.claude/jobs"
 
 session="" to="" name="" by="" why="" prompt="" log="$FLEET_LOG" dry_run=0
 
 die() { printf 'promote-session: %s\n' "$*" >&2; exit 2; }
+
+# After `claude stop` has run, an unexpected failure must say so: the target is stopped and not resumed.
+stopped_id=""
+on_exit() {
+  rc=$?
+  if [ "$rc" -ne 0 ] && [ -n "$stopped_id" ]; then
+    printf 'promote-session: %s was stopped but not resumed (exit %s); resume it yourself with: claude --bg --resume %s\n' "$stopped_id" "$rc" "$stopped_id" >&2
+  fi
+}
+trap on_exit EXIT
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -119,9 +133,14 @@ old_rank=$(rank_of_agent "$old_agent")
 if [ "$to_rank" -lt "$old_rank" ]; then verb=promoted; else verb=demoted; fi
 
 # --- the pause -------------------------------------------------------------------------------
-if [ -f "$PAUSE_NOTE" ] && grep -Eq '^paused: *true' "$PAUSE_NOTE"; then
-  die "refused: the fleet is paused ($PAUSE_NOTE); wait for Nelson to resume"
-fi
+[ -x "$PAUSE_GATE" ] || die "refused: the pause gate is not at $PAUSE_GATE, so the fleet pause cannot be read"
+gate_rc=0
+"$PAUSE_GATE" promote-session || gate_rc=$?
+case "$gate_rc" in
+  0) ;;
+  1) die "refused: the fleet is paused; wait for Nelson to resume" ;;
+  *) die "refused: the fleet pause flag cannot be read (pause-gate exit $gate_rc)" ;;
+esac
 
 # --- the brief the new session wakes to -------------------------------------------------------
 if [ -z "$prompt" ]; then
@@ -135,6 +154,7 @@ if [ "$dry_run" = 1 ]; then printf '  dry run: nothing touched\n'; exit 0; fi
 # --- stop, and wait until the process is really gone ------------------------------------------
 if [ -n "$old_pid" ]; then
   claude stop "$old_id" >/dev/null 2>&1 || true
+  stopped_id="$old_id"
   waited=0
   while kill -0 "$old_pid" 2>/dev/null; do
     sleep 1; waited=$((waited + 1))
@@ -146,6 +166,7 @@ fi
 out=$(cd "$old_cwd" && claude --bg --resume "$session_id" --agent "$to" --name "$name" --system-prompt-snapshot off "$prompt" 2>&1) || die "claude --bg --resume failed: $out"
 new_id=$(printf '%s' "$out" | sed 's/\x1b\[[0-9;]*m//g' | awk '/^backgrounded/ {print $3; exit}')
 [ -n "$new_id" ] || die "could not read the new id from: $out"
+stopped_id=""
 new_session_id=$(claude agents --json --all 2>/dev/null | jq -r --arg s "$new_id" '.[] | select(.id==$s) | .sessionId' | head -1)
 
 # --- the record ------------------------------------------------------------------------------
