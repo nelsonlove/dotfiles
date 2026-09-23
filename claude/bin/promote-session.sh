@@ -36,7 +36,8 @@ set -euo pipefail
 
 FLEET_LOG="$HOME/obsidian/00-09 System/03 Agents/03.16 Cross-session log/CROSS-SESSION.md"
 # The repo root, resolved through the ~/.claude/bin symlink, so the tickle gate beside us is found.
-REPO_ROOT=$(cd "$(dirname "$0")/.." 2>/dev/null && pwd -P) || REPO_ROOT=""
+script_dir=$(cd "$(dirname "$0")" 2>/dev/null && pwd -P) || script_dir=""
+REPO_ROOT=$(cd "$script_dir/../.." 2>/dev/null && pwd -P) || REPO_ROOT=""
 PAUSE_GATE="$REPO_ROOT/tickle/scripts/_lib/pause-gate.sh"
 AGENTS_DIR="$HOME/.claude/agents"
 JOBS_DIR="$HOME/.claude/jobs"
