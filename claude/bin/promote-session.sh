@@ -19,7 +19,7 @@
 #
 #   --to     one of: commander, lieutenant-commander, lieutenant-commander-repository,
 #            lieutenant, lieutenant-repository. Never captain: only Nelson makes captains.
-#   --name   the new display name; its rank code must match --to ([C1], [C2], [L1]).
+#   --name   the new display name; its rank code must match --to ([C1], [C2], [L0]).
 #   --by     the promoter's own session name, e.g. "[C0] claude code"; its code is the
 #            rank the rule is checked against.
 #   --log    the cross-session log to append the record to (default: the fleet log).
@@ -95,12 +95,12 @@ rank_of_name() {
     "[C0]"*) echo 0 ;;
     "[C1]"*) echo 1 ;;
     "[C2]"*) echo 2 ;;
-    "[L1]"*) echo 3 ;;
+    "[L0]"*|"[L1]"*) echo 3 ;;  # [L1] was the lieutenant code until 2026-09-24
     *) echo 9 ;;
   esac
 }
 code_of_rank() {
-  case "$1" in 0) echo "[C0]" ;; 1) echo "[C1]" ;; 2) echo "[C2]" ;; 3) echo "[L1]" ;; *) echo "[??]" ;; esac
+  case "$1" in 0) echo "[C0]" ;; 1) echo "[C1]" ;; 2) echo "[C2]" ;; 3) echo "[L0]" ;; *) echo "[??]" ;; esac
 }
 word_of_rank() {
   case "$1" in 0) echo captain ;; 1) echo commander ;; 2) echo "lieutenant commander" ;; 3) echo lieutenant ;; *) echo unknown ;; esac
@@ -109,7 +109,7 @@ word_of_rank() {
 [ "$to" != "captain" ] || die "refused: only Nelson makes captains"
 [ -f "$AGENTS_DIR/$to.md" ] || die "no agent definition at $AGENTS_DIR/$to.md"
 to_rank=$(rank_of_agent "$to");   [ "$to_rank" != 9 ] || die "--to must be a fleet rank, got '$to'"
-by_rank=$(rank_of_name "$by");    [ "$by_rank" != 9 ] || die "--by must start with a rank code ([C0], [C1], [C2], [L1]), got '$by'"
+by_rank=$(rank_of_name "$by");    [ "$by_rank" != 9 ] || die "--by must start with a rank code ([C0], [C1], [C2], [L0]), got '$by'"
 name_rank=$(rank_of_name "$name"); [ "$name_rank" = "$to_rank" ] || die "--name '$name' must start with $(code_of_rank "$to_rank") to match --to $to"
 [ "$to_rank" -gt "$by_rank" ] || die "refused: $by ($(word_of_rank "$by_rank")) may only promote or demote to a rank below its own; $to is not below it"
 
