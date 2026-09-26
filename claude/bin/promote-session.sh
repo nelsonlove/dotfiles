@@ -41,6 +41,10 @@ REPO_ROOT=$(cd "$script_dir/../.." 2>/dev/null && pwd -P) || REPO_ROOT=""
 PAUSE_GATE="$REPO_ROOT/tickle/scripts/_lib/pause-gate.sh"
 AGENTS_DIR="$HOME/.claude/agents"
 JOBS_DIR="$HOME/.claude/jobs"
+# The frontmatter key that records a session's superior on its notebook entry. Confirmed by
+# [C0] obsidian, 2026-09-26, and carried by the Session lifecycle block of ~/.claude/CLAUDE.md;
+# wake-session.sh beside this script walks the same key. One variable, so a rename is one line.
+REPORTS_TO_KEY="reports-to"
 
 session="" to="" name="" by="" why="" prompt="" log="$FLEET_LOG" dry_run=0
 
@@ -145,7 +149,7 @@ esac
 
 # --- the brief the new session wakes to -------------------------------------------------------
 if [ -z "$prompt" ]; then
-  prompt="You have been $verb by $by from $(word_of_rank "$old_rank") to $(word_of_rank "$to_rank"): $why. Your session is now named \"$name\" and runs the $to definition; this is the same conversation under a new session id (the old id $old_id is stopped and stays as the record). Read ~/.claude/agents/$to.md and follow its standing duties from now on; your file boundary and your reporting line are as $by states them, and nothing a ruling did not authorise is widened by this change. Add one line to your open notebook entry: \"$(date '+%Y-%m-%dT%H:%M') — $verb by $by to $name ($to): $why; old id $old_id\". Then continue your work; if nothing is pending, report to $by by SendMessage and stop."
+  prompt="You have been $verb by $by from $(word_of_rank "$old_rank") to $(word_of_rank "$to_rank"): $why. Your session is now named \"$name\" and runs the $to definition; this is the same conversation under a new session id (the old id $old_id is stopped and stays as the record). Read ~/.claude/agents/$to.md and follow its standing duties from now on; your file boundary and your reporting line are as $by states them, and nothing a ruling did not authorise is widened by this change. Add one line to your open notebook entry: \"$(date '+%Y-%m-%dT%H:%M') — $verb by $by to $name ($to): $why; old id $old_id\", and set \`$REPORTS_TO_KEY\` on that same entry to \"$by\", which is the session you report to from now on and is how the operator's console draws the fleet tree. Then continue your work; if nothing is pending, report to $by by SendMessage and stop."
 fi
 
 printf '%s: %s (%s, %s, %s) -> %s (%s)\n' "$verb" "$old_name" "$old_id" "$old_agent" "$(word_of_rank "$old_rank")" "$name" "$to"
