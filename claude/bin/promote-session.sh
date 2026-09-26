@@ -31,8 +31,8 @@
 #            of a floating session, shared across captains, and it is accepted here as a code
 #            because it is what such a name carries. Never guessed: a wrong code files a session
 #            under the wrong captain, and only Nelson can rename it back.
-#            (The refusal when --by carries no ship code names CC and OB only, because that is the
-#            sentence the captain ruled; HS callers should read it as "pass --ship". Said in the PR.)
+#            (The refusal when --by carries no ship code names all four codes, in the captain's own
+#            wording, corrected by him on 2026-09-26 once HS existed.)
 #   --log    the cross-session log to append the record to (default: the fleet log).
 #   --pause-note  the Pause note the gate reads. For testing only; an ordinary run reads the fleet's
 #            own note, and PAUSE_NOTE is deliberately NOT inherited from the environment.
@@ -47,9 +47,11 @@
 #   * A --ship naming another captain's ship is refused when --by already carries one; the only
 #     other value a promoter may pass for its own ship is FL, which floats the session.
 #   * A session on another ship is not reached at all, except a floating `FL` target, which any rank
-#     above it may act on, whatever ship that rank is on. A floating PROMOTER gets no matching
-#     exception: it reaches floating and uncoded sessions only. Nobody ruled that case, so it is
-#     refused rather than invented, and it is a question in the PR.
+#     above it may act on, whatever ship that rank is on. A floating PROMOTER reaches floating and
+#     uncoded sessions only, and is refused elsewhere. Ruled 2026-09-26: a float should reach any
+#     ship when the target is in its own `reports-to` chain, because for a float the chain is the
+#     boundary and the ship code is not — but this script has no chain walk (wake-session.sh beside
+#     it does), so the refusal stands until the two share one helper, which is the ruled follow-up.
 #   * A name may mark a session floating only when it already floats, or when --ship FL says so.
 #     A promoter that itself floats does NOT float a session by inheritance: it must pass --ship FL,
 #     because the rule says "passes --ship FL on purpose". Also a question in the PR.
@@ -179,7 +181,8 @@ if [ -n "$ship" ]; then
   fi
   new_ship="$ship"
 else
-  [ -n "$by_ship" ] || die "--by has no ship code; pass --ship CC or OB"
+  # The captain's wording, corrected by him on 2026-09-26 once HS existed: the sentence is byte-exact.
+  [ -n "$by_ship" ] || die "--by has no ship code; pass --ship CC, OB or HS (FL for a floating session)"
   ship_is_known "$by_ship" || die "--by carries the ship code '$by_ship', which is not one of: $KNOWN_SHIPS; pass --ship to say which ship"
   new_ship="$by_ship"
 fi
