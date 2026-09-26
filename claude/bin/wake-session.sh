@@ -12,6 +12,12 @@
 #   * A session that is still RUNNING cannot be resumed at all: the same resume makes a copy and
 #     says "already running". Only a Claude session's own SendMessage tool reaches a live session's
 #     socket; no CLI can. So for a live target this script prints the SendMessage to send and stops.
+#   * `claude stop` returns before the process is gone, and the pid leaves the listing before Claude
+#     Code stops holding the session as running, so a wake issued in those first seconds forks a copy
+#     even though the listing says stopped. The script waits for the row to read pid-less twice
+#     before resuming, and still checks afterwards.
+#   * The row of a stopped session is pruned from the listing after about ten seconds, so `--session`
+#     must be given while it is still listed; after that the id is only in the transcripts.
 #
 # Usage:
 #   wake-session.sh --session <id|sessionId> --by "<your session name>" --why "<reason>" \
@@ -46,11 +52,12 @@
 # What it refuses, and why:
 #   * A target at or above the caller's rank, and a `[C0]` target always: only Nelson wakes a
 #     captain, and the script cannot verify that it is Nelson calling.
-#   * A target outside the caller's reporting line. The line is data now: each session's open
-#     notebook entry carries `reports-to`, the name of the session that dispatched it (or `Nelson`
-#     for a captain), and this script walks that chain up from the target. A target with no running
-#     notebook entry, or an entry with no `reports-to`, is refused: a missing record is not a
-#     permission.
+#   * A target outside the caller's reporting line. The line is data: each session's notebook entry
+#     carries `reports-to`, the name of the session that dispatched it (or `Nelson` for a captain),
+#     and this script walks that chain up from the target, reading the most recent entry for each
+#     name whatever its `session-status` — `ended` is the normal state of a session worth waking. A
+#     target with no notebook entry at all, or whose newest entry has no `reports-to`, is refused: a
+#     missing record is not a permission.
 #   * Any wake while the fleet is paused. The flag is read by the same parser the tickle jobs use
 #     (tickle/scripts/_lib/pause-gate.sh in this repo), so an unreadable or malformed Pause note
 #     refuses too, and a gate that cannot be found refuses. The --all survey is a read, and a pause
@@ -172,11 +179,22 @@ by_rank=$(rank_of_name "$by")
 [ "$by_rank" != 9 ] || die "--by must start with a rank code, bare or ship-coded ([C0], [C1], [C2], [L0], [L0-CC], [C2-OB] …), got '$by'"
 
 # --- the notebook, which is where the reporting line lives ------------------------------------
-# One pass over the notebook builds the whole index: for every entry whose frontmatter says
-# `session-status: running`, a line of "session<TAB>reports-to<TAB>path". Read once, because a
-# survey asks the same question of every session in the listing and the notebook holds hundreds of
-# entries. The candidates are sorted, so for a name with more than one open entry the last line
-# wins, which is the newest filename — the filenames are timestamps.
+# One pass over the notebook builds the whole index: for every entry that names a `session:`, a line
+# of "session<TAB>reports-to<TAB>path<TAB>session-status<TAB>stamp". Read once, because a survey asks
+# the same question of every session in the listing and the notebook holds hundreds of entries.
+#
+# `session-status` is recorded but NEVER required. The first version of this script read the key only
+# from an entry that said `running`, which refused every session it exists to wake: under the
+# lifecycle rule a session completes its entry and sets `ended` as its last write before it stops, so
+# `ended` is the normal state of a wakeable session. Found in the field on `[C2-OB] fileclasses`,
+# which had to be woken by hand. Whether a session is alive is read from its process, not from this
+# record, so nothing is lost by trusting the record only for the reporting line.
+#
+# The most recent entry for a name wins, because a name recurs across days. Most recent means by the
+# timestamp in the filename, and both forms the notebook holds are counted: the plain
+# `Agent session 2026-09-26T1600.md` and the titled form the archivist writes,
+# `Agent session 2026-09-26T1500 — some title.md`. An entry whose filename carries no timestamp
+# sorts below every stamped one and is used only when nothing else matches.
 REPORT_INDEX=""
 REPORT_INDEX_BUILT=0
 
@@ -189,8 +207,20 @@ function strip(s) {
   else if (s ~ /^\047.*\047$/) s = substr(s, 2, length(s) - 2)
   return s
 }
+function stamp_of(path) {
+  # The timestamp in the filename, from either form: "Agent session 2026-09-26T1600.md" and
+  # "Agent session 2026-09-26T1500 — a title.md" both give 2026-09-26T1500. Empty when there is none,
+  # which sorts below every stamped entry because the digits all sort above "".
+  base = path
+  sub(/^.*\//, "", base)
+  if (match(base, /[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9][0-9][0-9]/)) {
+    return substr(base, RSTART, RLENGTH)
+  }
+  return ""
+}
 function flush() {
-  if (fname != "" && stat == "running" && sess != "") printf "%s\t%s\t%s\n", sess, rt, fname
+  # No test on stat: an ended entry is the normal state of a session that can be woken.
+  if (fname != "" && sess != "") printf "%s\t%s\t%s\t%s\t%s\n", sess, rt, fname, stat, stamp_of(fname)
 }
 FNR == 1 {
   flush()
@@ -212,28 +242,33 @@ build_report_index() {
   [ "$REPORT_INDEX_BUILT" = 0 ] || return 0
   REPORT_INDEX_BUILT=1
   [ -d "$NOTEBOOK_DIR" ] || return 0
-  index_files=$(grep -rl -E "^[[:space:]]*session-status[[:space:]]*:" "$NOTEBOOK_DIR" 2>/dev/null | sort || true)
+  # Candidates are files carrying a `session:` key — which `session-status:` does not match, since
+  # the key must be followed by its colon. An entry with no `session-status` at all is still indexed.
+  index_files=$(grep -rl -E "^[[:space:]]*session[[:space:]]*:" "$NOTEBOOK_DIR" 2>/dev/null | sort || true)
   # An empty file list must never reach xargs: with no arguments awk would read stdin and hang.
   [ -n "$index_files" ] || return 0
   REPORT_INDEX=$(printf '%s\n' "$index_files" | tr '\n' '\0' | xargs -0 awk -v key="$REPORTS_TO_KEY" "$index_awk" 2>/dev/null || true)
 }
 
-# The open notebook entry of a session name, and what it says the session reports to. A name with
-# more than one OPEN entry is ambiguous — a stale entry nobody closed, or two sessions sharing a
-# name, which ids forbid but names do not — so the count and the paths are reported with the plan
-# rather than hidden: the newest still wins, but the caller gets to see that it was a choice.
-lookup_reports_to() {  # $1 = session name; sets rt_value, rt_entry, rt_count, rt_all; 1 when there is no entry
+# The notebook entry of a session name, and what it says the session reports to. The most recent
+# entry by filename timestamp wins, because a name recurs across days; a name with more than one
+# entry is reported with the plan rather than hidden, so the caller sees that it was a choice.
+lookup_reports_to() {  # $1 = session name; sets rt_value, rt_entry, rt_count, rt_all, rt_status; 1 when there is no entry
   rt_value=""
   rt_entry=""
+  rt_status=""
   rt_count=0
   rt_all=""
   build_report_index
   rt_all=$(printf '%s\n' "$REPORT_INDEX" | awk -F '\t' -v n="$1" '$1 == n { print }')
   [ -n "$rt_all" ] || return 1
   rt_count=$(printf '%s\n' "$rt_all" | grep -c . || true)
-  rt_line=$(printf '%s\n' "$rt_all" | tail -n 1)
+  # Sort by the filename stamp (field 5), then by path, and take the last: the newest entry. An
+  # unstamped filename has an empty key and loses to every stamped one.
+  rt_line=$(printf '%s\n' "$rt_all" | sort -t "$(printf '\t')" -k5,5 -k3,3 | tail -n 1)
   rt_value=$(printf '%s' "$rt_line" | cut -f 2)
   rt_entry=$(printf '%s' "$rt_line" | cut -f 3)
+  rt_status=$(printf '%s' "$rt_line" | cut -f 4)
   return 0
 }
 
@@ -250,16 +285,16 @@ check_reporting_line() {  # $1 = target name, $2 = caller name
     chain_so_far=""
     [ -z "$chain_path" ] || chain_so_far=" (the line so far: $chain_path)"
     if ! lookup_reports_to "$chain_cur"; then
-      chain_reason="no open notebook entry for '$chain_cur' under $NOTEBOOK_DIR (an entry with session: \"$chain_cur\" and session-status: running), so the line cannot be followed past it$chain_so_far; a missing record is not a permission"
+      chain_reason="no notebook entry for '$chain_cur' under $NOTEBOOK_DIR (an entry with session: \"$chain_cur\", whatever its session-status), so the line cannot be followed past it$chain_so_far; a missing record is not a permission"
       return 1
     fi
     if [ "$rt_count" -gt 1 ]; then
-      chain_doubt="$chain_doubt'$chain_cur' has $rt_count open notebook entries, and the newest was taken ($rt_entry); the others: $(printf '%s\n' "$rt_all" | sed \$d | cut -f 3 | tr '\n' ' ')
+      chain_doubt="$chain_doubt'$chain_cur' has $rt_count notebook entries, and the newest by filename stamp was taken ($rt_entry, session-status ${rt_status:-unset}); the others: $(printf '%s\n' "$rt_all" | sort -t "$(printf '\t')" -k5,5 -k3,3 | sed \$d | cut -f 3 | tr '\n' ' ')
 "
     fi
     chain_rt="$rt_value"
     if [ -z "$chain_rt" ]; then
-      chain_reason="the open notebook entry of '$chain_cur' ($rt_entry) carries no '$REPORTS_TO_KEY' key, so the line cannot be followed past it$chain_so_far; a missing record is not a permission"
+      chain_reason="the newest notebook entry of '$chain_cur' ($rt_entry, session-status ${rt_status:-unset}) carries no '$REPORTS_TO_KEY' key, so the line cannot be followed past it$chain_so_far; a missing record is not a permission"
       return 1
     fi
     [ -z "$chain_path" ] || chain_path="$chain_path; "
@@ -353,6 +388,29 @@ print_sendmessage() {  # $1 = target name, $2 = message
     "$(printf '%s' "$1" | jq -Rs .)" "$(printf '%s' "$2" | jq -Rs .)"
 }
 
+# `claude stop` returns before the process is gone, and the listing drops the pid before Claude Code
+# stops holding the session as running. A resume inside that window forks a copy, which the check
+# after the resume catches — but it is cheaper to wait for the listing to settle first: the same row
+# must read pid-less twice, a second apart, before anything is resumed.
+settle_stopped() {  # uses row_id; 0 when the row is pid-less twice running, 1 when a pid came back
+  settle_tries=0
+  while [ "$settle_tries" -lt 3 ]; do
+    sleep 1
+    read_listing
+    settle_row=$(printf '%s' "$listing" | jq -c --arg s "$row_id" '[.[] | select(.id==$s)] | first // empty')
+    # The row of a stopped session is pruned from the listing after about ten seconds; a row that has
+    # gone is stopped for good, and its sessionId is what the resume needs, which we already hold.
+    [ -n "$settle_row" ] || return 0
+    settle_pid=$(printf '%s' "$settle_row" | jq -r '.pid // empty')
+    if [ -n "$settle_pid" ] && kill -0 "$settle_pid" 2>/dev/null; then
+      row_pid="$settle_pid"
+      return 1
+    fi
+    settle_tries=$((settle_tries + 1))
+  done
+  return 0
+}
+
 # --- waking a stopped session ----------------------------------------------------------------
 # A flagless resume, from the target's own cwd, verified afterwards: the SAME id must be running
 # and no new id may have appeared, because a new id means the resume forked a copy instead.
@@ -376,7 +434,7 @@ wake_stopped() {  # uses row_*; $1 = the message
     woken_unlogged=""
     stop_note="the copy was stopped by this script"
     claude stop "$forked_id" >/dev/null 2>&1 || stop_note="the copy could NOT be stopped; stop $forked_id yourself"
-    die "the resume of $row_id started a copy ($forked_id) instead of continuing it, which means Claude Code still held $row_id as running; $stop_note, nothing was logged, and $row_id was not woken. Check the target with 'claude agents --json --all' and reach a live one by SendMessage instead. Resume output: $out"
+    die "the resume of $row_id started a copy ($forked_id) instead of continuing it, which means Claude Code still held $row_id as running; $stop_note, nothing was logged, and $row_id was not woken. This is what a wake issued in the seconds right after a 'claude stop' looks like: the pid leaves the listing before the session stops being held as running. Wait a few seconds and run this again, or reach a live session by SendMessage instead. Resume output: $out"
   fi
 
   waited=0
@@ -449,6 +507,12 @@ if [ "$all_mode" = 0 ]; then
     report_pause
     printf '  dry run: nothing touched\n'
     exit 0
+  fi
+  if ! settle_stopped; then
+    printf '  it came back with pid %s while the listing was being confirmed, so it is alive after all and is NOT resumed.\n' "$row_pid"
+    print_sendmessage "$row_name" "$message"
+    printf '  nothing was touched; no record was written.\n'
+    exit 3
   fi
   wake_stopped "$message"
   exit 0
