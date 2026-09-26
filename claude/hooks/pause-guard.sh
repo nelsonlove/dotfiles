@@ -197,25 +197,167 @@ is_readonly_segment() {
     return 1  # unknown command -> when in doubt, write-shaped
 }
 
+# Split a Bash command line into the stages a shell would run it as, on the
+# unquoted operators `|`, `||`, `&&`, `;` and the newline. It scans character by character
+# rather than splitting on the bytes, so a pipe inside a quoted string is a
+# literal pipe and not a stage boundary: `grep 'a|b' f` is one read, not two.
+#
+# Sets SEGMENTS to the stages, in order. Returns 1 — write-shaped, stop here,
+# do not look at the stages — when it meets anything that could smuggle a
+# write past a read-only-looking stage: an unquoted `>` (any redirection),
+# `<(` (process substitution), a lone `&` (backgrounding), a backtick or `$(`
+# anywhere a shell would expand them (which includes inside double quotes,
+# where single quotes expand nothing), or a line that ends inside a quote.
+split_bash_stages() {
+    local cmd="$1"
+    local n=${#cmd}
+    local i=0
+    local ch next
+    local state="none"   # none | sq (inside '...') | dq (inside "...")
+    local cur=""
+    local nl=$'\n'
+    local cr=$'\r'
+    SEGMENTS=()
+
+    while [ "$i" -lt "$n" ]; do
+        ch="${cmd:$i:1}"
+        next="${cmd:$((i + 1)):1}"
+
+        if [ "$state" = "sq" ]; then
+            # Single quotes expand nothing at all; only the closing quote ends it.
+            [ "$ch" = "'" ] && state="none"
+            cur="$cur$ch"; i=$((i + 1)); continue
+        fi
+
+        if [ "$state" = "dq" ]; then
+            if [ "$ch" = "\\" ]; then
+                cur="$cur$ch$next"; i=$((i + 2)); continue
+            fi
+            # Command substitution still runs inside double quotes.
+            [ "$ch" = '`' ] && return 1
+            [ "$ch" = '$' ] && [ "$next" = "(" ] && return 1
+            [ "$ch" = '"' ] && state="none"
+            cur="$cur$ch"; i=$((i + 1)); continue
+        fi
+
+        # state = none: this is where the shell's metacharacters mean something.
+        case "$ch" in
+            "\\")
+                cur="$cur$ch$next"; i=$((i + 2)); continue
+                ;;
+            "'")
+                state="sq"; cur="$cur$ch"; i=$((i + 1)); continue
+                ;;
+            '"')
+                state="dq"; cur="$cur$ch"; i=$((i + 1)); continue
+                ;;
+            '`'|'>')
+                return 1
+                ;;
+            '$')
+                [ "$next" = "(" ] && return 1
+                cur="$cur$ch"; i=$((i + 1)); continue
+                ;;
+            '<')
+                # `<(` is process substitution; a bare `<` only reads a file,
+                # and was allowed before this change too.
+                [ "$next" = "(" ] && return 1
+                cur="$cur$ch"; i=$((i + 1)); continue
+                ;;
+            '&')
+                # `&&` is a stage boundary. A lone `&` backgrounds the job,
+                # which no read-only call needs and which hides its own exit.
+                [ "$next" = "&" ] || return 1
+                SEGMENTS[${#SEGMENTS[@]}]="$cur"; cur=""; i=$((i + 2)); continue
+                ;;
+            '|')
+                if [ "$next" = "|" ]; then
+                    SEGMENTS[${#SEGMENTS[@]}]="$cur"; cur=""; i=$((i + 2)); continue
+                fi
+                SEGMENTS[${#SEGMENTS[@]}]="$cur"; cur=""; i=$((i + 1)); continue
+                ;;
+            ';')
+                SEGMENTS[${#SEGMENTS[@]}]="$cur"; cur=""; i=$((i + 1)); continue
+                ;;
+            "$nl"|"$cr")
+                # A newline separates two commands exactly as `;` does. Without
+                # this the allow-list sees `cat f<newline>rm -rf x` as one
+                # stage, matches its `cat ` prefix and allows the `rm`.
+                SEGMENTS[${#SEGMENTS[@]}]="$cur"; cur=""; i=$((i + 1)); continue
+                ;;
+        esac
+
+        cur="$cur$ch"; i=$((i + 1))
+    done
+
+    # A line that ends mid-quote is malformed; do not guess what it meant.
+    [ "$state" = "none" ] || return 1
+
+    SEGMENTS[${#SEGMENTS[@]}]="$cur"
+    return 0
+}
+
+# 01.65 rule 10: reads continue during a pause. A pipeline of reads is a read,
+# so classify every stage and allow the call only when all of them are
+# read-only. `cat a | tee b` is still refused, because `tee` is not on the
+# allow-list and an unknown command is write-shaped.
 is_readonly_bash() {
     local cmd="$1"
     cmd="$(printf '%s' "$cmd" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
     [ -n "$cmd" ] || return 1
 
-    # Any chaining/redirection/substitution metacharacter -> could smuggle a
-    # write past a read-only-looking prefix. Conservative: treat as write-shaped.
-    case "$cmd" in
-        *';'*|*'&&'*|*'||'*|*'`'*|*'$('*|*'>'*|*'<('*)
-            return 1
-            ;;
-    esac
+    # The stage scan is a character loop, and bash 3.2 indexes a substring by
+    # walking to the offset, which makes the loop quadratic: 4 KB costs about
+    # 0.7s and 16 KB about 10s. A hook that takes ten seconds is one the
+    # harness can give up on, and a guard that does not answer is a guard that
+    # does not block — so refuse a long command unscanned rather than sit in
+    # the loop. Nothing is lost: a read that wants the pause exemption is
+    # short, and anything this size is a heredoc or an inline script, which is
+    # write-shaped anyway. Worst case is now about 0.2s.
+    if [ "${#cmd}" -gt 2000 ]; then
+        return 1
+    fi
 
-    local IFS='|'
+    split_bash_stages "$cmd" || return 1
+
     local seg
-    for seg in $cmd; do
+    local seen="no"
+    for seg in "${SEGMENTS[@]}"; do
         seg="$(printf '%s' "$seg" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+        # A trailing `;` leaves an empty stage, which runs nothing.
+        [ -n "$seg" ] || continue
+        seen="yes"
+
+        # The classifier this replaced refused these anywhere in the command,
+        # quoted or not. That was blunt, but it was also doing a second job by
+        # accident: it backstopped the allow-listed commands that can write
+        # through their own quoted arguments, where the stage scan cannot see
+        # them — `awk 'BEGIN{print "x" > "f"}'`, `python3 -c 'import os;
+        # os.remove(...)'`, `find . -exec rm {} \;`. Splitting on unquoted
+        # operators alone would drop that backstop and make all three legal
+        # during a pause, so keep it, per stage: a stage carrying one of these
+        # is write-shaped even when it is quoted.
+        #
+        # This is what keeps the change from granting anything new. Every
+        # stage of an allowed command is now free of these AND on the
+        # allow-list, which is exactly the test the old classifier applied to
+        # the whole command — so any stage allowed here would have been
+        # allowed on its own before. The only thing that changed is that a
+        # command may now be split into stages at all.
+        #
+        # The pipeline from the issue is unaffected: `sed -n '1,12p' <note>`
+        # and `grep -E '^paused'` carry none of these.
+        case "$seg" in
+            *';'*|*'&&'*|*'||'*|*'`'*|*'$('*|*'>'*|*'<('*)
+                return 1
+                ;;
+        esac
+
         is_readonly_segment "$seg" || return 1
     done
+    # Operators with no command between them: nothing recognisable ran, so do
+    # not call it a read.
+    [ "$seen" = "yes" ] || return 1
     return 0
 }
 
