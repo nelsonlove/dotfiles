@@ -20,6 +20,10 @@ merges on top of `settings.json`.
   guards shared append-only vault files against Read→Edit races;
   `protect-new-repo.sh` auto-applies a "Protect main" ruleset after
   `gh repo create`). Symlinked to `~/.claude/hooks/` so both hosts run them.
+- `bin/` — fleet mechanics scripts, reached by full path as `~/.claude/bin/<name>`
+  (`promote-session.sh` promotes or demotes a running fleet session to another
+  rank by stopping it and resuming it under a new id with the new agent
+  definition; see the header of the script for the rule and the flags).
 - `skills/` — user-level skills (`pickle`, `tickle`, …). New skills written
   to `~/.claude/skills/` land here automatically through the symlink; commit
   them when they settle. Exception: `skills/ops` is a committed symlink to
