@@ -14,8 +14,9 @@
 #     name. This script does the sequence in the right order and records the act.
 #
 # Usage:
-#   promote-session.sh --session <id|sessionId> --to <agent> --name "<code> <name>" \
-#       --by "<promoter session name>" --why "<reason>" [--prompt "<text>"] [--log <path>] [--dry-run]
+#   promote-session.sh --session <id|sessionId> --to <agent> --name "<code-ship> <name>" \
+#       --by "<promoter session name>" --why "<reason>" [--ship <code>] [--prompt "<text>"] \
+#       [--log <path>] [--pause-note <path>] [--dry-run]
 #
 #   --to     one of: commander, lieutenant-commander, lieutenant-commander-repository,
 #            lieutenant, lieutenant-repository. Never captain: only Nelson makes captains.
@@ -25,8 +26,13 @@
 #   --by     the promoter's own session name, e.g. "[C0-CC] claude code"; its rank code is the rank
 #            the rule is checked against, and its ship code is the ship the new name carries.
 #   --ship   the ship code for the new name when --by does not carry one, or FL to make the session
-#            float on purpose. One of CC (claude code), OB (obsidian), FL (floating, shared across
-#            captains). Never guessed: a wrong code files a session under the wrong captain.
+#            float on purpose. The ships are CC (claude code), OB (obsidian) and HS (home server,
+#            captain `[C0-HS] orange`), all three ruled 2026-09-26; FL is not a ship but the marker
+#            of a floating session, shared across captains, and it is accepted here as a code
+#            because it is what such a name carries. Never guessed: a wrong code files a session
+#            under the wrong captain, and only Nelson can rename it back.
+#            (The refusal when --by carries no ship code names CC and OB only, because that is the
+#            sentence the captain ruled; HS callers should read it as "pass --ship". Said in the PR.)
 #   --log    the cross-session log to append the record to (default: the fleet log).
 #   --pause-note  the Pause note the gate reads. For testing only; an ordinary run reads the fleet's
 #            own note, and PAUSE_NOTE is deliberately NOT inherited from the environment.
@@ -38,9 +44,18 @@
 #     sessions keep bare names until Nelson renames them in the fleet view.
 #   * The new name must be coded, and its ship is the promoter's, unless --ship gives one.
 #   * `--by` with no ship code and no --ship is refused: the ship is never guessed.
-#   * A session on another ship is not reached at all — except a floating `FL` session, which any
-#     rank above it may act on, whatever its own ship.
+#   * A --ship naming another captain's ship is refused when --by already carries one; the only
+#     other value a promoter may pass for its own ship is FL, which floats the session.
+#   * A session on another ship is not reached at all, except a floating `FL` target, which any rank
+#     above it may act on, whatever ship that rank is on. A floating PROMOTER gets no matching
+#     exception: it reaches floating and uncoded sessions only. Nobody ruled that case, so it is
+#     refused rather than invented, and it is a question in the PR.
 #   * A name may mark a session floating only when it already floats, or when --ship FL says so.
+#     A promoter that itself floats does NOT float a session by inheritance: it must pass --ship FL,
+#     because the rule says "passes --ship FL on purpose". Also a question in the PR.
+#   * A target whose name carries no ship code at all is reachable by any rank above it, whatever its
+#     ship, and the change gives the session a code. That is deliberate for the migration, while
+#     running sessions still carry bare names, and nothing else protects such a session.
 #
 # Refuses while the fleet is paused, and fails closed: the flag is read by the same parser the
 # tickle jobs use (tickle/scripts/_lib/pause-gate.sh in this repo), so an unreadable or malformed
@@ -85,8 +100,8 @@ while [ $# -gt 0 ]; do
     --why)     [ $# -ge 2 ] || die "--why needs a value"; why="$2"; shift 2 ;;
     --prompt)  [ $# -ge 2 ] || die "--prompt needs a value"; prompt="$2"; shift 2 ;;
     --log)     [ $# -ge 2 ] || die "--log needs a value"; log="$2"; shift 2 ;;
-    --ship)    [ $# -ge 2 ] || die "--ship needs a value"; ship="$2"; shift 2 ;;
-    --pause-note) [ $# -ge 2 ] || die "--pause-note needs a value"; pause_note="$2"; shift 2 ;;
+    --ship)    [ $# -ge 2 ] && [ -n "$2" ] || die "--ship needs a value"; ship="$2"; shift 2 ;;
+    --pause-note) [ $# -ge 2 ] && [ -n "$2" ] || die "--pause-note needs a path"; pause_note="$2"; shift 2 ;;
     --dry-run) dry_run=1; shift ;;
     -h|--help) awk 'NR>1 && !/^#/ {exit} NR>1 {sub(/^# ?/, ""); print}' "$0"; exit 0 ;;
     *) die "unknown argument: $1" ;;
@@ -137,7 +152,7 @@ word_of_rank() {
 # The ship a name declares, `CC` in `[L0-CC] dotfiles`; empty for a bare `[L0] dotfiles`. The ship is
 # never guessed from anything else: a wrong code files a session under the wrong captain in the
 # fleet view, and only Nelson can rename it back.
-KNOWN_SHIPS="CC OB FL"
+KNOWN_SHIPS="CC OB HS FL"
 FLOATING_SHIP="FL"
 ship_of_name() {
   printf '%s' "$1" | sed -n -E 's/^\[[A-Za-z][0-9]-([A-Za-z]{1,4})\].*/\1/p'
@@ -202,8 +217,9 @@ ship_note=""
 # its own sessions float passes --ship FL, and that must not read as reaching onto another ship.
 caller_ship="$by_ship"
 [ -n "$caller_ship" ] || caller_ship="$ship"
-if [ -n "$old_ship" ] && [ "$old_ship" != "$FLOATING_SHIP" ] \
-   && [ "$caller_ship" != "$FLOATING_SHIP" ] && [ "$old_ship" != "$caller_ship" ]; then
+# Only the FL TARGET is exempt, which is what was ruled. A floating PROMOTER gets no extra reach
+# here: that would be a rule nobody has made, so it is refused and left as a question in the PR.
+if [ -n "$old_ship" ] && [ "$old_ship" != "$FLOATING_SHIP" ] && [ "$old_ship" != "$caller_ship" ]; then
   die "refused: \`$old_name\` is on ship $old_ship and $by acts on ship $caller_ship; only a rank on its own ship, or Nelson, changes that session's rank (a floating $FLOATING_SHIP session is the exception, and this one is not floating)"
 fi
 if [ "$name_ship" = "$FLOATING_SHIP" ]; then
