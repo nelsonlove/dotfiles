@@ -103,8 +103,8 @@ while [ $# -gt 0 ]; do
     --why)          [ $# -ge 2 ] || die "--why needs a value"; why="$2"; shift 2 ;;
     --message)      [ $# -ge 2 ] || die "--message needs a value"; message="$2"; shift 2 ;;
     --log)          [ $# -ge 2 ] || die "--log needs a value"; log="$2"; shift 2 ;;
-    --notebook-dir) [ $# -ge 2 ] || die "--notebook-dir needs a value"; NOTEBOOK_DIR="$2"; shift 2 ;;
-    --pause-note)   [ $# -ge 2 ] || die "--pause-note needs a value"; pause_note="$2"; shift 2 ;;
+    --notebook-dir) [ $# -ge 2 ] && [ -n "$2" ] || die "--notebook-dir needs a path"; NOTEBOOK_DIR="$2"; shift 2 ;;
+    --pause-note)   [ $# -ge 2 ] && [ -n "$2" ] || die "--pause-note needs a path"; pause_note="$2"; shift 2 ;;
     --all)          all_mode=1; shift ;;
     --resume-stopped) resume_stopped=1; shift ;;
     --dry-run)      dry_run=1; shift ;;
@@ -154,11 +154,13 @@ word_of_rank() {
 }
 # The ship a name declares, `CC` in `[L0-CC] dotfiles`; empty for a bare `[L0] dotfiles`, which is
 # never guessed at — a wrong ship code puts a session in the wrong tree, and only Nelson renames.
-# The known ships are CC (Claude Code), OB (obsidian) and FL (floating: a session shared across
-# captains). An unknown code still groups under itself and is labelled, because a new ship must not
+# The ships are CC (Claude Code), OB (obsidian) and HS (home server, captain `[C0-HS] orange`), all
+# three ruled 2026-09-26; FL is not a ship but the marker of a floating session shared across
+# captains, and it is listed beside them because it is what such a name carries. An unknown code
+# still groups under itself and is labelled, because a new ship must not
 # make the fleet unreachable; the rank check and the reporting line are what actually gate a wake,
 # and neither reads the ship. So FL needs no exception here: this script never refuses on ship.
-KNOWN_SHIPS="CC OB FL"
+KNOWN_SHIPS="CC OB HS FL"
 ship_of_name() {
   printf '%s' "$1" | sed -n -E 's/^\[[A-Za-z][0-9]-([A-Za-z]{1,4})\].*/\1/p'
 }

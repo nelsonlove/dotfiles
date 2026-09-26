@@ -14,17 +14,50 @@
 #     name. This script does the sequence in the right order and records the act.
 #
 # Usage:
-#   promote-session.sh --session <id|sessionId> --to <agent> --name "<code> <name>" \
-#       --by "<promoter session name>" --why "<reason>" [--prompt "<text>"] [--log <path>] [--dry-run]
+#   promote-session.sh --session <id|sessionId> --to <agent> --name "<code-ship> <name>" \
+#       --by "<promoter session name>" --why "<reason>" [--ship <code>] [--prompt "<text>"] \
+#       [--log <path>] [--pause-note <path>] [--dry-run]
 #
 #   --to     one of: commander, lieutenant-commander, lieutenant-commander-repository,
 #            lieutenant, lieutenant-repository. Never captain: only Nelson makes captains.
-#   --name   the new display name; its rank code must match --to ([C1], [C2], [L0]).
-#   --by     the promoter's own session name, e.g. "[C0] claude code"; its code is the
-#            rank the rule is checked against.
+#   --name   the new display name, in the coded form: the rank code and the ship code together,
+#            e.g. "[C2-CC] dotfiles". The rank code must match --to, and the ship code must be the
+#            promoter's own (see --ship and the FL rule below).
+#   --by     the promoter's own session name, e.g. "[C0-CC] claude code"; its rank code is the rank
+#            the rule is checked against, and its ship code is the ship the new name carries.
+#   --ship   the ship code for the new name when --by does not carry one, or FL to make the session
+#            float on purpose. The ships are CC (claude code), OB (obsidian) and HS (home server,
+#            captain `[C0-HS] orange`), all three ruled 2026-09-26; FL is not a ship but the marker
+#            of a floating session, shared across captains, and it is accepted here as a code
+#            because it is what such a name carries. Never guessed: a wrong code files a session
+#            under the wrong captain, and only Nelson can rename it back.
+#            (The refusal when --by carries no ship code names all four codes, in the captain's own
+#            wording, corrected by him on 2026-09-26 once HS existed.)
 #   --log    the cross-session log to append the record to (default: the fleet log).
+#   --pause-note  the Pause note the gate reads. For testing only; an ordinary run reads the fleet's
+#            own note, and PAUSE_NOTE is deliberately NOT inherited from the environment.
 #   --dry-run  print the plan and stop before touching anything.
 #   -h, --help  print this header.
+#
+# The ship rules (Nelson, 2026-09-26; names carry the ship code after the rank):
+#   * Both forms of the rank code are read, the bare `[C1]` and the coded `[C1-CC]`, because running
+#     sessions keep bare names until Nelson renames them in the fleet view.
+#   * The new name must be coded, and its ship is the promoter's, unless --ship gives one.
+#   * `--by` with no ship code and no --ship is refused: the ship is never guessed.
+#   * A --ship naming another captain's ship is refused when --by already carries one; the only
+#     other value a promoter may pass for its own ship is FL, which floats the session.
+#   * A session on another ship is not reached at all, except a floating `FL` target, which any rank
+#     above it may act on, whatever ship that rank is on. A floating PROMOTER reaches floating and
+#     uncoded sessions only, and is refused elsewhere. Ruled 2026-09-26: a float should reach any
+#     ship when the target is in its own `reports-to` chain, because for a float the chain is the
+#     boundary and the ship code is not — but this script has no chain walk (wake-session.sh beside
+#     it does), so the refusal stands until the two share one helper, which is the ruled follow-up.
+#   * A name may mark a session floating only when it already floats, or when --ship FL says so.
+#     A promoter that itself floats does NOT float a session by inheritance: it must pass --ship FL,
+#     because the rule says "passes --ship FL on purpose". Also a question in the PR.
+#   * A target whose name carries no ship code at all is reachable by any rank above it, whatever its
+#     ship, and the change gives the session a code. That is deliberate for the migration, while
+#     running sessions still carry bare names, and nothing else protects such a session.
 #
 # Refuses while the fleet is paused, and fails closed: the flag is read by the same parser the
 # tickle jobs use (tickle/scripts/_lib/pause-gate.sh in this repo), so an unreadable or malformed
@@ -46,7 +79,7 @@ JOBS_DIR="$HOME/.claude/jobs"
 # wake-session.sh beside this script walks the same key. One variable, so a rename is one line.
 REPORTS_TO_KEY="reports-to"
 
-session="" to="" name="" by="" why="" prompt="" log="$FLEET_LOG" dry_run=0
+session="" to="" name="" by="" why="" prompt="" log="$FLEET_LOG" ship="" pause_note="" dry_run=0
 
 die() { printf 'promote-session: %s\n' "$*" >&2; exit 2; }
 
@@ -69,6 +102,8 @@ while [ $# -gt 0 ]; do
     --why)     [ $# -ge 2 ] || die "--why needs a value"; why="$2"; shift 2 ;;
     --prompt)  [ $# -ge 2 ] || die "--prompt needs a value"; prompt="$2"; shift 2 ;;
     --log)     [ $# -ge 2 ] || die "--log needs a value"; log="$2"; shift 2 ;;
+    --ship)    [ $# -ge 2 ] && [ -n "$2" ] || die "--ship needs a value"; ship="$2"; shift 2 ;;
+    --pause-note) [ $# -ge 2 ] && [ -n "$2" ] || die "--pause-note needs a path"; pause_note="$2"; shift 2 ;;
     --dry-run) dry_run=1; shift ;;
     -h|--help) awk 'NR>1 && !/^#/ {exit} NR>1 {sub(/^# ?/, ""); print}' "$0"; exit 0 ;;
     *) die "unknown argument: $1" ;;
@@ -95,27 +130,66 @@ rank_of_agent() {
   esac
 }
 rank_of_name() {
+  # Both forms of the code: the bare `[L0]`, which running sessions keep until Nelson renames them
+  # in the view, and the ship-coded `[L0-CC]` ruled on 2026-09-26.
   case "$1" in
-    "[C0]"*) echo 0 ;;
-    "[C1]"*) echo 1 ;;
-    "[C2]"*) echo 2 ;;
-    "[L0]"*|"[L1]"*) echo 3 ;;  # [L1] was the lieutenant code until 2026-09-24
+    "[C0]"*|"[C0-"*) echo 0 ;;
+    "[C1]"*|"[C1-"*) echo 1 ;;
+    "[C2]"*|"[C2-"*) echo 2 ;;
+    "[L0]"*|"[L0-"*|"[L1]"*|"[L1-"*) echo 3 ;;  # [L1] was the lieutenant code until 2026-09-24
     *) echo 9 ;;
   esac
 }
-code_of_rank() {
+bare_code_of_rank() {
   case "$1" in 0) echo "[C0]" ;; 1) echo "[C1]" ;; 2) echo "[C2]" ;; 3) echo "[L0]" ;; *) echo "[??]" ;; esac
+}
+# The coded form a new name must carry, `[C2-CC]`. Names are written coded from now on, so this is
+# what `--name` is checked against.
+code_of_rank() {  # $1 = rank, $2 = ship code
+  printf '[%s-%s]' "$(bare_code_of_rank "$1" | tr -d '[]')" "$2"
 }
 word_of_rank() {
   case "$1" in 0) echo captain ;; 1) echo commander ;; 2) echo "lieutenant commander" ;; 3) echo lieutenant ;; *) echo unknown ;; esac
+}
+# The ship a name declares, `CC` in `[L0-CC] dotfiles`; empty for a bare `[L0] dotfiles`. The ship is
+# never guessed from anything else: a wrong code files a session under the wrong captain in the
+# fleet view, and only Nelson can rename it back.
+KNOWN_SHIPS="CC OB HS FL"
+FLOATING_SHIP="FL"
+ship_of_name() {
+  printf '%s' "$1" | sed -n -E 's/^\[[A-Za-z][0-9]-([A-Za-z]{1,4})\].*/\1/p'
+}
+ship_is_known() {
+  case " $KNOWN_SHIPS " in *" $1 "*) return 0 ;; *) return 1 ;; esac
 }
 
 [ "$to" != "captain" ] || die "refused: only Nelson makes captains"
 [ -f "$AGENTS_DIR/$to.md" ] || die "no agent definition at $AGENTS_DIR/$to.md"
 to_rank=$(rank_of_agent "$to");   [ "$to_rank" != 9 ] || die "--to must be a fleet rank, got '$to'"
-by_rank=$(rank_of_name "$by");    [ "$by_rank" != 9 ] || die "--by must start with a rank code ([C0], [C1], [C2], [L0]), got '$by'"
-name_rank=$(rank_of_name "$name"); [ "$name_rank" = "$to_rank" ] || die "--name '$name' must start with $(code_of_rank "$to_rank") to match --to $to"
+by_rank=$(rank_of_name "$by");    [ "$by_rank" != 9 ] || die "--by must start with a rank code, bare or ship-coded ([C0], [C1], [C2], [L0], [C1-CC], [C2-OB] …), got '$by'"
+name_rank=$(rank_of_name "$name"); [ "$name_rank" = "$to_rank" ] || die "--name '$name' must carry the rank code $(bare_code_of_rank "$to_rank") to match --to $to"
 [ "$to_rank" -gt "$by_rank" ] || die "refused: $by ($(word_of_rank "$by_rank")) may only promote or demote to a rank below its own; $to is not below it"
+
+# --- the ship ---------------------------------------------------------------------------------
+# The new name's ship comes from the promoter's own name, or from --ship when one is given; it is
+# never guessed. A promoter with a bare name has no ship to carry over, so it must say which.
+by_ship=$(ship_of_name "$by")
+if [ -n "$ship" ]; then
+  ship_is_known "$ship" || die "--ship must be one of: $KNOWN_SHIPS; got '$ship'"
+  if [ -n "$by_ship" ] && [ "$ship" != "$by_ship" ] && [ "$ship" != "$FLOATING_SHIP" ]; then
+    die "refused: --ship $ship does not match $by's own ship ($by_ship); a rank does not move a session onto another captain's ship"
+  fi
+  new_ship="$ship"
+else
+  # The captain's wording, corrected by him on 2026-09-26 once HS existed: the sentence is byte-exact.
+  [ -n "$by_ship" ] || die "--by has no ship code; pass --ship CC, OB or HS (FL for a floating session)"
+  ship_is_known "$by_ship" || die "--by carries the ship code '$by_ship', which is not one of: $KNOWN_SHIPS; pass --ship to say which ship"
+  new_ship="$by_ship"
+fi
+
+name_ship=$(ship_of_name "$name")
+[ -n "$name_ship" ] || die "--name '$name' must carry the coded form, rank and ship together, like \"$(code_of_rank "$to_rank" "$new_ship") <name>\""
+ship_is_known "$name_ship" || die "--name '$name' carries the ship code '$name_ship', which is not one of: $KNOWN_SHIPS"
 
 # --- the target session ----------------------------------------------------------------------
 listing=$(claude agents --json --all 2>/dev/null) || die "claude agents --json failed"
@@ -137,10 +211,45 @@ old_rank=$(rank_of_agent "$old_agent")
 
 if [ "$to_rank" -lt "$old_rank" ]; then verb=promoted; else verb=demoted; fi
 
+# --- the ship, against the target ------------------------------------------------------------
+# A session belongs to a captain's ship, and a rank does not reach onto another ship — except for a
+# floating session, marked FL, which is shared across captains: any rank above it may act on it.
+old_ship=$(ship_of_name "$old_name")
+ship_note=""
+# Reach is judged against the PROMOTER's ship, never against the new name's: a captain making one of
+# its own sessions float passes --ship FL, and that must not read as reaching onto another ship.
+caller_ship="$by_ship"
+[ -n "$caller_ship" ] || caller_ship="$ship"
+# Only the FL TARGET is exempt, which is what was ruled. A floating PROMOTER gets no extra reach
+# here: that would be a rule nobody has made, so it is refused and left as a question in the PR.
+if [ -n "$old_ship" ] && [ "$old_ship" != "$FLOATING_SHIP" ] && [ "$old_ship" != "$caller_ship" ]; then
+  die "refused: \`$old_name\` is on ship $old_ship and $by acts on ship $caller_ship; only a rank on its own ship, or Nelson, changes that session's rank (a floating $FLOATING_SHIP session is the exception, and this one is not floating)"
+fi
+if [ "$name_ship" = "$FLOATING_SHIP" ]; then
+  # FL is not inherited by accident: either the session already floats, or the caller says so.
+  if [ "$old_ship" != "$FLOATING_SHIP" ] && [ "$ship" != "$FLOATING_SHIP" ]; then
+    die "refused: --name '$name' marks the session floating ($FLOATING_SHIP), but \`$old_name\` does not float; pass --ship $FLOATING_SHIP to make it float on purpose"
+  fi
+elif [ "$name_ship" != "$new_ship" ]; then
+  die "refused: --name '$name' is on ship $name_ship, and $by acts on ship $new_ship; the new name carries the promoter's ship unless --ship says otherwise"
+fi
+if [ -z "$old_ship" ]; then
+  ship_note="the target's name carries no ship code, so this change gives it one: $name_ship"
+elif [ "$old_ship" = "$FLOATING_SHIP" ] && [ "$name_ship" != "$FLOATING_SHIP" ]; then
+  ship_note="the target floats ($FLOATING_SHIP) and this change puts it on ship $name_ship"
+fi
+
 # --- the pause -------------------------------------------------------------------------------
+# PAUSE_NOTE is unset for the gate unless --pause-note names one on purpose: the gate reads that
+# variable as a testing override, and an inherited one would quietly point the pause at the wrong
+# note, so a paused fleet could read as clear.
 [ -x "$PAUSE_GATE" ] || die "refused: the pause gate is not at $PAUSE_GATE, so the fleet pause cannot be read"
 gate_rc=0
-"$PAUSE_GATE" promote-session || gate_rc=$?
+if [ -n "$pause_note" ]; then
+  PAUSE_NOTE="$pause_note" "$PAUSE_GATE" promote-session </dev/null || gate_rc=$?
+else
+  env -u PAUSE_NOTE "$PAUSE_GATE" promote-session </dev/null || gate_rc=$?
+fi
 case "$gate_rc" in
   0) ;;
   1) die "refused: the fleet is paused; wait for Nelson to resume" ;;
@@ -154,6 +263,8 @@ fi
 
 printf '%s: %s (%s, %s, %s) -> %s (%s)\n' "$verb" "$old_name" "$old_id" "$old_agent" "$(word_of_rank "$old_rank")" "$name" "$to"
 printf '  by %s: %s\n  cwd %s; sessionId %s\n' "$by" "$why" "$old_cwd" "$session_id"
+printf '  ship %s (%s)\n' "$name_ship" "$( [ -n "$ship" ] && printf 'from --ship' || printf "carried from %s" "$by" )"
+[ -z "$ship_note" ] || printf '  %s\n' "$ship_note"
 if [ "$dry_run" = 1 ]; then printf '  dry run: nothing touched\n'; exit 0; fi
 
 # --- stop, and wait until the process is really gone ------------------------------------------
