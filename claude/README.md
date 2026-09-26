@@ -24,14 +24,7 @@ merges on top of `settings.json`.
   (`promote-session.sh` promotes or demotes a running fleet session to another
   rank by stopping it and resuming it under a new id with the new agent
   definition; see the header of the script for the rule and the flags).
-  `wake-session.sh` wakes a session below your rank and inside your reporting
-  line: a stopped one is continued under its own id by a flagless resume, a
-  live one is never resumed (that forks a copy) so the script prints the
-  SendMessage to send and exits 3; `--all` surveys every session below you,
-  grouped idle / busy / stopped, and `--resume-stopped` wakes the stopped ones.
-  It reads the reporting line from the `reports-to` key on each session's open
-  notebook entry, refuses a target whose line does not reach you, refuses while
-  the fleet is paused, and records every wake in the cross-session log.
+  `wake-session.sh` wakes a session below your rank and inside your reporting line: a stopped one is continued under its own id by a flagless resume, a live one is never resumed (that would fork a copy) so the script prints the SendMessage to send and exits 3; `--all` surveys every session below you, grouped by ship code and then idle / busy / stopped, and `--resume-stopped` wakes the stopped ones. It reads the reporting line from the `reports-to` key on each session's open notebook entry, refuses a target whose line does not reach you, refuses while the fleet is paused, and records every wake in the cross-session log.
 - `skills/` — user-level skills (`pickle`, `tickle`, …). New skills written
   to `~/.claude/skills/` land here automatically through the symlink; commit
   them when they settle. Exception: `skills/ops` is a committed symlink to

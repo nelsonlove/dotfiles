@@ -20,19 +20,23 @@
 #       [--log <path>] [--notebook-dir <path>] [--dry-run]
 #
 #   --session  the target's background id or sessionId, as `claude agents --json --all` lists it.
-#   --by       your own session name, e.g. "[C1] spec"; its rank code is the rank the rules are
+#   --by       your own session name, e.g. "[C1-OB] spec"; its rank code is the rank the rules are
 #              checked against. The script cannot verify who is calling it, so it never grants a
 #              captain's reach to a name that does not carry a captain's code.
 #   --why      the reason, recorded in the cross-session log. Required with --session, and with
 #              --all --resume-stopped.
 #   --message  the text the woken session reads. A default brief is written when this is omitted.
-#   --all      survey every session below your rank instead of waking one, grouped by ship code
+#   --all      survey every session below your rank instead of waking one — a read, so it lists and
+#              composes nothing to send; grouped by ship code
 #              (`CC` in `[L0-CC] dotfiles`, and a "no ship code" block for a bare `[L0] dotfiles`,
-#              because a ship is never guessed) and inside each ship by state: alive and idle (needs
-#              a SendMessage, printed), alive and busy (left alone), stopped (offer to resume).
+#              because a ship is never guessed) and inside each ship by state: alive and idle (which
+#              needs a SendMessage — run --session on one to get the text), alive and busy (left
+#              alone), stopped (offered, and resumed only with --resume-stopped).
 #   --resume-stopped  with --all, resume every stopped session in your line, one log entry each.
 #   --log      the cross-session log to append the record to (default: the fleet log).
 #   --notebook-dir  where the agent notebook lives. For testing only.
+#   --pause-note  the Pause note the gate reads. For testing only; an ordinary run reads the fleet's
+#              own note, and PAUSE_NOTE is deliberately NOT inherited from the environment.
 #   --dry-run  print the plan and touch nothing.
 #   -h, --help  print this header.
 #
@@ -47,9 +51,20 @@
 #     for a captain), and this script walks that chain up from the target. A target with no running
 #     notebook entry, or an entry with no `reports-to`, is refused: a missing record is not a
 #     permission.
-#   * Any run while the fleet is paused. The flag is read by the same parser the tickle jobs use
+#   * Any wake while the fleet is paused. The flag is read by the same parser the tickle jobs use
 #     (tickle/scripts/_lib/pause-gate.sh in this repo), so an unreadable or malformed Pause note
-#     refuses too, and a gate that cannot be found refuses.
+#     refuses too, and a gate that cannot be found refuses. The --all survey is a read, and a pause
+#     never gates a read, so the pause is checked there only before a session is resumed.
+#   * A target whose rank cannot be told from its agent definition or its name, and a caller trying
+#     to wake itself. Neither is guessed at.
+#
+# What these refusals are, and are not: they stop a mistake and a hasty act, not a determined
+# caller. `--by` is what the caller says it is, the reporting line is read from notebook files any
+# fleet session can write, and anyone holding a shell can run `claude --bg --resume` and skip this
+# script altogether. So the rails are a discipline with a record, not an authentication boundary.
+# Three flags widen them on purpose, for tests: `--notebook-dir` replaces the reporting-line record,
+# `--pause-note` replaces the pause flag, and `--log` sends the record somewhere other than the
+# fleet log. A run that passes any of them is a test, not a fleet act — say so if you use them.
 #
 # Works under /bin/bash 3.2 (macOS). Needs jq and the claude CLI.
 
@@ -67,7 +82,7 @@ NOTEBOOK_DIR="$HOME/obsidian/00-09 System/03 Agents/03.04 Records/Agent notebook
 # the key is one line here and one line in promote-session.sh.
 REPORTS_TO_KEY="reports-to"
 
-session="" by="" why="" message="" log="$FLEET_LOG" dry_run=0 all_mode=0 resume_stopped=0
+session="" by="" why="" message="" log="$FLEET_LOG" pause_note="" dry_run=0 all_mode=0 resume_stopped=0
 
 die() { printf 'wake-session: %s\n' "$*" >&2; exit 2; }
 
@@ -89,6 +104,7 @@ while [ $# -gt 0 ]; do
     --message)      [ $# -ge 2 ] || die "--message needs a value"; message="$2"; shift 2 ;;
     --log)          [ $# -ge 2 ] || die "--log needs a value"; log="$2"; shift 2 ;;
     --notebook-dir) [ $# -ge 2 ] || die "--notebook-dir needs a value"; NOTEBOOK_DIR="$2"; shift 2 ;;
+    --pause-note)   [ $# -ge 2 ] || die "--pause-note needs a value"; pause_note="$2"; shift 2 ;;
     --all)          all_mode=1; shift ;;
     --resume-stopped) resume_stopped=1; shift ;;
     --dry-run)      dry_run=1; shift ;;
@@ -166,6 +182,7 @@ index_awk='
 function strip(s) {
   gsub(/\r/, "", s)
   sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s)
+  gsub(/\t/, " ", s)   # the index is tab-separated, so a tab inside a value would split a field
   if (s ~ /^".*"$/) s = substr(s, 2, length(s) - 2)
   else if (s ~ /^\047.*\047$/) s = substr(s, 2, length(s) - 2)
   return s
@@ -199,13 +216,20 @@ build_report_index() {
   REPORT_INDEX=$(printf '%s\n' "$index_files" | tr '\n' '\0' | xargs -0 awk -v key="$REPORTS_TO_KEY" "$index_awk" 2>/dev/null || true)
 }
 
-# The open notebook entry of a session name, and what it says the session reports to.
-lookup_reports_to() {  # $1 = session name; sets rt_value and rt_entry; 1 when there is no entry
+# The open notebook entry of a session name, and what it says the session reports to. A name with
+# more than one OPEN entry is ambiguous — a stale entry nobody closed, or two sessions sharing a
+# name, which ids forbid but names do not — so the count and the paths are reported with the plan
+# rather than hidden: the newest still wins, but the caller gets to see that it was a choice.
+lookup_reports_to() {  # $1 = session name; sets rt_value, rt_entry, rt_count, rt_all; 1 when there is no entry
   rt_value=""
   rt_entry=""
+  rt_count=0
+  rt_all=""
   build_report_index
-  rt_line=$(printf '%s\n' "$REPORT_INDEX" | awk -F '\t' -v n="$1" '$1 == n { last = $0 } END { if (last != "") print last }')
-  [ -n "$rt_line" ] || return 1
+  rt_all=$(printf '%s\n' "$REPORT_INDEX" | awk -F '\t' -v n="$1" '$1 == n { print }')
+  [ -n "$rt_all" ] || return 1
+  rt_count=$(printf '%s\n' "$rt_all" | grep -c . || true)
+  rt_line=$(printf '%s\n' "$rt_all" | tail -n 1)
   rt_value=$(printf '%s' "$rt_line" | cut -f 2)
   rt_entry=$(printf '%s' "$rt_line" | cut -f 3)
   return 0
@@ -216,6 +240,7 @@ lookup_reports_to() {  # $1 = session name; sets rt_value and rt_entry; 1 when t
 check_reporting_line() {  # $1 = target name, $2 = caller name
   chain_reason=""
   chain_path=""
+  chain_doubt=""
   chain_cur="$1"
   chain_hops=0
   chain_seen="|$1|"
@@ -225,6 +250,10 @@ check_reporting_line() {  # $1 = target name, $2 = caller name
     if ! lookup_reports_to "$chain_cur"; then
       chain_reason="no open notebook entry for '$chain_cur' under $NOTEBOOK_DIR (an entry with session: \"$chain_cur\" and session-status: running), so the line cannot be followed past it$chain_so_far; a missing record is not a permission"
       return 1
+    fi
+    if [ "$rt_count" -gt 1 ]; then
+      chain_doubt="$chain_doubt'$chain_cur' has $rt_count open notebook entries, and the newest was taken ($rt_entry); the others: $(printf '%s\n' "$rt_all" | sed \$d | cut -f 3 | tr '\n' ' ')
+"
     fi
     chain_rt="$rt_value"
     if [ -z "$chain_rt" ]; then
@@ -255,10 +284,21 @@ check_reporting_line() {  # $1 = target name, $2 = caller name
 }
 
 # --- the pause -------------------------------------------------------------------------------
-check_pause() {
+# PAUSE_NOTE is unset for the gate unless --pause-note names one on purpose: the gate reads that
+# variable as a testing override, and an inherited one would quietly point the pause at the wrong
+# note. The fleet's real Pause note is what an ordinary run reads, every time.
+read_pause_gate() {  # sets gate_rc; the gate's own line on stderr says which note it read
   [ -x "$PAUSE_GATE" ] || die "refused: the pause gate is not at $PAUSE_GATE, so the fleet pause cannot be read"
   gate_rc=0
-  "$PAUSE_GATE" wake-session || gate_rc=$?
+  if [ -n "$pause_note" ]; then
+    PAUSE_NOTE="$pause_note" "$PAUSE_GATE" wake-session </dev/null || gate_rc=$?
+  else
+    env -u PAUSE_NOTE "$PAUSE_GATE" wake-session </dev/null || gate_rc=$?
+  fi
+}
+
+check_pause() {  # refuses unless the fleet is clear
+  read_pause_gate
   case "$gate_rc" in
     0) ;;
     1) die "refused: the fleet is paused; wait for Nelson to resume" ;;
@@ -266,9 +306,20 @@ check_pause() {
   esac
 }
 
+# A dry run touches nothing, so it refuses nothing either: it reads the flag and says what a real
+# run would do with it.
+report_pause() {
+  read_pause_gate
+  case "$gate_rc" in
+    0) printf '  the pause is clear, so a real run would go ahead.\n' ;;
+    1) printf '  the fleet is PAUSED, so a real run would refuse at this point.\n' ;;
+    *) printf '  the pause flag cannot be read (pause-gate exit %s), so a real run would refuse at this point.\n' "$gate_rc" ;;
+  esac
+}
+
 # --- the listing -----------------------------------------------------------------------------
 read_listing() {
-  listing=$(claude agents --json --all 2>/dev/null) || die "claude agents --json --all failed"
+  listing=$(claude agents --json --all </dev/null 2>/dev/null) || die "claude agents --json --all failed"
   printf '%s' "$listing" | jq -e 'type == "array"' >/dev/null 2>&1 || die "could not parse claude agents --json --all"
 }
 
@@ -289,14 +340,15 @@ load_row() {  # $1 = a row as JSON
 }
 
 default_message_for() {  # $1 = target name
-  printf '%s' "You are woken by $by: $why. This is your own session continuing under its own id, not a new one, so everything you had is still here. The fleet pause is clear — it was read from the Pause note at the moment you were woken — so if a refused write stopped you, try it again. Read the cross-session log delta from the position your notebook entry records, give every new entry a disposition, then carry on where you stopped. When you have something, report to $by by SendMessage; if nothing is left to do, say that instead, complete your notebook entry and stop."
+  printf '%s' "You are woken by $by: $why. This is your own session continuing under its own id, not a new one, so everything you had is still here. If a write of yours was refused because the fleet was paused, try that write again: the pause was read before this wake, and the gate answers honestly every time. Read the cross-session log delta from the position your notebook entry records, give every new entry a disposition, then carry on where you stopped. When you have something, report to $by by SendMessage; if nothing is left to do, say that instead, complete your notebook entry and stop."
 }
 
-json_escape() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
-
+# jq -Rs quotes and escapes the whole string, quotes included, so a message carrying a quote, a
+# backslash or a newline still prints as a SendMessage the caller can paste as it stands.
 print_sendmessage() {  # $1 = target name, $2 = message
   printf '  a live session is reached only by a Claude session'\''s own SendMessage tool, so send this yourself:\n\n'
-  printf '    SendMessage({to: "%s", message: "%s"})\n\n' "$(json_escape "$1")" "$(json_escape "$2")"
+  printf '    SendMessage({to: %s, message: %s})\n\n' \
+    "$(printf '%s' "$1" | jq -Rs .)" "$(printf '%s' "$2" | jq -Rs .)"
 }
 
 # --- waking a stopped session ----------------------------------------------------------------
@@ -305,17 +357,24 @@ print_sendmessage() {  # $1 = target name, $2 = message
 wake_stopped() {  # uses row_*; $1 = the message
   wake_message="$1"
   [ -d "$row_cwd" ] || die "the session's cwd '$row_cwd' does not exist; the resume must run there"
-  ids_before=$(printf '%s' "$listing" | jq -r '.[].id' | sort)
   # </dev/null so the resume cannot eat the heredoc the --all loop is reading from.
   out=$(cd "$row_cwd" && claude --bg --resume "$row_session_id" "$wake_message" </dev/null 2>&1) || die "claude --bg --resume failed: $out"
   woken_unlogged="$row_id"
 
-  read_listing
-  ids_after=$(printf '%s' "$listing" | jq -r '.[].id' | sort)
-  new_ids=$(comm -13 <(printf '%s\n' "$ids_before") <(printf '%s\n' "$ids_after") | tr -d ' ')
-  if [ -n "$new_ids" ]; then
+  # Did it continue the session, or fork a copy? The CLI says so in its own words — "started a copy
+  # as <id>" when it still held the session as running, and the id it backgrounded either way. A
+  # copy is this script's own doing, so it stops the copy before refusing, rather than leaving a
+  # second session running, which is the very hazard the live path exists to avoid.
+  out_clean=$(printf '%s' "$out" | tr -d '\r' | sed -E $'s/\x1b\\[[0-9;?]*[A-Za-z]//g')
+  copy_id=$(printf '%s\n' "$out_clean" | sed -n -E 's/.*started a copy as ([0-9a-f]{6,}).*/\1/p' | head -n 1)
+  bg_id=$(printf '%s\n' "$out_clean" | awk '/^backgrounded/ { for (i = 1; i <= NF; i++) if ($i ~ /^[0-9a-f]{6,}$/) { print $i; exit } }')
+  forked_id="$copy_id"
+  if [ -z "$forked_id" ] && [ -n "$bg_id" ] && [ "$bg_id" != "$row_id" ]; then forked_id="$bg_id"; fi
+  if [ -n "$forked_id" ]; then
     woken_unlogged=""
-    die "the resume of $row_id started a NEW session ($(printf '%s' "$new_ids" | tr '\n' ' ')) instead of continuing it, which means Claude Code still held it as running; nothing was logged. Stop the copy with 'claude stop', check the target with 'claude agents --json --all', and reach the live one by SendMessage instead. Resume output: $out"
+    stop_note="the copy was stopped by this script"
+    claude stop "$forked_id" >/dev/null 2>&1 || stop_note="the copy could NOT be stopped; stop $forked_id yourself"
+    die "the resume of $row_id started a copy ($forked_id) instead of continuing it, which means Claude Code still held $row_id as running; $stop_note, nothing was logged, and $row_id was not woken. Check the target with 'claude agents --json --all' and reach a live one by SendMessage instead. Resume output: $out"
   fi
 
   waited=0
@@ -337,7 +396,7 @@ wake_stopped() {  # uses row_*; $1 = the message
 
 ## $stamp · $by — woke \`$row_name\` ($row_id), which was stopped, and it continues under the same id
 
-$by woke the stopped session \`$row_name\` (background id $row_id, agent \`$row_agent\`, $(word_of_rank "$row_rank")) with a flagless \`claude --bg --resume $row_session_id\` from its own cwd \`$row_cwd\`, so the conversation continues under the same id and nothing was forked; verified from \`claude agents --json --all\` after the resume, where $row_id is running again and no new id appeared. Why: $why. The session was told it is continuing, that the pause is clear, to read the log delta from its recorded position and to report back to $by. Posted by \`wake-session.sh\` on behalf of $by, who attests its own log position in its own entries. — $by
+$by woke the stopped session \`$row_name\` (background id $row_id, agent \`$row_agent\`, $(word_of_rank "$row_rank")) with a flagless \`claude --bg --resume $row_session_id\` from its own cwd \`$row_cwd\`, so the conversation continues under the same id and nothing was forked; verified from \`claude agents --json --all\` after the resume, where $row_id is running again and no new id appeared. Why: $why. The session was told it is continuing, that a write the pause refused can be tried again, to read the log delta from its recorded position and to report back to $by. Posted by \`wake-session.sh\` on behalf of $by, who attests its own log position in its own entries. — $by
 EOF
   woken_unlogged=""
   printf 'done: %s (%s) is running again under the same id; pid %s; record appended to %s\n' "$row_name" "$row_id" "$verify_pid" "$log"
@@ -361,16 +420,21 @@ if [ "$all_mode" = 0 ]; then
     die "refused: \`$row_name\` is not in $by's reporting line — $chain_reason"
   fi
 
-  check_pause
+  # A dry run reads the flag and reports it; a real run is refused by it. Composing a wake for a live
+  # target is not exempt: handing the caller the message is the wake, one keystroke short, and a
+  # pause is Nelson saying that nobody gets woken.
+  [ "$dry_run" = 1 ] || check_pause
 
   [ -n "$message" ] || message=$(default_message_for "$row_name")
 
   printf 'wake: %s (%s, %s, %s) in %s\n' "$row_name" "$row_id" "$row_agent" "$(word_of_rank "$row_rank")" "$row_cwd"
   printf '  by %s: %s\n  reporting line: %s\n' "$by" "$why" "$chain_path"
+  [ -z "$chain_doubt" ] || printf '%s' "$chain_doubt" | sed 's/^/  ambiguous: /'
 
   if [ "$row_alive" = 1 ]; then
     printf '  it is ALIVE (pid %s, %s), so it is NOT resumed: a resume of a running session forks a copy.\n' "$row_pid" "${row_status:-status unknown}"
     print_sendmessage "$row_name" "$message"
+    [ "$dry_run" = 0 ] || report_pause
     printf '  nothing was touched; no record was written, because nothing happened yet.\n'
     exit 3
   fi
@@ -379,14 +443,19 @@ if [ "$all_mode" = 0 ]; then
     printf '  the listing still shows pid %s but that process is gone, so the session is stopped.\n' "$row_pid"
   fi
   printf '  it is STOPPED, so a flagless resume continues it under the same id.\n'
-  if [ "$dry_run" = 1 ]; then printf '  dry run: nothing touched\n'; exit 0; fi
+  if [ "$dry_run" = 1 ]; then
+    report_pause
+    printf '  dry run: nothing touched\n'
+    exit 0
+  fi
   wake_stopped "$message"
   exit 0
 fi
 
 # --- mode: survey everything below the caller ------------------------------------------------
+# The survey itself is a read, and a pause never gates a read; the pause is checked below, before
+# anything is actually resumed.
 read_listing
-check_pause
 
 if [ "$by_rank" -ge 3 ]; then
   printf 'nothing to survey: %s is a %s, and below a lieutenant there is only the ensign, which is not a session.\n' "$by" "$(word_of_rank "$by_rank")"
@@ -484,17 +553,35 @@ if [ "$resume_stopped" = 0 ]; then
 fi
 
 if [ "$dry_run" = 1 ]; then
-  printf '\ndry run: the stopped sessions above would be resumed, one log entry each; nothing touched\n'
+  printf '\n'
+  report_pause
+  printf 'dry run: the stopped sessions above would be resumed, one log entry each; nothing touched\n'
   exit 0
 fi
 
+check_pause
+
+# The survey above is a snapshot, and a sweep takes seconds per session, so each target's state is
+# read again from a fresh listing immediately before its own resume: one that somebody else started
+# in the meantime is left alone rather than resumed into a copy.
 printf '\nresuming every stopped session above:\n'
 while IFS= read -r one_row; do
   [ -n "$one_row" ] || continue
   load_row "$one_row"
+  sweep_id="$row_id"
+  read_listing
+  sweep_row=$(printf '%s' "$listing" | jq -c --arg s "$sweep_id" '[.[] | select(.id==$s)] | first // empty')
+  if [ -z "$sweep_row" ]; then
+    printf '  skipped %s: it is no longer in the listing\n' "$sweep_id"
+    continue
+  fi
+  load_row "$sweep_row"
+  if [ "$row_alive" = 1 ]; then
+    printf '  skipped %s (%s): it is running again now (pid %s), so it needs a SendMessage, not a resume\n' "$row_id" "$row_name" "$row_pid"
+    continue
+  fi
   one_message="$message"
   [ -n "$one_message" ] || one_message=$(default_message_for "$row_name")
-  read_listing
   wake_stopped "$one_message"
 done <<EOF
 $stopped_rows
