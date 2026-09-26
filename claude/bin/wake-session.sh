@@ -14,10 +14,17 @@
 #     socket; no CLI can. So for a live target this script prints the SendMessage to send and stops.
 #   * `claude stop` returns before the process is gone, and the pid leaves the listing before Claude
 #     Code stops holding the session as running, so a wake issued in those first seconds forks a copy
-#     even though the listing says stopped. The script waits for the row to read pid-less twice
-#     before resuming, and still checks afterwards.
-#   * The row of a stopped session is pruned from the listing after about ten seconds, so `--session`
-#     must be given while it is still listed; after that the id is only in the transcripts.
+#     even though the listing says stopped. The script confirms the row three times, a second apart,
+#     before resuming, and the check after the resume is the real guard. (The promotion note recorded the first half of
+#     this on 2026-09-22: "claude stop returns before the process has exited, so a script must wait
+#     on the pid".)
+#   * THE TRAP, and the reason this script always passes the FULL sessionId: `claude --bg --resume`
+#     given the short background id starts a NEW session instead of continuing the old one. Measured
+#     on 2026-09-26: `[C0-OB] obsidian` resumed by hand with the short id and got a new id that died,
+#     while the same wake given the full sessionId continued `[C1-CC] memories` under its own id and
+#     it acted on the brief. So `--session` takes either form, resolves the row from the listing, and
+#     the resume only ever uses `.sessionId`; an empty or malformed sessionId is refused rather than
+#     passed, because `--resume ""` silently starts a new session with the message as its prompt.
 #
 # Usage:
 #   wake-session.sh --session <id|sessionId> --by "<your session name>" --why "<reason>" \
@@ -26,6 +33,8 @@
 #       [--log <path>] [--notebook-dir <path>] [--dry-run]
 #
 #   --session  the target's background id or sessionId, as `claude agents --json --all` lists it.
+#              Either form is accepted and resolved to the full sessionId, which is the only value
+#              the resume is ever given: see THE TRAP below.
 #   --by       your own session name, e.g. "[C1-OB] spec"; its rank code is the rank the rules are
 #              checked against. The script cannot verify who is calling it, so it never grants a
 #              captain's reach to a name that does not carry a captain's code.
@@ -69,6 +78,10 @@
 # caller. `--by` is what the caller says it is, the reporting line is read from notebook files any
 # fleet session can write, and anyone holding a shell can run `claude --bg --resume` and skip this
 # script altogether. So the rails are a discipline with a record, not an authentication boundary.
+# One known gap inside that: the reporting line is keyed by DISPLAY NAME, because that is what the
+# notebook records, so two sessions sharing a name share a line and the newest entry decides for both.
+# The session that is actually resumed is always picked by its unique id, never by name, so a
+# collision can misjudge permission but can never resume the wrong session.
 # Three flags widen them on purpose, for tests: `--notebook-dir` replaces the reporting-line record,
 # `--pause-note` replaces the pause flag, and `--log` sends the record somewhere other than the
 # fleet log. A run that passes any of them is a test, not a fleet act — say so if you use them.
@@ -382,6 +395,15 @@ default_message_for() {  # $1 = target name
 
 # jq -Rs quotes and escapes the whole string, quotes included, so a message carrying a quote, a
 # backslash or a newline still prints as a SendMessage the caller can paste as it stands.
+# The hand form, for a caller who would rather do it themselves once the session stops. It always
+# names the FULL sessionId: a resume given the short background id starts a NEW session instead of
+# continuing the old one, which is how `[C0-OB] obsidian` got a new id that died, while the same wake
+# given the full sessionId continued `[C1-CC] memories` under its own id and it acted on the brief.
+print_hand_resume() {  # $1 = sessionId, $2 = cwd
+  printf '  the hand form, once it is stopped — the FULL sessionId, never the short id:\n\n'
+  printf '    (cd %s && claude --bg --resume %s "<your message>")\n\n' "$2" "$1"
+}
+
 print_sendmessage() {  # $1 = target name, $2 = message
   printf '  a live session is reached only by a Claude session'\''s own SendMessage tool, so send this yourself:\n\n'
   printf '    SendMessage({to: %s, message: %s})\n\n' \
@@ -389,17 +411,23 @@ print_sendmessage() {  # $1 = target name, $2 = message
 }
 
 # `claude stop` returns before the process is gone, and the listing drops the pid before Claude Code
-# stops holding the session as running. A resume inside that window forks a copy, which the check
-# after the resume catches — but it is cheaper to wait for the listing to settle first: the same row
-# must read pid-less twice, a second apart, before anything is resumed.
-settle_stopped() {  # uses row_id; 0 when the row is pid-less twice running, 1 when a pid came back
+# stops holding the session as running. A resume inside that window forks a copy — seen once, as a
+# junk session named after the wake message — and the check after the resume is what actually catches
+# it. This wait is the cheaper first line, and its limits are worth stating plainly: it polls the same
+# field the caller already read, so it cannot observe Claude Code's internal hold; what it does catch
+# is a pid coming BACK, which is a session restarted by someone else mid-run. Three checks, a second
+# apart; a row pruned from the listing meanwhile is stopped for good and needs no further wait.
+settle_stopped() {  # uses row_id; 0 when no pid comes back (or the row is gone), 1 when one does
   settle_tries=0
   while [ "$settle_tries" -lt 3 ]; do
     sleep 1
     read_listing
     settle_row=$(printf '%s' "$listing" | jq -c --arg s "$row_id" '[.[] | select(.id==$s)] | first // empty')
-    # The row of a stopped session is pruned from the listing after about ten seconds; a row that has
-    # gone is stopped for good, and its sessionId is what the resume needs, which we already hold.
+    # A row can also leave the listing entirely while this waits. No rule is claimed about when:
+    # across five measured runs some throwaway rows went within a minute or two and others were still
+    # listed after three minutes, with the fleet's own stopped sessions listed for hours, so whatever
+    # removes them is not isolated and is not reliably reproducible. The code only has to cope: a row
+    # that has gone carries no pid, and the sessionId the resume needs is already in hand.
     [ -n "$settle_row" ] || return 0
     settle_pid=$(printf '%s' "$settle_row" | jq -r '.pid // empty')
     if [ -n "$settle_pid" ] && kill -0 "$settle_pid" 2>/dev/null; then
@@ -416,6 +444,13 @@ settle_stopped() {  # uses row_id; 0 when the row is pid-less twice running, 1 w
 # and no new id may have appeared, because a new id means the resume forked a copy instead.
 wake_stopped() {  # uses row_*; $1 = the message
   wake_message="$1"
+  # Never resume with an empty or short id. `claude --bg --resume ""` does not fail: it starts a NEW
+  # session with the message as its prompt, which is how a junk session appears under the target's
+  # cwd. The full sessionId is the only value this may pass.
+  case "$row_session_id" in
+    ????????-????-????-????-????????????) ;;
+    *) die "the listing gives no full sessionId for $row_id (got '$row_session_id'), and a resume needs one; nothing was touched" ;;
+  esac
   [ -d "$row_cwd" ] || die "the session's cwd '$row_cwd' does not exist; the resume must run there"
   # </dev/null so the resume cannot eat the heredoc the --all loop is reading from.
   out=$(cd "$row_cwd" && claude --bg --resume "$row_session_id" "$wake_message" </dev/null 2>&1) || die "claude --bg --resume failed: $out"
@@ -494,6 +529,7 @@ if [ "$all_mode" = 0 ]; then
   if [ "$row_alive" = 1 ]; then
     printf '  it is ALIVE (pid %s, %s), so it is NOT resumed: a resume of a running session forks a copy.\n' "$row_pid" "${row_status:-status unknown}"
     print_sendmessage "$row_name" "$message"
+    print_hand_resume "$row_session_id" "$row_cwd"
     [ "$dry_run" = 0 ] || report_pause
     printf '  nothing was touched; no record was written, because nothing happened yet.\n'
     exit 3
@@ -637,13 +673,17 @@ while IFS= read -r one_row; do
   sweep_id="$row_id"
   read_listing
   sweep_row=$(printf '%s' "$listing" | jq -c --arg s "$sweep_id" '[.[] | select(.id==$s)] | first // empty')
-  if [ -z "$sweep_row" ]; then
-    printf '  skipped %s: it is no longer in the listing\n' "$sweep_id"
-    continue
-  fi
+  # A row pruned from the listing meanwhile is stopped for good, and the row captured by the survey
+  # still carries its sessionId, so the sweep treats it exactly as the single-target path does rather
+  # than skipping it: the two must not disagree about the same state.
+  [ -n "$sweep_row" ] || sweep_row="$one_row"
   load_row "$sweep_row"
   if [ "$row_alive" = 1 ]; then
     printf '  skipped %s (%s): it is running again now (pid %s), so it needs a SendMessage, not a resume\n' "$row_id" "$row_name" "$row_pid"
+    continue
+  fi
+  if ! settle_stopped; then
+    printf '  skipped %s (%s): a pid came back (%s) while the listing was being confirmed, so it is alive and needs a SendMessage\n' "$row_id" "$row_name" "$row_pid"
     continue
   fi
   one_message="$message"
