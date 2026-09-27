@@ -53,6 +53,24 @@
             "command": "/Users/nelson/.claude/hooks/pause-guard.sh"
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/nelson/.claude/hooks/accept-verb-guard.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__vault-mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/nelson/.claude/hooks/accept-verb-guard.sh"
+          }
+        ]
       }
     ],
     "PostToolUse": [
