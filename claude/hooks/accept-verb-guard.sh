@@ -219,9 +219,20 @@ exit 0 unless $named;
 # --- the quoted regions, found by jumping quote to quote --------------------------------------------
 my @reg;
 my $i = 0;
+# The next position of each quote character, refreshed only once it falls behind the cursor. Searching
+# for BOTH on every iteration was QUADRATIC: a payload of 120,000 single-quoted runs with no double quote
+# anywhere made perl scan from the cursor to the end of the string looking for a double quote 120,000
+# times. Measured on the previous build: 2.85 s at 1.4 MB, 7.39 s at 2.4 MB, 30.11 s at 5 MB, 110.15 s at
+# 10 MB — time rising as the square of the size, so no measurement told you what the next size cost. A
+# guard that slow is not slow, it is OPEN: the harness kills it, the EXIT trap never runs, and anything
+# but exit 2 reads as allow. Once a quote character is absent it stays absent and is never searched again.
+my $next_sq = index($s, $SQ, 0);
+my $next_dq = index($s, $DQ, 0);
 while ($i < $n) {
-  my $a = index($s, $SQ, $i);
-  my $b = index($s, $DQ, $i);
+  $next_sq = index($s, $SQ, $i) if $next_sq >= 0 && $next_sq < $i;
+  $next_dq = index($s, $DQ, $i) if $next_dq >= 0 && $next_dq < $i;
+  my $a = $next_sq;
+  my $b = $next_dq;
   my $k = ($a < 0) ? $b : (($b < 0) ? $a : ($a < $b ? $a : $b));
   last if $k < 0;
   if ($k > 0 && substr($s, $k - 1, 1) eq "\\") { $i = $k + 1; next }

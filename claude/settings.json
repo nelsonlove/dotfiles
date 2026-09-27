@@ -59,7 +59,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/nelson/.claude/hooks/accept-verb-guard.sh"
+            "command": "/Users/nelson/.claude/hooks/accept-verb-guard.sh",
+            "timeout": 10
           }
         ]
       },
@@ -68,7 +69,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/nelson/.claude/hooks/accept-verb-guard.sh"
+            "command": "/Users/nelson/.claude/hooks/accept-verb-guard.sh",
+            "timeout": 10
           }
         ]
       }
