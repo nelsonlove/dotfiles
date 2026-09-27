@@ -73,6 +73,20 @@
 # it refused prose written as `printf '…' > note.md` (v1's failure surviving in the trailing-redirect
 # idiom), and it let a real call placed after an early `2>/dev/null` pass unread.
 #
+# THE WALL IS FOUND BY THE STRING `<<`, and two other constructs contain it. A HERESTRING is excluded by
+# a lookahead — `<<<` is not a heredoc, and treating it as one let a real call after `cat <<< "x" ;` pass;
+# the pair that proved it differed in nothing else. The other two are named boundaries rather than fixes:
+#   * an ARITHMETIC LEFT SHIFT, `$(( 1 << 3 ))`, sets a false wall. `cat << 3` is a legal heredoc with a
+#     numeric delimiter, so the two cannot be told apart by the delimiter's shape, and nobody writes a
+#     left shift beside an accept-verb call by accident.
+#   * a `#` COMMENT containing `<<` sets one too, and the cause is worth stating plainly because it
+#     predicts the next bug of this shape: a comment ends at a newline, and the normalisation has already
+#     collapsed the newlines, so after the collapse a comment has no end. NO line-scoped construct — a
+#     comment, a heredoc body's end, a line continuation — can be bounded once the lines are gone. The
+#     closer is to stop destroying that structure (map a newline to a sentinel byte instead of a space,
+#     which squashing still ignores), and it is #59's package, because the same change is what lets the
+#     wall bound a heredoc BODY and so closes the post-heredoc shape as well.
+#
 # THE WINDOW IS THE VALUE, never a character count. A key's value ends where the value ends, and a
 # stage-shaped value ends at the next unquoted `;`, `&&`, `||`, `|` or `&`. That is what stops an
 # ordinary choice call followed by a log line that names a verb from being refused.
@@ -95,6 +109,16 @@
 # closes the shapes a session reaches for by habit, and it is not an authentication boundary.
 #
 # The verbs' own `_invoked-by` compare is why a belt is wanted as well as braces.
+#
+# ONE DEPENDENCY, WRITTEN DOWN BECAUSE NOTHING ELSE WOULD SAY IT: the four names are HARDCODED here, as
+# `verifycurrentnote`, `reopencurrentnote`, `requestrevision` and `answercurrentnote`. Deleting or
+# regenerating the files behind the choices changes nothing, because this file never reads the vault — but
+# a RENAME does: rename a verb, add a fifth, or reword "Request revision", and this guard stops
+# recognising it while every battery case stays green. So any rename or addition on the Obsidian side must
+# come to this file. The matcher deliberately does NOT read the names from the vault instead: that would
+# make a guard depend on the surface it guards, and give it a new way to fail open when that surface
+# cannot be read. (Agreed with `[C1-CC] plugins` on 2026-09-27, who carried the same obligation to the
+# obsidian ship, which already holds the opaque-id half of rule 19.)
 #
 # A sibling of pause-guard.sh: same stdin-JSON read, same exit-0 allow / exit-2 block convention
 # (Claude Code feeds a hook's stderr back to the model on exit 2), same EXIT trap rewriting every
@@ -258,6 +282,8 @@ sub live {
     $runs = 1 if $ctx =~ /open\s*location\s*$/;
     $runs = 1 if $ctx =~ /openlocation\s*\(\s*$/;
     $runs = 1 if $ctx =~ /(?:^|[\s;&|(])(?:curl|wget)\b[^|;&]*$/;
+    $runs = 1 if $ctx =~ /(?:^|[\s;&|(])ssh\b[^|;&]*$/;      # `ssh orange "obsidian command=…"` runs it there
+    $runs = 1 if $ctx =~ /(?:^|[\s;&|(])watch\b[^|;&]*$/;    # and `watch` runs it again every few seconds
     $runs_it{$idx} = $runs;
     return $runs;
   }
@@ -271,6 +297,12 @@ my $wall = $n + 1;
 {
   my $p = 0;
   while ((my $k = index($s, "<<", $p)) >= 0) {
+    # A HERESTRING is not a heredoc. `<<<` contains `<<`, and treating it as a wall let a real call
+    # after `cat <<< "x" ;` pass unread — the isolated pair that proved it flipped verdict on nothing but
+    # the herestring. Skip the whole run of `<`, because advancing by one would find the pair again.
+    my $run = 0;
+    $run++ while substr($s, $k + $run, 1) eq "<";
+    if ($run > 2) { $p = $k + $run; next }
     $p = $k + 1;
     if (live($k)) { $wall = $k; last }
   }
