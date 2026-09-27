@@ -129,65 +129,36 @@ done
 command -v jq >/dev/null     || die "jq is required"
 command -v claude >/dev/null || die "the claude CLI is required"
 
-# --- ranks -----------------------------------------------------------------------------------
-# Smaller number = higher rank. Repository variants share the rank of their base.
-rank_of_agent() {
-  case "$1" in
-    captain) echo 0 ;;
-    commander) echo 1 ;;
-    lieutenant-commander|lieutenant-commander-repository) echo 2 ;;
-    lieutenant|lieutenant-repository) echo 3 ;;
-    *) echo 9 ;;
-  esac
-}
-rank_of_name() {
-  # Both forms of the code: the bare `[L0]`, which running sessions keep until Nelson renames them
-  # in the view, and the ship-coded `[L0-CC]` ruled on 2026-09-26.
-  #
-  # `[A0]` is the rear admiral, placed between Nelson and the captains on 2026-09-26, numbered -1
-  # rather than by shifting C0..L0 up one: the shift would renumber four ranks in two scripts to say
-  # the same thing, and `_fleet-ranks.sh` is where that belongs if it is ever wanted. A0 carries no
-  # ship code, because it sits above every ship — so the ship rules below skip an A0 caller, and A0
-  # is the one rank matched on the BARE code alone. `[A0-CC]` and `[A0-]` therefore carry no rank
-  # code at all and are refused, not read as the rear admiral: a ship-coded A0 is a typo or an
-  # impostor, and it is not a name the fleet gives anyone. (Found by the reviewer of PR #56, which
-  # accepted `"[A0-"*` and so contradicted this very line.)
-  case "$1" in
-    "[A0]"*) echo -1 ;;   # the bare code only — see the paragraph above
-    "[C0]"*|"[C0-"*) echo 0 ;;
-    "[C1]"*|"[C1-"*) echo 1 ;;
-    "[C2]"*|"[C2-"*) echo 2 ;;
-    "[L0]"*|"[L0-"*|"[L1]"*|"[L1-"*) echo 3 ;;  # [L1] was the lieutenant code until 2026-09-24
-    *) echo 9 ;;
-  esac
-}
-bare_code_of_rank() {
-  case "$1" in -1) echo "[A0]" ;; 0) echo "[C0]" ;; 1) echo "[C1]" ;; 2) echo "[C2]" ;; 3) echo "[L0]" ;; *) echo "[??]" ;; esac
-}
-# The coded form a new name must carry, `[C2-CC]`. Names are written coded from now on, so this is
-# what `--name` is checked against.
-code_of_rank() {  # $1 = rank, $2 = ship code
-  printf '[%s-%s]' "$(bare_code_of_rank "$1" | tr -d '[]')" "$2"
-}
-word_of_rank() {
-  case "$1" in -1) echo "rear admiral" ;; 0) echo captain ;; 1) echo commander ;; 2) echo "lieutenant commander" ;; 3) echo lieutenant ;; *) echo unknown ;; esac
-}
-# The ship a name declares, `CC` in `[L0-CC] dotfiles`; empty for a bare `[L0] dotfiles`. The ship is
-# never guessed from anything else: a wrong code files a session under the wrong captain in the
-# fleet view, and only Nelson can rename it back.
-KNOWN_SHIPS="CC OB HS FL"
-FLOATING_SHIP="FL"
-ship_of_name() {
-  printf '%s' "$1" | sed -n -E 's/^\[[A-Za-z][0-9]-([A-Za-z]{1,4})\].*/\1/p'
-}
-ship_is_known() {
-  case " $KNOWN_SHIPS " in *" $1 "*) return 0 ;; *) return 1 ;; esac
-}
+# --- ranks and ships, from the one table ------------------------------------------------------
+# `_fleet-ranks.sh` beside this script holds the rank line and the ship codes: `rank_of_name`,
+# `rank_of_caller`, `rank_of_agent`, `word_of_rank`, `bare_code_of_rank`, `code_of_rank`, `KNOWN_SHIPS`,
+# `FLOATING_SHIP`, `ship_of_name` and `ship_is_known`. Both this script and its sibling held byte-identical
+# copies of most of those, and copies of `rank_of_name` that differed in the comment only — the rank line
+# is the one thing two fleet scripts must never disagree about, so it is one file now. Adding a ship code
+# is one line THERE, not here.
+#
+# Sourced by path beside this script, resolved with `pwd -P`, so it works from the repo and through the
+# `~/.claude/bin` symlink the installer makes. A missing or unreadable table is fatal: every rank check in
+# this script depends on it, and a script that cannot read the rank line must not act on a rank.
+FLEET_RANKS="$script_dir/_fleet-ranks.sh"
+[ -r "$FLEET_RANKS" ] || die "the rank table is missing or unreadable at $FLEET_RANKS; this script cannot judge a rank without it"
+# PARSED BEFORE IT IS SOURCED, and the `|| die` after the `.` is not enough on its own. Under `set -e` a
+# SYNTAX ERROR in a sourced file aborts this script before the `||` is ever reached, the EXIT trap is
+# entered with a zero status, and `on_exit` does not re-exit — so the script exited 0, which its own header
+# documents as "done", having done nothing. An unresolved merge conflict in the table produces exactly
+# that, and this file is where a rank gets added, so it is the realistic shape rather than a contrived one.
+# Found by the review of #61; the failure did not exist before the extraction, because nothing was sourced.
+bash -n "$FLEET_RANKS" 2>/dev/null || die "the rank table at $FLEET_RANKS does not parse (an unresolved merge conflict, or a truncated file); refusing, because a script that cannot read the rank line must not act on a rank"
+# shellcheck source=_fleet-ranks.sh
+. "$FLEET_RANKS" || die "the rank table at $FLEET_RANKS could not be sourced"
+# AND THAT IT DEFINED WHAT IT PROMISES: a table that parses but defines nothing left the script to fail
+# later with 127, not with a refusal. One probe is enough — they all come from the same file.
+command -v rank_of_name >/dev/null 2>&1 || die "the rank table at $FLEET_RANKS parsed but defined no rank line; refusing"
 
 [ "$to" != "captain" ] || die "refused: only Nelson makes captains"
 [ -f "$AGENTS_DIR/$to.md" ] || die "no agent definition at $AGENTS_DIR/$to.md"
 to_rank=$(rank_of_agent "$to");   [ "$to_rank" != 9 ] || die "--to must be a fleet rank, got '$to'"
-by_rank=$(rank_of_name "$by");    [ "$by_rank" != 9 ] || die "--by must start with a rank code, bare or ship-coded ([C0], [C1], [C2], [L0], [C1-CC], [C2-OB] …), or the bare [A0], which carries no ship code; got '$by'"
+by_rank=$(rank_of_caller "$by"); [ "$by_rank" != 9 ] || die "--by must start with a rank code, bare or ship-coded ([C0], [C1], [C2], [L0], [C1-CC], [C2-OB] …), or the bare [A0], which carries no ship code; got '$by'"
 name_rank=$(rank_of_name "$name"); [ "$name_rank" != -1 ] || die "refused: --name '$name' would make a rear admiral, and only Nelson makes one; A0 is never a --name"
 [ "$name_rank" = "$to_rank" ] || die "--name '$name' must carry the rank code $(bare_code_of_rank "$to_rank") to match --to $to"
 [ "$to_rank" -gt "$by_rank" ] || die "refused: $by ($(word_of_rank "$by_rank")) may only promote or demote to a rank below its own; $to is not below it"
