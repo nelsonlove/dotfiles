@@ -13,7 +13,12 @@
 #   IN   `$PAUSE_NOTE` — the path of the pause note. The caller sets it; this file never guesses it, and
 #        never reads it from the environment, because a `PAUSE_NOTE` inherited from an unrelated process
 #        once pointed a pause check at the wrong note.
-#   OUT  `$flag_state`  — one of `absent`, `paused`, `clear`, `bad`. Nothing else, ever.
+#   OUT  `$flag_state`  — for `read_pause_flag`, one of `absent`, `paused`, `clear`, `bad`, and nothing else
+#        ever. `read_frontmatter`, the generalised block reader below, adds a FIFTH value of its own,
+#        `read`, which means the block was parsed and carries no judgement about a pause — it is the only
+#        value its own callers see on success, and `read_pause_flag` turns it into `paused` or `clear`
+#        before any pause caller sees it. That fifth value was added by package 5 and this line said
+#        "nothing else, ever" for a day afterwards, which the review of #63 caught.
 #        `$flag_reason` — set only when the state is `bad`, in a sentence a human can act on.
 #        `$flag_block`  — the raw frontmatter block, for a caller that wants another key out of it.
 #   `read_pause_flag` always RETURNS 0. It reports through `$flag_state`, so a caller cannot mistake a
@@ -28,16 +33,25 @@
 # CR IS STRIPPED EVERYWHERE, and that is a bug fix rather than a nicety: a CRLF note never matched the
 # `---` fence, which left the frontmatter empty and the guard wide open.
 #
-# HOW A CALLER FINDS THIS FILE — three identical lines, and the way both callers here write them. Walk UP
-# from the script's own directory until a `.git` appears, and source `$root/claude/lib/pause-flag.sh`:
+# HOW A CALLER FINDS THIS FILE — two ways, and which one is right depends on what the caller knows about
+# where it sits. THE WALK, below, is for a caller that can be installed at more than one depth. COUNTING
+# LEVELS is right for a caller that sits at a known depth in its own checkout, and `claude/bin/` is exactly
+# that: `notify-session.sh`, the third caller of this file and the first one to want a frontmatter block
+# rather than a pause, reaches it as `$script_dir/../lib/pause-flag.sh`. That is not a lapse — it is
+# STRICTER than the walk, because one level up cannot land in a stranger's repository, which is the hazard
+# the walk confesses to further down. The rule, then: count levels when your depth is fixed and inside your
+# own tree; walk when it is not. Both must guard what they find (readable, parses, defines what is wanted).
+#
+# THE WALK — three identical lines, and the way the hook and the tickle gate write them. Walk UP from the
+# script's own directory until a `.git` appears, and source `$root/claude/lib/pause-flag.sh`:
 #
 #     d=$(cd "$(dirname "$0")" 2>/dev/null && pwd -P) || d=""
 #     while [ -n "$d" ] && [ ! -e "$d/.git" ]; do [ "$d" != "/" ] || { d=""; break; }; d=$(dirname "$d"); done
 #     [ -n "$d" ] || <the caller refuses, in its own exit contract>
 #
-# DO NOT COUNT LEVELS. The two callers sit at DIFFERENT DEPTHS — the hook is two levels below the repo
-# root (`claude/hooks/`), the gate is three (`tickle/scripts/_lib/`) — so a copied `../..` resolves to a
-# path that does not exist. That matters most on the gate: a failed `source` there exits non-zero, the
+# DO NOT COUNT LEVELS FOR THESE TWO CALLERS. They sit at DIFFERENT DEPTHS — the hook is two levels below
+# the repo root (`claude/hooks/`), the gate is three (`tickle/scripts/_lib/`) — so a `../..` copied from one
+# into the other resolves to a path that does not exist. That matters most on the gate: a failed `source` there exits non-zero, the
 # EXIT trap rewrites it to 2, tickle records "check failed", and the job SILENTLY DOES NOT RUN. That is
 # the same class of silent failure that hid a 29-hour obsidian-backup outage, which is why the gate's own
 # header says so and why this file refuses to be found by counting.
