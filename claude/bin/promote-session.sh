@@ -39,6 +39,17 @@
 #   --dry-run  print the plan and stop before touching anything.
 #   -h, --help  print this header.
 #
+# The rear admiral, `[A0]`, added 2026-09-27: the session Nelson placed between himself and the
+# captains on 2026-09-26. It is rank -1, above a captain, and the table is numbered rather than shifted
+# so that C0..L0 keep their numbers in both scripts (`_fleet-ranks.sh` is where a renumbering belongs).
+# What follows from it here: an A0 caller may promote or demote any rank below a captain and a captain
+# too, because a captain reports to A0; the ship rules below do not apply to an A0 CALLER, since A0
+# carries no ship code and a ship boundary is between ships; the new name's ship therefore comes from
+# the TARGET unless --ship says otherwise, and a bare-named target must be given --ship rather than
+# guessed; a ship-coded `[A0-CC]` is not the rear admiral and is refused as a name with no rank code at
+# all; and `--name` never carries A0, because only Nelson makes a rear admiral. `--to captain`
+# stays refused for everyone, A0 included: only Nelson makes captains.
+#
 # The ship rules (Nelson, 2026-09-26; names carry the ship code after the rank):
 #   * Both forms of the rank code are read, the bare `[C1]` and the coded `[C1-CC]`, because running
 #     sessions keep bare names until Nelson renames them in the fleet view.
@@ -132,7 +143,17 @@ rank_of_agent() {
 rank_of_name() {
   # Both forms of the code: the bare `[L0]`, which running sessions keep until Nelson renames them
   # in the view, and the ship-coded `[L0-CC]` ruled on 2026-09-26.
+  #
+  # `[A0]` is the rear admiral, placed between Nelson and the captains on 2026-09-26, numbered -1
+  # rather than by shifting C0..L0 up one: the shift would renumber four ranks in two scripts to say
+  # the same thing, and `_fleet-ranks.sh` is where that belongs if it is ever wanted. A0 carries no
+  # ship code, because it sits above every ship — so the ship rules below skip an A0 caller, and A0
+  # is the one rank matched on the BARE code alone. `[A0-CC]` and `[A0-]` therefore carry no rank
+  # code at all and are refused, not read as the rear admiral: a ship-coded A0 is a typo or an
+  # impostor, and it is not a name the fleet gives anyone. (Found by the reviewer of PR #56, which
+  # accepted `"[A0-"*` and so contradicted this very line.)
   case "$1" in
+    "[A0]"*) echo -1 ;;   # the bare code only — see the paragraph above
     "[C0]"*|"[C0-"*) echo 0 ;;
     "[C1]"*|"[C1-"*) echo 1 ;;
     "[C2]"*|"[C2-"*) echo 2 ;;
@@ -141,7 +162,7 @@ rank_of_name() {
   esac
 }
 bare_code_of_rank() {
-  case "$1" in 0) echo "[C0]" ;; 1) echo "[C1]" ;; 2) echo "[C2]" ;; 3) echo "[L0]" ;; *) echo "[??]" ;; esac
+  case "$1" in -1) echo "[A0]" ;; 0) echo "[C0]" ;; 1) echo "[C1]" ;; 2) echo "[C2]" ;; 3) echo "[L0]" ;; *) echo "[??]" ;; esac
 }
 # The coded form a new name must carry, `[C2-CC]`. Names are written coded from now on, so this is
 # what `--name` is checked against.
@@ -149,7 +170,7 @@ code_of_rank() {  # $1 = rank, $2 = ship code
   printf '[%s-%s]' "$(bare_code_of_rank "$1" | tr -d '[]')" "$2"
 }
 word_of_rank() {
-  case "$1" in 0) echo captain ;; 1) echo commander ;; 2) echo "lieutenant commander" ;; 3) echo lieutenant ;; *) echo unknown ;; esac
+  case "$1" in -1) echo "rear admiral" ;; 0) echo captain ;; 1) echo commander ;; 2) echo "lieutenant commander" ;; 3) echo lieutenant ;; *) echo unknown ;; esac
 }
 # The ship a name declares, `CC` in `[L0-CC] dotfiles`; empty for a bare `[L0] dotfiles`. The ship is
 # never guessed from anything else: a wrong code files a session under the wrong captain in the
@@ -166,15 +187,29 @@ ship_is_known() {
 [ "$to" != "captain" ] || die "refused: only Nelson makes captains"
 [ -f "$AGENTS_DIR/$to.md" ] || die "no agent definition at $AGENTS_DIR/$to.md"
 to_rank=$(rank_of_agent "$to");   [ "$to_rank" != 9 ] || die "--to must be a fleet rank, got '$to'"
-by_rank=$(rank_of_name "$by");    [ "$by_rank" != 9 ] || die "--by must start with a rank code, bare or ship-coded ([C0], [C1], [C2], [L0], [C1-CC], [C2-OB] …), got '$by'"
-name_rank=$(rank_of_name "$name"); [ "$name_rank" = "$to_rank" ] || die "--name '$name' must carry the rank code $(bare_code_of_rank "$to_rank") to match --to $to"
+by_rank=$(rank_of_name "$by");    [ "$by_rank" != 9 ] || die "--by must start with a rank code, bare or ship-coded ([C0], [C1], [C2], [L0], [C1-CC], [C2-OB] …), or the bare [A0], which carries no ship code; got '$by'"
+name_rank=$(rank_of_name "$name"); [ "$name_rank" != -1 ] || die "refused: --name '$name' would make a rear admiral, and only Nelson makes one; A0 is never a --name"
+[ "$name_rank" = "$to_rank" ] || die "--name '$name' must carry the rank code $(bare_code_of_rank "$to_rank") to match --to $to"
 [ "$to_rank" -gt "$by_rank" ] || die "refused: $by ($(word_of_rank "$by_rank")) may only promote or demote to a rank below its own; $to is not below it"
 
 # --- the ship ---------------------------------------------------------------------------------
 # The new name's ship comes from the promoter's own name, or from --ship when one is given; it is
 # never guessed. A promoter with a bare name has no ship to carry over, so it must say which.
 by_ship=$(ship_of_name "$by")
-if [ -n "$ship" ]; then
+# The rear admiral carries no ship code and sits above every ship, so the ship rules do not apply to
+# it as a caller: it cannot "move a session onto another captain's ship", because no ship is its own.
+# A0 keeps a session where it is unless --ship says otherwise, so the new name's ship comes from the
+# TARGET, which is not read until below; the decision is deferred rather than guessed.
+ship_from_target=0
+if [ "$by_rank" = -1 ]; then
+  if [ -n "$ship" ]; then
+    ship_is_known "$ship" || die "--ship must be one of: $KNOWN_SHIPS; got '$ship'"
+    new_ship="$ship"
+  else
+    new_ship=""
+    ship_from_target=1
+  fi
+elif [ -n "$ship" ]; then
   ship_is_known "$ship" || die "--ship must be one of: $KNOWN_SHIPS; got '$ship'"
   if [ -n "$by_ship" ] && [ "$ship" != "$by_ship" ] && [ "$ship" != "$FLOATING_SHIP" ]; then
     die "refused: --ship $ship does not match $by's own ship ($by_ship); a rank does not move a session onto another captain's ship"
@@ -216,13 +251,23 @@ if [ "$to_rank" -lt "$old_rank" ]; then verb=promoted; else verb=demoted; fi
 # floating session, marked FL, which is shared across captains: any rank above it may act on it.
 old_ship=$(ship_of_name "$old_name")
 ship_note=""
+# The rear admiral's new name takes the target's own ship when no --ship was given: A0 leaves a session
+# where it is. A bare-named target has no ship to take, so it must be said rather than guessed.
+if [ "$ship_from_target" = 1 ]; then
+  [ -n "$old_ship" ] || die "refused: \`$old_name\` carries no ship code and $by has none either, so the new name's ship cannot be read from anywhere; pass --ship CC, OB or HS (FL for a floating session)"
+  ship_is_known "$old_ship" || die "refused: \`$old_name\` carries the ship code '$old_ship', which is not one of: $KNOWN_SHIPS; pass --ship to say which ship"
+  new_ship="$old_ship"
+  ship_note="the ship comes from the target, because the rear admiral carries none"
+fi
 # Reach is judged against the PROMOTER's ship, never against the new name's: a captain making one of
 # its own sessions float passes --ship FL, and that must not read as reaching onto another ship.
 caller_ship="$by_ship"
 [ -n "$caller_ship" ] || caller_ship="$ship"
 # Only the FL TARGET is exempt, which is what was ruled. A floating PROMOTER gets no extra reach
 # here: that would be a rule nobody has made, so it is refused and left as a question in the PR.
-if [ -n "$old_ship" ] && [ "$old_ship" != "$FLOATING_SHIP" ] && [ "$old_ship" != "$caller_ship" ]; then
+# The rear admiral is exempt as a CALLER, which is not a new rule but the same one: a ship boundary is
+# between ships, and A0 is above them all — captains report to it.
+if [ "$by_rank" != -1 ] && [ -n "$old_ship" ] && [ "$old_ship" != "$FLOATING_SHIP" ] && [ "$old_ship" != "$caller_ship" ]; then
   die "refused: \`$old_name\` is on ship $old_ship and $by acts on ship $caller_ship; only a rank on its own ship, or Nelson, changes that session's rank (a floating $FLOATING_SHIP session is the exception, and this one is not floating)"
 fi
 if [ "$name_ship" = "$FLOATING_SHIP" ]; then

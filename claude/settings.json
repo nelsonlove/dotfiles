@@ -150,10 +150,10 @@
     "safari@claude-code-plugins-mac": true,
     "mail@claude-code-plugins-mac": true,
     "apple-mail@claude-code-plugins-mac": true,
-    "vault-mcp-connect@claude-code-plugins-mac": true,
     "claude-tone@claude-code-plugins-mac": false,
     "claude-canvas@canvas-local": false,
-    "obsidian@obsidian-skills": true
+    "obsidian@obsidian-skills": true,
+    "vault-mcp-connect@obsidian-mcp-suite": true
   },
   "extraKnownMarketplaces": {
     "claude-code-plugins-mac": {
@@ -172,6 +172,12 @@
       "source": {
         "source": "github",
         "repo": "kepano/obsidian-skills"
+      }
+    },
+    "obsidian-mcp-suite": {
+      "source": {
+        "source": "github",
+        "repo": "nelsonlove/obsidian-mcp-suite"
       }
     }
   },
