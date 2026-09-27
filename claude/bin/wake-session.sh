@@ -50,6 +50,10 @@
 #   --resume-stopped  with --all, resume every stopped session in your line, one log entry each.
 #   --log      the cross-session log to append the record to (default: the fleet log).
 #   --notebook-dir  where the agent notebook lives. For testing only.
+#   --jobs-dir  where Claude Code's job state lives, which is where a target's RANK is read from
+#              (`<id>/state.json`, key `template`, through the rank definitions). For testing only, and it
+#              is the flag that lets a battery exercise the captain gate without dispatching a captain or
+#              naming a throwaway as one: the row comes from the real listing, the rank from a stub.
 #   --pause-note  the Pause note the gate reads. For testing only; an ordinary run reads the fleet's
 #              own note, and PAUSE_NOTE is deliberately NOT inherited from the environment.
 #   --dry-run  print the plan and touch nothing.
@@ -90,9 +94,9 @@
 # notebook records, so two sessions sharing a name share a line and the newest entry decides for both.
 # The session that is actually resumed is always picked by its unique id, never by name, so a
 # collision can misjudge permission but can never resume the wrong session.
-# Three flags widen them on purpose, for tests: `--notebook-dir` replaces the reporting-line record,
-# `--pause-note` replaces the pause flag, and `--log` sends the record somewhere other than the
-# fleet log. A run that passes any of them is a test, not a fleet act — say so if you use them.
+# Four flags widen them on purpose, for tests: `--notebook-dir` replaces the reporting-line record,
+# `--pause-note` replaces the pause flag, `--jobs-dir` replaces the job state a target's rank is read from,
+# and `--log` sends the record somewhere other than the fleet log. A run that passes any of them is a test, not a fleet act — say so if you use them.
 #
 # Works under /bin/bash 3.2 (macOS). Needs jq and the claude CLI.
 
@@ -132,6 +136,7 @@ while [ $# -gt 0 ]; do
     --message)      [ $# -ge 2 ] || die "--message needs a value"; message="$2"; shift 2 ;;
     --log)          [ $# -ge 2 ] || die "--log needs a value"; log="$2"; shift 2 ;;
     --notebook-dir) [ $# -ge 2 ] && [ -n "$2" ] || die "--notebook-dir needs a path"; NOTEBOOK_DIR="$2"; shift 2 ;;
+    --jobs-dir) [ $# -ge 2 ] && [ -n "$2" ] || die "--jobs-dir needs a path"; JOBS_DIR="$2"; shift 2 ;;
     --pause-note)   [ $# -ge 2 ] && [ -n "$2" ] || die "--pause-note needs a path"; pause_note="$2"; shift 2 ;;
     --all)          all_mode=1; shift ;;
     --resume-stopped) resume_stopped=1; shift ;;
@@ -305,6 +310,20 @@ check_reporting_line() {  # $1 = target name, $2 = caller name
     [ -z "$chain_path" ] || chain_path="$chain_path; "
     chain_path="$chain_path$chain_cur -> $chain_rt"
     [ "$chain_rt" != "$2" ] || return 0
+
+    # THE ACCEPT VERBS' WRITE PATH CANNOT BE REACHED BY EQUALITY, because it is not a session: nothing
+    # reports to `human:nelson`, so the walk above would refuse every target the notifier ever has. What a
+    # caller above the fleet can be shown instead is that the line reaches ITS TOP — the rear admiral, or
+    # Nelson himself. A line that ends there is a line inside the fleet, and the verb's own notice may
+    # follow it down. A target whose line CANNOT be followed is still refused, which is the property this
+    # whole function exists for: a missing record is not a permission. Package 5 found this after widening
+    # the rank gate below and leaving this one shut, which made the notifier's wake refuse everything.
+    if [ "${by_rank:-9}" -lt -1 ]; then
+      case "$chain_rt" in
+        Nelson|nelson|NELSON) return 0 ;;
+        *) [ "$(rank_of_name "$chain_rt")" != -1 ] || return 0 ;;
+      esac
+    fi
     chain_hops=$((chain_hops + 1))
     if [ "$chain_hops" -ge 8 ]; then
       chain_reason="the reporting line of '$1' did not reach $2 within 8 hops ($chain_path)"
@@ -502,7 +521,10 @@ if [ "$all_mode" = 0 ]; then
   # A captain is woken by Nelson, or by the rear admiral he placed between himself and the captains:
   # captains report to `[A0] rear admiral`, so an A0 caller waking one is the chain working, not a
   # breach of it. Every other caller is refused, as before, because the script cannot verify Nelson.
-  if [ "$row_rank" = 0 ] && [ "$by_rank" != -1 ]; then
+  # `-gt -1` rather than `!= -1`: the rear admiral is -1 and the accept verbs' write path is -2, and both
+  # sit above a captain. Testing for equality with -1 refused the verb's own notice to a stopped captain,
+  # which is the case the notifier exists for.
+  if [ "$row_rank" = 0 ] && [ "$by_rank" -gt -1 ]; then
     die "refused: \`$row_name\` is a captain; only Nelson or the rear admiral wakes a captain, and this script cannot verify that it is Nelson calling"
   fi
   [ "$row_rank" -gt "$by_rank" ] \
@@ -575,7 +597,7 @@ while IFS= read -r one_row; do
   fi
   # The survey hides captains from everyone but the rear admiral, for the same reason the single
   # target refuses them: a captain is woken by Nelson or by A0, so only an A0 caller is shown one.
-  if [ "$row_rank" = 0 ] && [ "$by_rank" != -1 ]; then continue; fi
+  if [ "$row_rank" = 0 ] && [ "$by_rank" -gt -1 ]; then continue; fi   # above a captain: A0 (-1) and the verb path (-2)
   [ "$row_rank" -gt "$by_rank" ] || continue
   if ! check_reporting_line "$row_name" "$by"; then
     outside_list="$outside_list    $row_id  $row_name — $chain_reason
