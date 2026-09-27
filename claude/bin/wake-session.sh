@@ -167,8 +167,18 @@ fi
 # this script depends on it, and a script that cannot read the rank line must not act on a rank.
 FLEET_RANKS="$script_dir/_fleet-ranks.sh"
 [ -r "$FLEET_RANKS" ] || die "the rank table is missing or unreadable at $FLEET_RANKS; this script cannot judge a rank without it"
+# PARSED BEFORE IT IS SOURCED, and the `|| die` after the `.` is not enough on its own. Under `set -e` a
+# SYNTAX ERROR in a sourced file aborts this script before the `||` is ever reached, the EXIT trap is
+# entered with a zero status, and `on_exit` does not re-exit — so the script exited 0, which its own header
+# documents as "done", having done nothing. An unresolved merge conflict in the table produces exactly
+# that, and this file is where a rank gets added, so it is the realistic shape rather than a contrived one.
+# Found by the review of #61; the failure did not exist before the extraction, because nothing was sourced.
+bash -n "$FLEET_RANKS" 2>/dev/null || die "the rank table at $FLEET_RANKS does not parse (an unresolved merge conflict, or a truncated file); refusing, because a script that cannot read the rank line must not act on a rank"
 # shellcheck source=_fleet-ranks.sh
 . "$FLEET_RANKS" || die "the rank table at $FLEET_RANKS could not be sourced"
+# AND THAT IT DEFINED WHAT IT PROMISES: a table that parses but defines nothing left the script to fail
+# later with 127, not with a refusal. One probe is enough — they all come from the same file.
+command -v rank_of_name >/dev/null 2>&1 || die "the rank table at $FLEET_RANKS parsed but defined no rank line; refusing"
 
 by_rank=$(rank_of_caller "$by")
 [ "$by_rank" != 9 ] || die "--by must start with a rank code, bare or ship-coded ([C0], [C1], [C2], [L0], [L0-CC], [C2-OB] …), or the bare [A0], which carries no ship code; got '$by'"

@@ -28,7 +28,7 @@
 # CR IS STRIPPED EVERYWHERE, and that is a bug fix rather than a nicety: a CRLF note never matched the
 # `---` fence, which left the frontmatter empty and the guard wide open.
 #
-# HOW A CALLER FINDS THIS FILE — three identical lines, and the only correct way to write them. Walk UP
+# HOW A CALLER FINDS THIS FILE — three identical lines, and the way both callers here write them. Walk UP
 # from the script's own directory until a `.git` appears, and source `$root/claude/lib/pause-flag.sh`:
 #
 #     d=$(cd "$(dirname "$0")" 2>/dev/null && pwd -P) || d=""
@@ -48,6 +48,20 @@
 # here so nobody discovers it by surprise. If the walk reaches `/` without finding `.git` — a tarball
 # export, a vendored copy, a file moved out of the tree — the caller must REFUSE and say which directory
 # it searched from. Guessing a depth there is worse than failing, because a wrong guess fails silently.
+#
+# TWO THINGS A CALLER MUST KNOW BEFORE SOURCING THIS, both found by the review of #61.
+#
+# `fm_value` IS NOT UNIQUE. `claude/bin/rename-notebook.sh` defines a function of the same name with an
+# INCOMPATIBLE signature — there it takes a file and a key, here it takes a key and reads `$flag_block`.
+# Nothing collides today because that script sources nothing, but a script that sources both would get
+# whichever came last, and the survey in `docs/fleet-machinery/` exists because same-name/different-contract
+# functions are exactly the trap. If a third caller ever wants both, one of them has to be renamed first.
+#
+# THE WALK FINDS *A* REPO, NOT NECESSARILY *THIS* ONE. `.git` above a caller could belong to another tree
+# that happens to contain a `claude/lib/pause-flag.sh`, and the caller would source THAT — under which a
+# paused note was read as clear and a write went through. So each caller also checks that the root it found
+# contains the caller ITSELF at its expected path, which is cheap and makes "a repo" into "my repo". It
+# needs a misconfiguration to reach, and a fail-open is the one class worth two lines to close.
 #
 # Works under /bin/bash 3.2 (macOS). Needs grep, sed, awk, tr, head.
 

@@ -30,10 +30,10 @@
 #
 # PAUSE_NOTE overrides the note path, for testing only.
 #
-# The flag parser below is duplicated verbatim in
-# tickle/scripts/_lib/pause-gate.sh. The two install through different paths
-# (the ~/.claude/hooks symlink here, TICKLE_CONFIG_HOME there) and must never
-# disagree about what "paused" means: change both together.
+# The flag parser lives ONCE, in `claude/lib/pause-flag.sh`, and is sourced below. It used to be
+# duplicated verbatim here and in `tickle/scripts/_lib/pause-gate.sh`, with a comment in each telling
+# the reader to change both together — and by the time they were unified they had already drifted by
+# one word. The two scripts must never disagree about what "paused" means, which is why it is one file.
 set -u
 
 # Claude Code reads only 0 (allow) and 2 (block); anything else is a
@@ -75,6 +75,14 @@ input=$(cat)
 pf_dir=$(cd "$(dirname "$0")" 2>/dev/null && pwd -P) || pf_dir=""
 while [ -n "$pf_dir" ] && [ ! -e "$pf_dir/.git" ]; do [ "$pf_dir" != "/" ] || { pf_dir=""; break; }; pf_dir=$(dirname "$pf_dir"); done
 PAUSE_FLAG_LIB="$pf_dir/claude/lib/pause-flag.sh"
+# AND THE ROOT MUST BE THIS SCRIPT OWN REPO. The walk finds *a* repo, not necessarily this one: a `.git`
+# above a copy of this script could belong to another tree that happens to hold a `claude/lib/pause-flag.sh`,
+# and sourcing THAT read a paused note as clear and let a write through. Checking that the root contains
+# this script at its expected path turns "a repo" into "my repo". Found by the review of #61.
+if [ -n "$pf_dir" ] && [ ! -e "$pf_dir/claude/hooks/pause-guard.sh" ]; then
+  msg="the root found at $pf_dir does not contain claude/hooks/pause-guard.sh, so it is not this script own repo; refusing rather than sourcing another tree pause parser"
+  printf 'pause-guard: %s\n' "$msg" >&2; exit 2
+fi
 if [ -z "$pf_dir" ] || [ ! -r "$PAUSE_FLAG_LIB" ]; then
   printf 'pause-guard: the pause parser could not be found from %s (no .git above it, or %s is unreadable); refusing, because a pause that cannot be read must not be assumed absent\n' "$(dirname "$0")" "$PAUSE_FLAG_LIB" >&2
   exit 2

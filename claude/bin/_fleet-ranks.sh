@@ -93,15 +93,19 @@ bare_code_of_rank() {
   case "$1" in -1) echo "[A0]" ;; 0) echo "[C0]" ;; 1) echo "[C1]" ;; 2) echo "[C2]" ;; 3) echo "[L0]" ;; *) echo "[??]" ;; esac
 }
 
-# The coded form a new name must carry, given a rank and a ship.
-code_of_rank() {
-  case "$1" in
-    0) printf '[C0-%s]' "$2" ;;
-    1) printf '[C1-%s]' "$2" ;;
-    2) printf '[C2-%s]' "$2" ;;
-    3) printf '[L0-%s]' "$2" ;;
-    *) printf '[??-%s]' "$2" ;;
-  esac
+# The coded form a new name must carry, given a rank and a ship. DERIVED from `bare_code_of_rank` rather
+# than carrying its own copy of the codes: the first version of this file hardcoded them a second time,
+# which put the rank codes twice inside the one file whose purpose is to hold them once, made the header's
+# "adding a rank is two lines" false (it was four), and silently changed `code_of_rank -1` from `[A0-CC]`
+# to `[??-CC]`. That input is unreachable today — `--to` only ever yields 1, 2 or 3 — but the construction
+# test did not cover it either, so nothing would have caught the day it became reachable. Found by the
+# review of #61.
+code_of_rank() {  # $1 = rank, $2 = ship code
+  # `local`, because this file is SOURCED: an unqualified assignment here is a global, and would clobber a
+  # caller variable of the same name.
+  local bare
+  bare=$(bare_code_of_rank "$1")
+  printf '%s-%s]' "${bare%]}" "$2"
 }
 
 # --- the ships -------------------------------------------------------------------------------------

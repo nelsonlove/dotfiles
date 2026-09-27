@@ -68,6 +68,12 @@ eq "bare code -1" "$(bare_code_of_rank -1)" "[A0]"
 eq "bare code 0"  "$(bare_code_of_rank 0)"  "[C0]"
 eq "bare code 3"  "$(bare_code_of_rank 3)"  "[L0]"
 eq "bare code 9"  "$(bare_code_of_rank 9)"  "[??]"
+# -1 FIRST, because it is the input the first version of this file got wrong and this test did not cover:
+# `code_of_rank` was rewritten with its own hardcoded table instead of deriving from `bare_code_of_rank`,
+# which turned `[A0-CC]` into `[??-CC]`. Unreachable today — `--to` only ever yields 1, 2 or 3 — and
+# therefore exactly what a test has to hold, since nothing else catches the day it is reachable.
+eq "coded -1 CC"  "$(code_of_rank -1 CC)"   "[A0-CC]"
+eq "coded 9 CC"   "$(code_of_rank 9 CC)"    "[??-CC]"
 eq "coded 0 CC"   "$(code_of_rank 0 CC)"    "[C0-CC]"
 eq "coded 2 OB"   "$(code_of_rank 2 OB)"    "[C2-OB]"
 eq "coded 3 FL"   "$(code_of_rank 3 FL)"    "[L0-FL]"
@@ -94,7 +100,9 @@ for f in wake-session.sh promote-session.sh; do
   for fn in rank_of_name rank_of_caller rank_of_agent word_of_rank bare_code_of_rank code_of_rank ship_of_name ship_is_known; do
     # `grep -c` PRINTS 0 and EXITS 1 when it finds nothing, so a `|| echo 0` fallback appends a second
     # zero and the value becomes two lines. Learned here, at the cost of twenty false failures.
-    c=$(grep -c "^$fn() {" "$BIN/$f" 2>/dev/null || true)
+    # `^name()` WITHOUT requiring the brace: a copy written with `{` on the next line slipped past the
+    # stricter pattern, and the review proved it by leaving one behind and watching this test stay green.
+    c=$(grep -c "^$fn()" "$BIN/$f" 2>/dev/null || true)
     eq "$f does not define $fn" "$c" 0
   done
   for v in KNOWN_SHIPS FLOATING_SHIP; do
