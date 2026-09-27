@@ -72,6 +72,7 @@ refuse() {
   printf '01.65 Operator'\''s console rule 19: no rank invokes an accept verb by any means, not through the palette API, a command call or an eval, not for testing and not on a test artifact; the verb'\''s first act is a prompt in the admiral'\''s own window, so an agent invoking it is an agent at the perimeter.\n' >&2
   printf '01.41 The accept perimeter rule 2: the accepter'\''s identity is asked for, never passed in.\n' >&2
   printf 'A verb is tested by Nelson clicking it, or by a dry-run path that never calls the choice. There is no flag that lifts this.\n' >&2
+  printf 'If you are quoting rather than calling: describe the verb instead of pasting the call — name it, and leave out the command form, the choice id and the eval — or write through Write/Edit, which this guard does not cover.\n' >&2
   exit 2
 }
 
