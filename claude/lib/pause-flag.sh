@@ -90,12 +90,20 @@ fm_value() {
     | sed -E "s/[[:space:]]+\$//"
 }
 
-read_pause_flag() {
-  if [ ! -e "$PAUSE_NOTE" ]; then
+# THE FRONTMATTER BLOCK OF ANY NOTE, not only the pause note. `read_pause_flag` below is one caller of
+# this; `claude/bin/notify-session.sh` is the other, reading a queue note's `session:` key. It exists so
+# that a second script wanting a frontmatter value does not carry a second copy of this block reader —
+# which is the whole reason this file exists. Sets `flag_block`, `flag_state` and `flag_reason` exactly as
+# the pause reader does, so both callers read one contract.
+read_frontmatter() {  # $1 = the note path
+  flag_state=""
+  flag_reason=""
+  flag_block=""
+  if [ ! -e "$1" ]; then
     flag_state="absent"
     return 0
   fi
-  if [ ! -f "$PAUSE_NOTE" ] || [ ! -r "$PAUSE_NOTE" ]; then
+  if [ ! -f "$1" ] || [ ! -r "$1" ]; then
     flag_state="bad"
     flag_reason="the note exists but is not a readable file"
     return 0
@@ -103,19 +111,28 @@ read_pause_flag() {
 
   # The opening fence must be the FIRST line. Matching any `---` anywhere
   # would read a thematic break in the body as the start of frontmatter.
-  first_line=$(head -n 1 "$PAUSE_NOTE" 2>/dev/null | tr -d '\r' | sed -E "s/[[:space:]]+\$//")
+  first_line=$(head -n 1 "$1" 2>/dev/null | tr -d '\r' | sed -E "s/[[:space:]]+\$//")
   if [ "$first_line" != "---" ]; then
     flag_state="bad"
     flag_reason="the note has no frontmatter block (it does not begin with ---)"
     return 0
   fi
 
-  flag_block=$(tr -d '\r' < "$PAUSE_NOTE" | awk 'NR==1{next} /^---[ \t]*$/{closed=1; exit} {print} END{if(!closed) exit 1}')
+  flag_block=$(tr -d '\r' < "$1" | awk 'NR==1{next} /^---[ \t]*$/{closed=1; exit} {print} END{if(!closed) exit 1}')
   if [ $? -ne 0 ]; then
     flag_state="bad"
     flag_reason="the note's frontmatter block is never closed"
     return 0
   fi
+  flag_state="read"
+  return 0
+}
+
+read_pause_flag() {
+  read_frontmatter "$PAUSE_NOTE"
+  # `absent` and `bad` are already the pause contract's own words for those cases, so they pass straight
+  # through; only a successfully READ block continues to the `paused` key.
+  [ "$flag_state" = "read" ] || return 0
 
   paused_line=$(printf '%s\n' "$flag_block" | grep -E "^[[:space:]]*paused[[:space:]]*:" | head -n 1)
   if [ -z "$paused_line" ]; then

@@ -114,5 +114,50 @@ eq "gate with no .git above it exits 2, not 1" "$rc" 2
 msg=$(PAUSE_NOTE="$CLEAR" "$ORPHAN/pause-gate.sh" test-job 2>&1 >/dev/null | head -n 1)
 case "$msg" in *"$ORPHAN"*) eq "the gate names the directory it searched from" yes yes ;; *) eq "the gate names the directory it searched from" "no: $msg" yes ;; esac
 
+echo
+echo "=== 4. read_frontmatter, the generalisation package 5 put into this SHIPPED file"
+# `read_pause_flag` is now one caller of it and `claude/bin/notify-session.sh` is the other, which reads a
+# queue note's `session:` key. Section 1 above can only see the states the pause road forwards, so these
+# cases call the reader directly. Every one of them is about the SEAM rather than the block scanner: the
+# block scanner is the same code section 1 already proves, note shape by note shape.
+SESSNOTE=$(note session '---
+title: a queue item
+session: "[L0-FL] dotfiles"
+verified: 2026-09-27T09:00
+---
+body
+')
+fm() {  # fm <note> [PAUSE_NOTE] -> "<state>|<count of session: lines in the block>"
+  PAUSE_NOTE="${2:-$TMP/there-is-no-pause-note.md}" bash -c '
+    set -u
+    . "$1" || exit 9
+    read_frontmatter "$2" || exit 8
+    printf "%s|%s" "$flag_state" "$(printf "%s\n" "$flag_block" | grep -c "^session:" || true)"
+  ' _ "$LIB" "$1"
+}
+eq "a good note reads, block carried out" "$(fm "$SESSNOTE")" "read|1"
+eq "a missing path is absent" "$(fm "$TMP/no-such-note.md")" "absent|0"
+eq "a directory is bad" "$(fm "$TMP")" "bad|0"
+eq "no opening fence is bad" "$(fm "$NOFENCE")" "bad|0"
+eq "an unclosed block is bad" "$(fm "$UNCLOSED")" "bad|0"
+# IT MUST READ THE PATH IT IS GIVEN. The notifier reads queue notes while a Pause note exists, so a reader
+# that quietly preferred $PAUSE_NOTE would hand back another note's frontmatter and the notifier would tell
+# the wrong session. This is the one thing the generalisation could get wrong invisibly.
+eq "it reads its argument, not PAUSE_NOTE" "$(fm "$SESSNOTE" "$PAUSED")" "read|1"
+# AND IT MUST CLEAR WHAT THE LAST CALL LEFT: two calls in one shell, the second on a missing note. A block
+# left over from the first would be read as the second note's frontmatter.
+second=$(bash -c '
+  set -u
+  . "$1"
+  read_frontmatter "$2"
+  read_frontmatter "$3"
+  printf "%s|%s" "$flag_state" "${flag_block:-empty}"
+' _ "$LIB" "$SESSNOTE" "$TMP/no-such-note.md")
+eq "a second call clears the first call's block" "$second" "absent|empty"
+# THE PAUSE CONTRACT IS UNCHANGED BY THE SEAM: read_pause_flag still takes its note from PAUSE_NOTE, and an
+# argument does not move it. Section 1 proves the states; this proves which file they came from.
+got=$(PAUSE_NOTE="$PAUSED" bash -c '. "$1" && read_pause_flag "$2" && printf "%s" "$flag_state"' _ "$LIB" "$CLEAR")
+eq "read_pause_flag still reads PAUSE_NOTE, not an argument" "$got" "paused"
+
 printf '\n%s checks, %s failed\n' "$n" "$fails"
 [ "$fails" = 0 ] || exit 1
