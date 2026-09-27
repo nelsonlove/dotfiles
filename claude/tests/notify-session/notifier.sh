@@ -85,24 +85,43 @@ else
 fi
 
 echo
-echo "=== the ship map, from the note's path (dry run: it prints who it would tell)"
-map_case() {  # map_case <label> <path-under-tmp> <expected captain fragment>
-  local d="$TMP/$(dirname "$2")"
-  mkdir -p "$d"
-  printf -- '---\ntype: Task\nstatus: verified\n---\n' > "$TMP/$2"
-  local out
-  out=$("$NOTIFY" --note "$TMP/$2" --event verified --at 2026-09-27T14:05 --words w --dry-run 2>&1)
+echo "=== who is told when no session matches: the caller names it, this script never derives it"
+# THE SHIP MAP LEFT THIS SCRIPT on Nelson's call of 2026-09-27 — "the ship stuff is specific to our vault and
+# needs to be kept as policy in the vault, not shipped with the PR" — so these cases no longer assert a map.
+# They assert the interface that replaced it: `--captain` is taken as given, and with none given the rear
+# admiral holds it. The map itself is now tested where it lives, by whatever the vault's policy note binds.
+captain_case() {  # captain_case <label> <expected fragment> [extra args...]
+  # The label and the wanted text are SHIFTED OFF before "$@" is passed on. Without that they arrived as
+  # arguments to the notifier, which refused them by name — five cases failing on the harness, not the code.
+  local label="$1" want="$2" out
+  shift 2
+  printf -- '---\ntype: Task\nstatus: verified\n---\n' > "$TMP/no-match.md"
+  out=$("$NOTIFY" --note "$TMP/no-match.md" --event verified --at 2026-09-27T14:05 --words w --dry-run "$@" 2>&1)
   case "$out" in
-    *"$3"*) pass "$1 → $3" ;;
-    *) fail "$1 → $3" "got: $(printf '%s' "$out" | tr '\n' ' ' | cut -c1-120)" ;;
+    *"$want"*) pass "$label" ;;
+    *) fail "$label" "got: $(printf '%s' "$out" | tr '\n' ' ' | cut -c1-140)" ;;
   esac
 }
-map_case "a spec note under 00-09 System"      "00-09 System/01 System architecture/01.65.md"        "[C0-OB] obsidian"
-map_case "an agent-config note (03.11)"        "00-09 System/03 Agents/03.11 Claude Code config/x.md" "[C0-CC] claude code"
-map_case "a plugins note (03.12)"              "00-09 System/03 Agents/03.12 Claude Code plugins/x.md" "[C0-CC] claude code"
-map_case "a memories note (03.17)"             "00-09 System/03 Agents/03.17 Claude Code memories/x.md" "[C0-CC] claude code"
-map_case "an agent definition (03.18)"         "00-09 System/03 Agents/03.18 Claude Code agents/x.md"  "[C0-CC] claude code"
-map_case "a note with no inferable ship"       "10-19 Personal/somewhere/x.md"                        "[A0] rear admiral"
+captain_case "a captain the caller names is the one told"        "[C0-OB] obsidian"   --captain "[C0-OB] obsidian"
+captain_case "another one, to show nothing is inferred"          "[C2-FL] vault-mcp-suite" --captain "[C2-FL] vault-mcp-suite"
+captain_case "with no --captain, the rear admiral holds it"      "[A0] rear admiral"
+captain_case "the record says the caller named it"               "named by the caller"     --captain "[C0-OB] obsidian"
+captain_case "and says when nobody did"                          "no --captain was given"
+# A NOTE'S PATH NO LONGER DECIDES ANYTHING, which is the point of the change and is worth one case of its own:
+# the same note under a vault-shaped path still goes to whoever the caller named, and to the rear admiral when
+# nobody was named. If a map ever creeps back in, this pair fails.
+mkdir -p "$TMP/vault/00-09 System/03 Agents/03.12 Claude Code plugins"
+printf -- '---\ntype: Task\nstatus: verified\n---\n' > "$TMP/vault/00-09 System/03 Agents/03.12 Claude Code plugins/x.md"
+out=$("$NOTIFY" --note "$TMP/vault/00-09 System/03 Agents/03.12 Claude Code plugins/x.md" --event verified --at 2026-09-27T14:05 --words w --dry-run 2>&1)
+case "$out" in
+  *"[A0] rear admiral"*) pass "a vault-shaped path infers no captain by itself" ;;
+  *) fail "a vault-shaped path infers no captain by itself" "got: $(printf '%s' "$out" | tr '\n' ' ' | cut -c1-140)" ;;
+esac
+out=$("$NOTIFY" --note "$TMP/vault/00-09 System/03 Agents/03.12 Claude Code plugins/x.md" --event verified --at 2026-09-27T14:05 --words w --captain "[C0-CC] claude code" --dry-run 2>&1)
+case "$out" in
+  *"[C0-CC] claude code"*) pass "and the caller's answer is used for that same note" ;;
+  *) fail "and the caller's answer is used for that same note" "got: $(printf '%s' "$out" | tr '\n' ' ' | cut -c1-140)" ;;
+esac
 
 echo
 echo "=== the notice file and the wake, with a throwaway session named in the note"
@@ -268,61 +287,37 @@ run_stubbed "$n_twice" >/dev/null
 in_log "a duplicate name: the record says two rows matched" "matched 2 rows"
 in_log "a duplicate name: the record names both ids"        "twin1 twin2"
 
-# THE CAPTAIN IS TOLD when no session matches, and the record says WHY that captain.
+# THE NAMED CAPTAIN IS TOLD when no session matches, and told for real rather than in a dry run.
 stub_listing "[{\"id\":\"cap2\",\"sessionId\":\"$CAPSID\",\"name\":\"[C0-CC] claude code\",\"status\":\"idle\"}]"
-mkdir -p "$TMP/vault/00-09 System/03 Agents/03.12 Claude Code plugins"
-printf -- '---\ntype: Task\nsession: "[L0-CC] nobody home"\nstatus: verified\n---\n' > "$TMP/vault/00-09 System/03 Agents/03.12 Claude Code plugins/x.md"
-run_stubbed "$TMP/vault/00-09 System/03 Agents/03.12 Claude Code plugins/x.md" >/dev/null
-in_log "no match: the ship's captain is told"            "[C0-CC] claude code"
-in_log "no match: the record gives the map's reason"     "a Claude Code surface under 03 Agents"
+printf -- '---\ntype: Task\nsession: "[L0-CC] nobody home"\nstatus: verified\n---\n' > "$TMP/unmatched-note.md"
+run_stubbed "$TMP/unmatched-note.md" --captain "[C0-CC] claude code" >/dev/null
+in_log "no match: the captain the caller named is told"   "[C0-CC] claude code"
+in_log "no match: the record says who named it"          "named by the caller"
 in_log "no match: the record says the captain dispatches" "the captain dispatches, this script does not"
 
 # A CAPTAIN THAT IS NOT IN THE LISTING falls back to the floating default — finding 7. The old script logged
 # "nobody was told" and never tried the fallback, although a captain with no row cannot be woken either.
 stub_listing "[{\"id\":\"flo1\",\"sessionId\":\"$FLOATSID\",\"name\":\"[L0-FL] the floating one\",\"status\":\"idle\"}]"
-out=$(NOTIFY_FLOATING_DEFAULT="[L0-FL] the floating one" PATH="$STUBBIN:$PATH" "$NOTIFY" --note "$TMP/vault/00-09 System/03 Agents/03.12 Claude Code plugins/x.md" --event verified --at 2026-09-27T14:05 --words w 2>&1)
+out=$(PATH="$STUBBIN:$PATH" "$NOTIFY" --note "$TMP/unmatched-note.md" --event verified --at 2026-09-27T14:05 --words w --captain "[C0-CC] claude code" --floating-default "[L0-FL] the floating one" 2>&1)
 in_log "an absent captain: it FELL BACK to the floating default" "FELL BACK to the floating default"
 in_log "an absent captain: the fallback is logged as one"        "logged as a fallback, per the ruling"
 if [ -s "$NOTIFY_NOTICES_DIR/$FLOATSID.md" ]; then pass "an absent captain: the floating default got the notice"
 else fail "an absent captain: the floating default got the notice" "no file for $FLOATSID"; fi
 
-# THE RELATIVE PATH — finding 6. The map matches leading path segments, so a relative note fell through every
-# arm and went to the rear admiral, and the verb's working directory is the vault root often enough for that
-# to be the ordinary case. The note is now resolved before anything reads it.
+# A RELATIVE NOTE PATH IS RESOLVED BEFORE ANYTHING READS IT — finding 6, and it still matters with the map
+# gone: the RECORD carries the path, and a relative path in the fleet log means nothing to a session reading it
+# from somewhere else. The verb's working directory is the vault root often enough for this to be ordinary.
 stub_listing "[{\"id\":\"cap3\",\"sessionId\":\"$CAPSID\",\"name\":\"[C0-OB] obsidian\",\"status\":\"idle\"}]"
 mkdir -p "$TMP/vault/00-09 System/01 System architecture"
 printf -- '---\ntype: Task\nstatus: verified\n---\n' > "$TMP/vault/00-09 System/01 System architecture/rel.md"
-out=$(cd "$TMP/vault" && PATH="$STUBBIN:$PATH" "$NOTIFY" --note "00-09 System/01 System architecture/rel.md" --event verified --at 2026-09-27T14:05 --words w --dry-run 2>&1)
-case "$out" in
-  *"[C0-OB] obsidian"*) pass "a relative note path still maps to the obsidian captain" ;;
-  *) fail "a relative note path still maps to the obsidian captain" "got: $(printf '%s' "$out" | tr '\n' ' ' | cut -c1-140)" ;;
-esac
+out=$(cd "$TMP/vault" && PATH="$STUBBIN:$PATH" "$NOTIFY" --note "00-09 System/01 System architecture/rel.md" --event verified --at 2026-09-27T14:05 --words w --captain "[C0-OB] obsidian" 2>&1)
+in_log "a relative note path is recorded as an absolute one" "$TMP/vault/00-09 System/01 System architecture/rel.md"
+in_log "and the named captain is still the one told"         "[C0-OB] obsidian"
 
-# A REPO SLOT says what it cannot do, rather than implying a lookup that does not exist.
-mkdir -p "$TMP/vault/00-09 System/07 Repositories/vaultd"
-printf -- '---\ntype: Task\nstatus: verified\n---\n' > "$TMP/vault/00-09 System/07 Repositories/vaultd/x.md"
-out=$(run_stubbed "$TMP/vault/00-09 System/07 Repositories/vaultd/x.md" --dry-run)
-case "$out" in
-  *"[A0] rear admiral"*) pass "a repo slot goes to the rear admiral" ;;
-  *) fail "a repo slot goes to the rear admiral" "got: $(printf '%s' "$out" | tr '\n' ' ' | cut -c1-140)" ;;
-esac
-# and the dotfiles SLOT is the one repo the map does name, because the ruling names it
-mkdir -p "$TMP/vault/00-09 System/07 Repositories/dotfiles"
-printf -- '---\ntype: Task\nstatus: verified\n---\n' > "$TMP/vault/00-09 System/07 Repositories/dotfiles/x.md"
-out=$(run_stubbed "$TMP/vault/00-09 System/07 Repositories/dotfiles/x.md" --dry-run)
-case "$out" in
-  *"[C0-CC] claude code"*) pass "the dotfiles slot goes to the Claude Code captain" ;;
-  *) fail "the dotfiles slot goes to the Claude Code captain" "got: $(printf '%s' "$out" | tr '\n' ' ' | cut -c1-140)" ;;
-esac
-# A FOLDER MERELY NAMED `dotfiles` is not the dotfiles repo. The arm used to read `*/dotfiles/*`, which
-# claimed any note in any folder of that name anywhere in the vault.
-mkdir -p "$TMP/vault/00-09 System/03 Agents/03.04 Records/dotfiles"
-printf -- '---\ntype: Task\nstatus: verified\n---\n' > "$TMP/vault/00-09 System/03 Agents/03.04 Records/dotfiles/x.md"
-out=$(run_stubbed "$TMP/vault/00-09 System/03 Agents/03.04 Records/dotfiles/x.md" --dry-run)
-case "$out" in
-  *"[C0-OB] obsidian"*) pass "a folder merely named dotfiles is NOT the dotfiles repo" ;;
-  *) fail "a folder merely named dotfiles is NOT the dotfiles repo" "got: $(printf '%s' "$out" | tr '\n' ' ' | cut -c1-140)" ;;
-esac
+# THE THREE CASES THAT USED TO LIVE HERE tested the map's own arms — a repo slot, the dotfiles repo, and a
+# folder merely NAMED `dotfiles` that the map used to claim. They went with the map, to the vault, where the
+# policy that decides those is written down. Nothing in this script reads a path for a captain any more, and
+# the pair of cases up in the interface section is what holds that.
 
 # `--words` HAS A DEFAULT, and it is visible rather than empty.
 # A DRY RUN CANNOT SHOW THIS. `log_line` prints only its sentence on a dry run, and his words live in the

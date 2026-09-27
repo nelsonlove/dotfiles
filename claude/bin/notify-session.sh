@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # notify-session.sh — tell a session that its queue item was verified or answered, and if nothing matches,
-# tell the captain of the ship the note belongs to.
+# tell the captain the caller names for it.
 #
 # WHAT NELSON ASKED FOR, 2026-09-27, through `[A0] rear admiral`: "get it built but we probably need a
 # default session or a fallback for spinning up sessions when a match can't be found". The machine: when he
@@ -28,8 +28,8 @@
 # than no sentence at all.
 #
 # WHAT IT DOES, in order:
-#   1. resolves the note to an ABSOLUTE path, because the ship map and the record both read it and a
-#      relative path means something different depending on where the verb was run from;
+#   1. resolves the note to an ABSOLUTE path, because the record carries it and a relative path means
+#      something different depending on where the verb was run from;
 #   2. reads `session:` from the note's frontmatter, through the shared reader in `claude/lib/pause-flag.sh`;
 #   3. resolves that display NAME to a live sessionId through `claude agents --json --all`, refusing a
 #      sessionId that is not a full 36-character id — `--resume ""` silently starts a NEW session;
@@ -58,23 +58,27 @@
 #   have checked the ruling is even executable. If the captain is itself stopped AND CANNOT BE WOKEN, or is
 #   not in the listing at all, this falls back to the floating default session and LOGS THAT IT DID.
 #
-# THE SHIP MAP, from the note's path, verbatim from the ruling:
-#   * `00-09 System/**`                              → `[C0-OB] obsidian`
-#   * except `03 Agents/03.11`, `03.12`, `03.17`, `03.18` and the dotfiles repo → `[C0-CC] claude code`
-#   * a repo slot under `07 Repositories`             → that repository's ship, floating if none
-#   * anything else                                  → `[A0] rear admiral`
-# NO SHIP INFERABLE MEANS THE REAR ADMIRAL, not the floating default. The floating default is only the
-# fallback for a ship's captain that is stopped and cannot be woken, and that is the ruling's own wording
-# rather than a summary of it.
+# THE SHIP MAP IS NOT IN THIS SCRIPT, and that is Nelson's own call, 2026-09-27: "the ship stuff is specific
+# to our vault and needs to be kept as policy in the vault, not shipped with the PR." He is right, and the
+# reason is worth stating so nobody helpfully puts it back. Which captain holds which vault surface is a VAULT
+# decision: it changes when a ship is added, when a scope moves between captains, when a repo slot changes
+# hands — none of which is a change to this repository. A copy of that map compiled into a dotfiles script is
+# a second source of truth that goes stale in silence, and the first version of it was already wrong in three
+# ways by the time the review of #63 read it.
 #
-# WHAT THE MAP CANNOT DO YET, said plainly because the first version of it claimed otherwise. A repo slot's
-# SHIP is not derivable from its path: `07 Repositories/vaultd` says nothing about whether vaultd's work sits
-# under the obsidian captain, the Claude Code captain or a floating session, and the vault holds no key that
-# says. The arm therefore sends a repo-slot note to the REAR ADMIRAL and the log says why, which is what the
-# rear admiral is for — the unruled goes to him. The comment that used to sit there said the ship was
-# "resolved below" and nothing below resolved it, so every such note went to the rear admiral anyway, with a
-# false reason. Giving it a real ship needs either a ruled repo-to-ship table or a key on the slot note, and
-# either is a ruling rather than a patch.
+# SO THE CALLER SAYS WHO. `--captain "<display name>"` is the session to tell when no session matches the
+# note, and this script takes that answer without deriving, checking or second-guessing it. The verb that
+# calls this runs on the obsidian ship, inside the vault, where the policy lives; applying the policy is its
+# job, and the policy note is the one place the map is written down.
+#
+# THE FLOATING DEFAULT IS POLICY TOO, so `--floating-default` names it and the caller passes it for the same
+# reason. What this script still carries is one name only, `[A0] rear admiral` — and that is fleet machinery
+# rather than vault policy: it is in the rank table beside the rank codes, it is the same on every ship, and
+# it is the answer to "who holds what nobody else does".
+#
+# WITH NO `--captain`, THE REAR ADMIRAL. That is the ruled default for a note whose ship cannot be told, and
+# it is the one fallback that needs no vault knowledge at all: the unruled goes to him. The record says which
+# it was — a captain the caller named, or the default because none was given.
 #
 # WHAT IT NEVER DOES: dispatch a session; invoke an accept verb (it is told that one happened, which is the
 # opposite); write to the vault except the one cross-session log entry; or fail a verb. `--dry-run` prints
@@ -96,13 +100,19 @@ WAKE="${NOTIFY_WAKE_SCRIPT:-$script_dir/wake-session.sh}"
 
 die() { printf '%s: %s\n' "$PROG" "$*" >&2; exit 2; }
 
-note="" event="" at="" words="" dry_run=0
+note="" event="" at="" words="" captain="" dry_run=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --note)    [ $# -ge 2 ] || die "--note needs a value";  note="$2"; shift 2 ;;
     --event)   [ $# -ge 2 ] || die "--event needs a value"; event="$2"; shift 2 ;;
     --at)      [ $# -ge 2 ] || die "--at needs a value";    at="$2"; shift 2 ;;
     --words)   [ $# -ge 2 ] || die "--words needs a value"; words="$2"; shift 2 ;;
+    # The session to tell when no session matches the note. The CALLER applies the vault's policy and passes
+    # the answer; this script never derives it from a path. See the header.
+    --captain) [ $# -ge 2 ] || die "--captain needs a value"; captain="$2"; shift 2 ;;
+    # The fallback-of-the-fallback: the session to tell when the captain cannot be told at all. Also policy,
+    # also the caller's to name, and the env form stays for the battery.
+    --floating-default) [ $# -ge 2 ] || die "--floating-default needs a value"; FLOATING_DEFAULT="$2"; shift 2 ;;
     --dry-run) dry_run=1; shift ;;
     -h|--help) sed -n '2,/^set -u$/p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "unknown argument '$1'" ;;
@@ -149,42 +159,13 @@ read_frontmatter "$note"
 target_name=$(fm_value session)
 
 # --- the ship map ----------------------------------------------------------------------------------
-# From the note's PATH, exactly as the ruling lays it out. The order matters: the Claude Code exceptions are
-# tested before the obsidian rule that would otherwise claim them. `map_reason` travels with the answer, so
-# the log entry can say WHY a captain was chosen rather than leaving the reader to re-derive the map.
-# NO SIDE EFFECT THROUGH `$( )`. A function called inside a command substitution runs in a SUBSHELL, so
-# anything it sets is gone when the substitution ends. Both functions that carry a second fact out — the map's
-# reason here, and the row count below — therefore SET GLOBALS and print nothing, and their callers read the
-# globals. The first version of this file called the map twice to get its reason back, which worked and was a
-# smell; the row lookup did the same thing and did NOT work, so the duplicate-name clause the log was supposed
-# to carry was silently never written. One trap, two symptoms, one rule.
-map_reason=""
-captain=""
-ship_captain_of_note() {  # $1 = the resolved note path; sets `captain` and `map_reason`
-  case "$1" in
-    */03\ Agents/03.11*|*/03\ Agents/03.12*|*/03\ Agents/03.17*|*/03\ Agents/03.18*)
-      map_reason="the ship map: a Claude Code surface under 03 Agents"
-      captain="[C0-CC] claude code" ;;
-    # THE DOTFILES REPO, and only it. This arm used to read `*/dotfiles/*` as well, which claimed any note in
-    # any folder named `dotfiles` anywhere in the vault; the repo itself and its vault slot are the two real
-    # places, so they are the two patterns.
-    */repos/system/dotfiles/*|*/07\ Repositories/dotfiles/*)
-      map_reason="the ship map: the dotfiles repo"
-      captain="[C0-CC] claude code" ;;
-    # A repo slot: its ship is NOT in its path and the vault holds no key that says. See the header — this
-    # goes to the rear admiral by the map's last arm, and the reason says so rather than implying a lookup.
-    */07\ Repositories/*)
-      map_reason="a repo slot, whose ship is not derivable from its path and is not ruled anywhere yet"
-      captain="" ;;
-    */00-09\ System/*)
-      map_reason="the ship map: 00-09 System"
-      captain="[C0-OB] obsidian" ;;
-    *)
-      map_reason="no ship could be inferred from the note's path"
-      captain="" ;;
-  esac
-}
-ship_captain_of_note "$note"
+# WHERE THE CAPTAIN CAME FROM, for the record. Not a map — there is no map here any more, by Nelson's call
+# above. Either the caller named one, or nobody did and the rear admiral holds it.
+if [ -n "$captain" ]; then
+  map_reason="named by the caller, which is where the vault's ship policy is applied"
+else
+  map_reason="no --captain was given, so the rear admiral holds it, which is the ruled default"
+fi
 
 # --- the session listing ---------------------------------------------------------------------------
 command -v jq >/dev/null 2>&1     || die "jq is required"
@@ -333,9 +314,8 @@ fi
 
 # --- 2. nothing matched: the ship's captain, or the rear admiral ------------------------------------
 if [ -z "$captain" ]; then
-  # No ship inferable from the path, or a repo slot whose ship is not ruled — the ruling sends both to the
-  # rear admiral, NOT to the floating default. The floating default is only the fallback for a captain that
-  # cannot be woken, below. `map_reason` already says which of the two it was.
+  # Nobody was named, so the rear admiral holds it — NOT the floating default, which is only the fallback for
+  # a captain that cannot be woken, below. `map_reason` above already says which case this is.
   captain="$REAR_ADMIRAL"
 fi
 unmatched="no session matched \`${target_name:-(the note names none)}\`"
