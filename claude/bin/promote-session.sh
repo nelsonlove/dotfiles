@@ -296,3 +296,15 @@ EOF
 # Cosmetic: the new sessionId for the closing line. It must never abort the script; the record is already written.
 new_session_id=$( { claude agents --json --all 2>/dev/null || true; } | { jq -r --arg s "$new_id" '.[] | select(.id==$s) | .sessionId' 2>/dev/null || true; } | head -n 1) || new_session_id=""
 printf 'done: %s is now %s (%s); new id %s, sessionId %s; old id %s stopped; record appended to %s\n' "$old_name" "$name" "$to" "$new_id" "${new_session_id:-?}" "$old_id" "$log"
+
+# The notebook entry still carries the old name in its filename. The rename script beside this one
+# puts it back in step; the old name is passed explicitly because the fork's registry has no
+# formerNames for a name that belonged to a session which has already exited. The promotion has
+# landed by now either way, so this must never abort the script — but note what that means: if the
+# call is skipped because no sessionId came back, or if it fails, the entry keeps the old name until
+# the session's next turn, when the UserPromptSubmit hook catches it. Nothing tells the session
+# itself; the brief does not mention its filename.
+if [ -n "$new_session_id" ] && [ -x "$script_dir/rename-notebook.sh" ]; then
+  rn_out=$("$script_dir/rename-notebook.sh" "$new_session_id" --old-name "$old_name" --log "$log" 2>&1) || rn_out="rename-notebook.sh refused or failed: $(printf '%s' "$rn_out" | tail -n 1)"
+  printf 'notebook: %s\n' "$(printf '%s' "$rn_out" | tail -n 1)"
+fi

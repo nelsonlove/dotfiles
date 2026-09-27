@@ -82,6 +82,27 @@
             "statusMessage": "Checking cross-session log..."
           }
         ]
+      },
+      {
+        "matcher": "resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/nelson/.claude/hooks/notebook-name-sync.sh",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/nelson/.claude/hooks/notebook-name-sync.sh",
+            "timeout": 20
+          }
+        ]
       }
     ]
   },
