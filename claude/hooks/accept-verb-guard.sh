@@ -17,10 +17,18 @@
 #
 # A sibling of pause-guard.sh beside it, not a widening of it: same stdin-JSON read, same exit-0
 # allow / exit-2 block convention (Claude Code feeds a hook's stderr back to the model on exit 2),
-# same EXIT trap rewriting every unexpected exit to 2, registered on the same matchers, `Bash` and
-# `mcp__vault-mcp__.*`. Two guards, two reasons, one file each.
+# same EXIT trap rewriting every unexpected exit to 2. It registers on TWO of that hook's three
+# matchers, `Bash` and `mcp__vault-mcp__.*`, and deliberately not on `Edit|Write|NotebookEdit|MultiEdit`,
+# because those tools cannot invoke a verb — which is also what leaves a session a way to write about
+# one. Two guards, two reasons, one file each.
 #
-# FAILS CLOSED. Malformed input, unreadable input, a missing tool name, a `jq` that is not there, and
+# FAILS CLOSED, and here it parts company with its sibling on purpose: pause-guard.sh fails OPEN with a
+# loud warning when its own dependency is missing, under 01.41 rule 7c, because a pause that cannot be
+# read must not lock a session out of fixing the note. Rule 19 admits no such allowance — a call whose
+# contents cannot be read is a call that must not run — so a missing `jq` blocks here. The asymmetry is
+# real and it is the right way round for each.
+#
+# Malformed input, unreadable input, a missing tool name, a `jq` that is not there, and
 # any unexpected shell failure all BLOCK. There is no allow path, no override flag and no environment
 # variable that turns this off: an escape hatch in this hook is the hatch the rule exists to close.
 #
