@@ -97,7 +97,6 @@
     "github@claude-plugins-official": true,
     "agent-approvals@claude-code-plugins-mac": true,
     "safari@claude-code-plugins-mac": true,
-    "vault-skills@claude-code-plugins-mac": false,
     "mail@claude-code-plugins-mac": true,
     "apple-mail@claude-code-plugins-mac": true,
     "vault-mcp-connect@claude-code-plugins-mac": true,

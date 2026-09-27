@@ -1,0 +1,13 @@
+# Generated landing content — a projection of the vault, written here by the exporter satellite and regenerated locally.
+# Only the scaffold is tracked: the manifest, the README, the static new-skill authoring skill, and the .gitkeep placeholders that keep the landing directories present in a fresh checkout.
+skills/*
+!skills/.gitkeep
+!skills/new-skill
+!skills/new-skill/**
+agents/*
+!agents/.gitkeep
+commands/*
+!commands/.gitkeep
+hooks/*
+!hooks/.gitkeep
+.vault-skills-manifest.json
