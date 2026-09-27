@@ -62,6 +62,12 @@ home_symlinks:
   claude/skills: ~/.claude/skills
   # fleet mechanics scripts (promote-session.sh, wake-session.sh, rename-notebook.sh); reached as ~/.claude/bin/<name>
   claude/bin: ~/.claude/bin
+  # claude/lib is deliberately NOT installed. `claude/lib/pause-flag.sh` is sourced by
+  # claude/hooks/pause-guard.sh and tickle/scripts/_lib/pause-gate.sh, which find it by walking UP from
+  # their own directory to the repo root (the first `.git`) — through the symlinks above, that walk lands
+  # in this checkout, so the library is read from the repo and a second copy under ~/.claude would be a
+  # second thing to keep in step. `claude/bin/_fleet-ranks.sh` needs no entry either: it sits in
+  # claude/bin, so it travels with the scripts that source it.
   # settings.local.json is a committed symlink into 09.11 Secrets (iCloud) — secret content never enters this repo
   claude/settings.local.json: ~/.claude/settings.local.json
   # CLAUDE.md is a committed symlink into the vault (05.11 folder's global-conventions note,
