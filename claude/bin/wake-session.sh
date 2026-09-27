@@ -58,9 +58,17 @@
 # Exit codes: 0 done; 2 refused or failed; 3 the target is alive, so SendMessage it (the command is
 # printed) — nothing was touched.
 #
+# The rear admiral, `[A0]`, added 2026-09-27: the session Nelson placed between himself and the
+# captains on 2026-09-26. It is rank -1, above a captain, and the table is numbered rather than shifted
+# so C0..L0 keep their numbers in both scripts (`_fleet-ranks.sh` is where a renumbering belongs). An
+# A0 caller may wake any rank below a captain and a captain too, because captains report to A0; it
+# carries no ship code, and nothing here refuses on ship anyway; a ship-coded `[A0-CC]` is not the rear
+# admiral and is refused as a name with no rank code at all. `[A0]` is never a target this script
+# would be asked for, since a rear admiral outranks every caller it could have.
+#
 # What it refuses, and why:
-#   * A target at or above the caller's rank, and a `[C0]` target always: only Nelson wakes a
-#     captain, and the script cannot verify that it is Nelson calling.
+#   * A target at or above the caller's rank, and a `[C0]` target for every caller but the rear
+#     admiral: only Nelson or A0 wakes a captain, and the script cannot verify that it is Nelson.
 #   * A target outside the caller's reporting line. The line is data: each session's notebook entry
 #     carries `reports-to`, the name of the session that dispatched it (or `Nelson` for a captain),
 #     and this script walks that chain up from the target, reading the most recent entry for each
@@ -161,7 +169,17 @@ rank_of_agent() {
 rank_of_name() {
   # Both forms of the code: the bare `[L0]` and the ship-suffixed `[L0-CC]` / `[L0-OB]` the rank
   # files took on 2026-09-26, where CC is the Claude Code ship and OB the obsidian ship.
+  #
+  # `[A0]` is the rear admiral, the session Nelson put between himself and the captains on
+  # 2026-09-26. It is numbered -1 rather than by shifting C0..L0 up one, deliberately: the shift
+  # would renumber four ranks across two scripts to say the same thing, and the shared table in
+  # `_fleet-ranks.sh` is the place that renumbering belongs if it is ever wanted. A0 carries no ship
+  # code, because it sits above every ship — so A0 is the one rank matched on the BARE code alone.
+  # `[A0-CC]` and `[A0-]` therefore carry no rank code at all and are refused, not read as the rear
+  # admiral: a ship-coded A0 is a typo or an impostor, and it is not a name the fleet gives anyone.
+  # (Found by the reviewer of PR #56, which accepted `"[A0-"*` and so contradicted this very line.)
   case "$1" in
+    "[A0]"*) echo -1 ;;   # the bare code only — see the paragraph above
     "[C0]"*|"[C0-"*) echo 0 ;;
     "[C1]"*|"[C1-"*) echo 1 ;;
     "[C2]"*|"[C2-"*) echo 2 ;;
@@ -170,7 +188,7 @@ rank_of_name() {
   esac
 }
 word_of_rank() {
-  case "$1" in 0) echo captain ;; 1) echo commander ;; 2) echo "lieutenant commander" ;; 3) echo lieutenant ;; *) echo unknown ;; esac
+  case "$1" in -1) echo "rear admiral" ;; 0) echo captain ;; 1) echo commander ;; 2) echo "lieutenant commander" ;; 3) echo lieutenant ;; *) echo unknown ;; esac
 }
 # The ship a name declares, `CC` in `[L0-CC] dotfiles`; empty for a bare `[L0] dotfiles`, which is
 # never guessed at — a wrong ship code puts a session in the wrong tree, and only Nelson renames.
@@ -189,7 +207,7 @@ ship_is_known() {
 }
 
 by_rank=$(rank_of_name "$by")
-[ "$by_rank" != 9 ] || die "--by must start with a rank code, bare or ship-coded ([C0], [C1], [C2], [L0], [L0-CC], [C2-OB] …), got '$by'"
+[ "$by_rank" != 9 ] || die "--by must start with a rank code, bare or ship-coded ([C0], [C1], [C2], [L0], [L0-CC], [C2-OB] …), or the bare [A0], which carries no ship code; got '$by'"
 
 # --- the notebook, which is where the reporting line lives ------------------------------------
 # One pass over the notebook builds the whole index: for every entry that names a `session:`, a line
@@ -507,7 +525,12 @@ if [ "$all_mode" = 0 ]; then
 
   [ "$row_name" != "$by" ] || die "refused: '$session' is $by itself; a session does not wake itself"
   [ "$row_rank" != 9 ] || die "cannot tell the target's rank from its agent ('$row_agent') or its name ('$row_name'); refusing rather than guessing"
-  [ "$row_rank" != 0 ] || die "refused: \`$row_name\` is a captain; only Nelson wakes a captain, and this script cannot verify that it is Nelson calling"
+  # A captain is woken by Nelson, or by the rear admiral he placed between himself and the captains:
+  # captains report to `[A0] rear admiral`, so an A0 caller waking one is the chain working, not a
+  # breach of it. Every other caller is refused, as before, because the script cannot verify Nelson.
+  if [ "$row_rank" = 0 ] && [ "$by_rank" != -1 ]; then
+    die "refused: \`$row_name\` is a captain; only Nelson or the rear admiral wakes a captain, and this script cannot verify that it is Nelson calling"
+  fi
   [ "$row_rank" -gt "$by_rank" ] \
     || die "refused: $by ($(word_of_rank "$by_rank")) may only wake a session below its own rank; \`$row_name\` is a $(word_of_rank "$row_rank")"
 
@@ -576,7 +599,9 @@ while IFS= read -r one_row; do
 "
     continue
   fi
-  [ "$row_rank" != 0 ] || continue
+  # The survey hides captains from everyone but the rear admiral, for the same reason the single
+  # target refuses them: a captain is woken by Nelson or by A0, so only an A0 caller is shown one.
+  if [ "$row_rank" = 0 ] && [ "$by_rank" != -1 ]; then continue; fi
   [ "$row_rank" -gt "$by_rank" ] || continue
   if ! check_reporting_line "$row_name" "$by"; then
     outside_list="$outside_list    $row_id  $row_name — $chain_reason
