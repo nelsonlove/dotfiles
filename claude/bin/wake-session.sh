@@ -62,7 +62,8 @@
 # captains on 2026-09-26. It is rank -1, above a captain, and the table is numbered rather than shifted
 # so C0..L0 keep their numbers in both scripts (`_fleet-ranks.sh` is where a renumbering belongs). An
 # A0 caller may wake any rank below a captain and a captain too, because captains report to A0; it
-# carries no ship code, and nothing here refuses on ship anyway. `[A0]` is never a target this script
+# carries no ship code, and nothing here refuses on ship anyway; a ship-coded `[A0-CC]` is not the rear
+# admiral and is refused as a name with no rank code at all. `[A0]` is never a target this script
 # would be asked for, since a rear admiral outranks every caller it could have.
 #
 # What it refuses, and why:
@@ -173,9 +174,12 @@ rank_of_name() {
   # 2026-09-26. It is numbered -1 rather than by shifting C0..L0 up one, deliberately: the shift
   # would renumber four ranks across two scripts to say the same thing, and the shared table in
   # `_fleet-ranks.sh` is the place that renumbering belongs if it is ever wanted. A0 carries no ship
-  # code, because it sits above every ship.
+  # code, because it sits above every ship — so A0 is the one rank matched on the BARE code alone.
+  # `[A0-CC]` and `[A0-]` therefore carry no rank code at all and are refused, not read as the rear
+  # admiral: a ship-coded A0 is a typo or an impostor, and it is not a name the fleet gives anyone.
+  # (Found by the reviewer of PR #56, which accepted `"[A0-"*` and so contradicted this very line.)
   case "$1" in
-    "[A0]"*|"[A0-"*) echo -1 ;;
+    "[A0]"*) echo -1 ;;   # the bare code only — see the paragraph above
     "[C0]"*|"[C0-"*) echo 0 ;;
     "[C1]"*|"[C1-"*) echo 1 ;;
     "[C2]"*|"[C2-"*) echo 2 ;;
@@ -203,7 +207,7 @@ ship_is_known() {
 }
 
 by_rank=$(rank_of_name "$by")
-[ "$by_rank" != 9 ] || die "--by must start with a rank code, bare or ship-coded ([A0], [C0], [C1], [C2], [L0], [L0-CC], [C2-OB] …), got '$by'"
+[ "$by_rank" != 9 ] || die "--by must start with a rank code, bare or ship-coded ([C0], [C1], [C2], [L0], [L0-CC], [C2-OB] …), or the bare [A0], which carries no ship code; got '$by'"
 
 # --- the notebook, which is where the reporting line lives ------------------------------------
 # One pass over the notebook builds the whole index: for every entry that names a `session:`, a line

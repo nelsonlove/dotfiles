@@ -46,7 +46,8 @@
 # too, because a captain reports to A0; the ship rules below do not apply to an A0 CALLER, since A0
 # carries no ship code and a ship boundary is between ships; the new name's ship therefore comes from
 # the TARGET unless --ship says otherwise, and a bare-named target must be given --ship rather than
-# guessed; and `--name` never carries A0, because only Nelson makes a rear admiral. `--to captain`
+# guessed; a ship-coded `[A0-CC]` is not the rear admiral and is refused as a name with no rank code at
+# all; and `--name` never carries A0, because only Nelson makes a rear admiral. `--to captain`
 # stays refused for everyone, A0 included: only Nelson makes captains.
 #
 # The ship rules (Nelson, 2026-09-26; names carry the ship code after the rank):
@@ -146,9 +147,13 @@ rank_of_name() {
   # `[A0]` is the rear admiral, placed between Nelson and the captains on 2026-09-26, numbered -1
   # rather than by shifting C0..L0 up one: the shift would renumber four ranks in two scripts to say
   # the same thing, and `_fleet-ranks.sh` is where that belongs if it is ever wanted. A0 carries no
-  # ship code, because it sits above every ship — so the ship rules below skip an A0 caller.
+  # ship code, because it sits above every ship — so the ship rules below skip an A0 caller, and A0
+  # is the one rank matched on the BARE code alone. `[A0-CC]` and `[A0-]` therefore carry no rank
+  # code at all and are refused, not read as the rear admiral: a ship-coded A0 is a typo or an
+  # impostor, and it is not a name the fleet gives anyone. (Found by the reviewer of PR #56, which
+  # accepted `"[A0-"*` and so contradicted this very line.)
   case "$1" in
-    "[A0]"*|"[A0-"*) echo -1 ;;
+    "[A0]"*) echo -1 ;;   # the bare code only — see the paragraph above
     "[C0]"*|"[C0-"*) echo 0 ;;
     "[C1]"*|"[C1-"*) echo 1 ;;
     "[C2]"*|"[C2-"*) echo 2 ;;
@@ -182,7 +187,7 @@ ship_is_known() {
 [ "$to" != "captain" ] || die "refused: only Nelson makes captains"
 [ -f "$AGENTS_DIR/$to.md" ] || die "no agent definition at $AGENTS_DIR/$to.md"
 to_rank=$(rank_of_agent "$to");   [ "$to_rank" != 9 ] || die "--to must be a fleet rank, got '$to'"
-by_rank=$(rank_of_name "$by");    [ "$by_rank" != 9 ] || die "--by must start with a rank code, bare or ship-coded ([A0], [C0], [C1], [C2], [L0], [C1-CC], [C2-OB] …), got '$by'"
+by_rank=$(rank_of_name "$by");    [ "$by_rank" != 9 ] || die "--by must start with a rank code, bare or ship-coded ([C0], [C1], [C2], [L0], [C1-CC], [C2-OB] …), or the bare [A0], which carries no ship code; got '$by'"
 name_rank=$(rank_of_name "$name"); [ "$name_rank" != -1 ] || die "refused: --name '$name' would make a rear admiral, and only Nelson makes one; A0 is never a --name"
 [ "$name_rank" = "$to_rank" ] || die "--name '$name' must carry the rank code $(bare_code_of_rank "$to_rank") to match --to $to"
 [ "$to_rank" -gt "$by_rank" ] || die "refused: $by ($(word_of_rank "$by_rank")) may only promote or demote to a rank below its own; $to is not below it"
