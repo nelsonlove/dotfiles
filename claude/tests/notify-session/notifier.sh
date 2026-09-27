@@ -170,6 +170,172 @@ case "$out" in
 esac
 
 echo
+echo
+echo "=== the record says what HAPPENED, on a stub listing (the review of #63, findings 1, 3, 6, 7 and 8)"
+# A STUB `claude` ON PATH. Everything above needs a live throwaway only because the listing comes from
+# `claude agents --json --all`, and that is the one thing the battery cannot fake — until it fakes the CLI
+# itself. A stub lets the cases the reviewer named actually run: a captain that IS in the listing, a captain
+# that is NOT, a row whose sessionId is null, and a name that matches twice. It does not replace the live
+# section above, which is the only proof that the real CLI's JSON parses; it covers the branches no fixture
+# could reach. Nothing here dispatches, wakes or stops anything: the wake script is still the recorder.
+STUBBIN="$TMP/stubbin"; mkdir -p "$STUBBIN"
+stub_listing() {  # stub_listing <json>  — what the fake `claude agents --json --all` will print
+  printf '%s' "$1" > "$TMP/listing.json"
+  cat > "$STUBBIN/claude" <<'STUB'
+#!/usr/bin/env bash
+# [test artifact — safe to delete] a fake `claude` that only answers `agents --json --all`.
+case "$*" in
+  *agents*) cat "$(dirname "$0")/../listing.json" ;;
+  *) exit 1 ;;
+esac
+STUB
+  chmod +x "$STUBBIN/claude"
+}
+run_stubbed() {  # run_stubbed <note> [extra args...] — the notifier against the stub listing, for real
+  note_path="$1"; shift
+  PATH="$STUBBIN:$PATH" "$NOTIFY" --note "$note_path" --event verified --at 2026-09-27T14:05 --words "looks right to me" "$@" 2>&1
+}
+# THE LAST ENTRY, not the last N lines. `tail -n 8` spans two entries whenever one is six lines long, so a
+# `not_in_log` assertion could read the PREVIOUS entry's words and fail on a sentence this case never wrote —
+# which is exactly what happened the first time a live fixture ran before these stubbed cases. The window is
+# the entry: everything after the newest `## ` heading.
+log_tail() { awk '/^## /{buf=$0; next} {buf=buf" "$0} END{print buf}' "$NOTIFY_FLEET_LOG" 2>/dev/null; }
+in_log() {  # in_log <label> <text that must be in the last entry>
+  case "$(log_tail)" in
+    *"$2"*) pass "$1" ;;
+    *) fail "$1" "the entry says: $(log_tail | cut -c1-200)" ;;
+  esac
+}
+not_in_log() {  # not_in_log <label> <text that must NOT be in the last entry>
+  case "$(log_tail)" in
+    *"$2"*) fail "$1" "the entry says: $(log_tail | cut -c1-200)" ;;
+    *) pass "$1" ;;
+  esac
+}
+
+SID_A="aaaaaaaa-1111-2222-3333-444444444444"
+SID_B="bbbbbbbb-1111-2222-3333-444444444444"
+CAPSID="cccccccc-1111-2222-3333-444444444444"
+FLOATSID="dddddddd-1111-2222-3333-444444444444"
+
+# A RUNNING SESSION IS NOT SAID TO HAVE BEEN WOKEN. This is finding 1's common case: the old script logged
+# "which was idle, woken by the verified verb" for every live target, because the wake function returned 0
+# both for "already running" and for "woken".
+stub_listing "[{\"id\":\"aaa1\",\"sessionId\":\"$SID_A\",\"name\":\"[L0-CC] running one\",\"status\":\"idle\"}]"
+n_run=$(note running_target "[L0-CC] running one")
+run_stubbed "$n_run" >/dev/null
+in_log     "a running target: the record says it reads it on its next turn" "reads it on its next turn"
+not_in_log "a running target: the record does NOT claim a wake"            "and it was woken"
+if [ -s "$NOTIFY_NOTICES_DIR/$SID_A.md" ]; then pass "a running target: the notice itself was written"
+else fail "a running target: the notice itself was written" "no file for $SID_A"; fi
+
+# A STOPPED SESSION IS WOKEN, and the record says so with the word that means it.
+stub_listing "[{\"id\":\"aaa2\",\"sessionId\":\"$SID_B\",\"name\":\"[L0-CC] stopped one\",\"status\":null}]"
+n_stop=$(note stopped_target "[L0-CC] stopped one")
+run_stubbed "$n_stop" >/dev/null
+in_log "a stopped target: the record says it was woken as human:nelson" "woken by this script as \`human:nelson\`"
+if grep -q -- "--by human:nelson" "$TMP/wake-calls.log" 2>/dev/null; then pass "a stopped target: the wake carried --by human:nelson"
+else fail "a stopped target: the wake carried --by human:nelson" "calls: $(cat "$TMP/wake-calls.log" 2>/dev/null | tr '\n' ' ')"; fi
+
+# A NOTICE THAT COULD NOT BE WRITTEN IS NOT REPORTED AS DELIVERED — finding 1's other half, which the
+# reviewer proved with an unwritable notices directory. The failure goes to stderr, which the real caller
+# (the verb) discards, so the LOG is the only place it can show up.
+UNWRITABLE="$TMP/unwritable"
+mkdir -p "$UNWRITABLE"; : > "$UNWRITABLE/blocker"; chmod 500 "$UNWRITABLE"
+# THE LISTING MUST HOLD THIS CASE'S OWN TARGET. First time round it still held the previous case's row, so the
+# run fell through to the captain road and this assertion read an entry about something else entirely — the
+# harness measuring a different thing from the one in its label, which is the disease the batteries keep
+# finding. Every stubbed case sets its own listing immediately before it runs.
+stub_listing "[{\"id\":\"aaa1\",\"sessionId\":\"$SID_A\",\"name\":\"[L0-CC] running one\",\"status\":\"idle\"}]"
+out=$(NOTIFY_NOTICES_DIR="$UNWRITABLE/notices" PATH="$STUBBIN:$PATH" "$NOTIFY" --note "$n_run" --event verified --at 2026-09-27T14:05 --words w 2>&1)
+in_log "an unwritable notices dir: the record says NO NOTICE COULD BE WRITTEN" "NO NOTICE COULD BE WRITTEN"
+chmod 700 "$UNWRITABLE"
+
+# A NULL sessionId IS NOT A PATH. `@tsv` renders JSON null as an empty field, so the notice used to land at
+# `<dir>/.md`, which the injecting hook never reads, and the record said it had gone to the session.
+stub_listing "[{\"id\":\"aaa3\",\"sessionId\":null,\"name\":\"[L0-CC] no sid\",\"status\":\"idle\"},{\"id\":\"cap1\",\"sessionId\":\"$CAPSID\",\"name\":\"[A0] rear admiral\",\"status\":\"idle\"}]"
+n_null=$(note nullsid_target "[L0-CC] no sid")
+run_stubbed "$n_null" >/dev/null
+in_log "a null sessionId: the record names it as unusable" "sessionId is unusable"
+if [ -e "$NOTIFY_NOTICES_DIR/.md" ]; then fail "a null sessionId: nothing is written to <dir>/.md" "the file exists"
+else pass "a null sessionId: nothing is written to <dir>/.md"; fi
+in_log "a null sessionId: the rear admiral is told instead" "[A0] rear admiral"
+
+# A NAME THAT MATCHES TWICE is resolved, and the record SAYS a choice was made and names the rows.
+stub_listing "[{\"id\":\"twin1\",\"sessionId\":\"$SID_A\",\"name\":\"[L0-CC] twice\",\"status\":\"idle\"},{\"id\":\"twin2\",\"sessionId\":\"$SID_B\",\"name\":\"[L0-CC] twice\",\"status\":\"idle\"}]"
+n_twice=$(note twice_target "[L0-CC] twice")
+run_stubbed "$n_twice" >/dev/null
+in_log "a duplicate name: the record says two rows matched" "matched 2 rows"
+in_log "a duplicate name: the record names both ids"        "twin1 twin2"
+
+# THE CAPTAIN IS TOLD when no session matches, and the record says WHY that captain.
+stub_listing "[{\"id\":\"cap2\",\"sessionId\":\"$CAPSID\",\"name\":\"[C0-CC] claude code\",\"status\":\"idle\"}]"
+mkdir -p "$TMP/vault/00-09 System/03 Agents/03.12 Claude Code plugins"
+printf -- '---\ntype: Task\nsession: "[L0-CC] nobody home"\nstatus: verified\n---\n' > "$TMP/vault/00-09 System/03 Agents/03.12 Claude Code plugins/x.md"
+run_stubbed "$TMP/vault/00-09 System/03 Agents/03.12 Claude Code plugins/x.md" >/dev/null
+in_log "no match: the ship's captain is told"            "[C0-CC] claude code"
+in_log "no match: the record gives the map's reason"     "a Claude Code surface under 03 Agents"
+in_log "no match: the record says the captain dispatches" "the captain dispatches, this script does not"
+
+# A CAPTAIN THAT IS NOT IN THE LISTING falls back to the floating default — finding 7. The old script logged
+# "nobody was told" and never tried the fallback, although a captain with no row cannot be woken either.
+stub_listing "[{\"id\":\"flo1\",\"sessionId\":\"$FLOATSID\",\"name\":\"[L0-FL] the floating one\",\"status\":\"idle\"}]"
+out=$(NOTIFY_FLOATING_DEFAULT="[L0-FL] the floating one" PATH="$STUBBIN:$PATH" "$NOTIFY" --note "$TMP/vault/00-09 System/03 Agents/03.12 Claude Code plugins/x.md" --event verified --at 2026-09-27T14:05 --words w 2>&1)
+in_log "an absent captain: it FELL BACK to the floating default" "FELL BACK to the floating default"
+in_log "an absent captain: the fallback is logged as one"        "logged as a fallback, per the ruling"
+if [ -s "$NOTIFY_NOTICES_DIR/$FLOATSID.md" ]; then pass "an absent captain: the floating default got the notice"
+else fail "an absent captain: the floating default got the notice" "no file for $FLOATSID"; fi
+
+# THE RELATIVE PATH — finding 6. The map matches leading path segments, so a relative note fell through every
+# arm and went to the rear admiral, and the verb's working directory is the vault root often enough for that
+# to be the ordinary case. The note is now resolved before anything reads it.
+stub_listing "[{\"id\":\"cap3\",\"sessionId\":\"$CAPSID\",\"name\":\"[C0-OB] obsidian\",\"status\":\"idle\"}]"
+mkdir -p "$TMP/vault/00-09 System/01 System architecture"
+printf -- '---\ntype: Task\nstatus: verified\n---\n' > "$TMP/vault/00-09 System/01 System architecture/rel.md"
+out=$(cd "$TMP/vault" && PATH="$STUBBIN:$PATH" "$NOTIFY" --note "00-09 System/01 System architecture/rel.md" --event verified --at 2026-09-27T14:05 --words w --dry-run 2>&1)
+case "$out" in
+  *"[C0-OB] obsidian"*) pass "a relative note path still maps to the obsidian captain" ;;
+  *) fail "a relative note path still maps to the obsidian captain" "got: $(printf '%s' "$out" | tr '\n' ' ' | cut -c1-140)" ;;
+esac
+
+# A REPO SLOT says what it cannot do, rather than implying a lookup that does not exist.
+mkdir -p "$TMP/vault/00-09 System/07 Repositories/vaultd"
+printf -- '---\ntype: Task\nstatus: verified\n---\n' > "$TMP/vault/00-09 System/07 Repositories/vaultd/x.md"
+out=$(run_stubbed "$TMP/vault/00-09 System/07 Repositories/vaultd/x.md" --dry-run)
+case "$out" in
+  *"[A0] rear admiral"*) pass "a repo slot goes to the rear admiral" ;;
+  *) fail "a repo slot goes to the rear admiral" "got: $(printf '%s' "$out" | tr '\n' ' ' | cut -c1-140)" ;;
+esac
+# and the dotfiles SLOT is the one repo the map does name, because the ruling names it
+mkdir -p "$TMP/vault/00-09 System/07 Repositories/dotfiles"
+printf -- '---\ntype: Task\nstatus: verified\n---\n' > "$TMP/vault/00-09 System/07 Repositories/dotfiles/x.md"
+out=$(run_stubbed "$TMP/vault/00-09 System/07 Repositories/dotfiles/x.md" --dry-run)
+case "$out" in
+  *"[C0-CC] claude code"*) pass "the dotfiles slot goes to the Claude Code captain" ;;
+  *) fail "the dotfiles slot goes to the Claude Code captain" "got: $(printf '%s' "$out" | tr '\n' ' ' | cut -c1-140)" ;;
+esac
+# A FOLDER MERELY NAMED `dotfiles` is not the dotfiles repo. The arm used to read `*/dotfiles/*`, which
+# claimed any note in any folder of that name anywhere in the vault.
+mkdir -p "$TMP/vault/00-09 System/03 Agents/03.04 Records/dotfiles"
+printf -- '---\ntype: Task\nstatus: verified\n---\n' > "$TMP/vault/00-09 System/03 Agents/03.04 Records/dotfiles/x.md"
+out=$(run_stubbed "$TMP/vault/00-09 System/03 Agents/03.04 Records/dotfiles/x.md" --dry-run)
+case "$out" in
+  *"[C0-OB] obsidian"*) pass "a folder merely named dotfiles is NOT the dotfiles repo" ;;
+  *) fail "a folder merely named dotfiles is NOT the dotfiles repo" "got: $(printf '%s' "$out" | tr '\n' ' ' | cut -c1-140)" ;;
+esac
+
+# `--words` HAS A DEFAULT, and it is visible rather than empty.
+# A DRY RUN CANNOT SHOW THIS. `log_line` prints only its sentence on a dry run, and his words live in the
+# entry's own body, so the first version of this case asserted on output that never carries the value. It runs
+# for real, against its own listing, and reads the entry.
+stub_listing "[{\"id\":\"aaa1\",\"sessionId\":\"$SID_A\",\"name\":\"[L0-CC] running one\",\"status\":\"idle\"}]"
+PATH="$STUBBIN:$PATH" "$NOTIFY" --note "$n_run" --event answered --at 2026-09-27T14:05 >/dev/null 2>&1
+in_log "an omitted --words becomes '(no words given)'" "(no words given)"
+
+# THE LOG ENTRY IS A RULING, which is one of the three kinds `claude/CLAUDE.md` allows in that file. It said
+# "record" for a day, which is not one of them.
+in_log "the entry is headed as a ruling" "— ruling"
+
 echo "=== the injecting hook: it delivers, it clears, and it never blocks a turn"
 hook_with() {  # hook_with <json>; prints stdout, and the exit code on the last line
   printf '%s' "$1" | "$INJECT" 2>/dev/null; printf 'rc=%s' "$?"
@@ -192,6 +358,44 @@ case "$out" in rc=0) pass "a fresh start injects nothing (and the notice is kept
 if [ -s "$NOTIFY_NOTICES_DIR/$sid.md" ]; then pass "the notice survives a fresh start"; else fail "the notice survives a fresh start" "it was cleared"; fi
 
 echo
+# A SESSION ID IS NOT A PATH — finding 5. The hook DELETES what it prints, so a `../` in `session_id` printed
+# an arbitrary file into the model's context and then removed it. Proven both ways: the victim survives, and
+# nothing is printed.
+VICTIM="$TMP/victim.md"
+printf 'SECRET CONTENT\n' > "$VICTIM"
+out=$(printf '%s' '{"hook_event_name":"UserPromptSubmit","session_id":"../victim"}' | "$INJECT" 2>&1; printf 'rc=%s' "$?")
+case "$out" in
+  *"SECRET CONTENT"*) fail "a traversal session_id prints nothing" "it printed the file" ;;
+  *) pass "a traversal session_id prints nothing" ;;
+esac
+if [ -f "$VICTIM" ]; then pass "a traversal session_id deletes nothing"; else fail "a traversal session_id deletes nothing" "the file is gone"; fi
+for bad_sid in "" "short" "../victim" "aaaaaaaa-1111-2222-3333-44444444444" "gggggggg-1111-2222-3333-444444444444" "aaaaaaaa/1111/2222/3333/444444444444"; do
+  printf '%s' "{\"hook_event_name\":\"UserPromptSubmit\",\"session_id\":\"$bad_sid\"}" | "$INJECT" >/dev/null 2>&1
+  rc=$?
+  if [ "$rc" = 0 ]; then pass "a malformed session_id ('$bad_sid') exits 0 and does nothing"
+  else fail "a malformed session_id ('$bad_sid') exits 0 and does nothing" "rc=$rc"; fi
+done
+
+# A NOTICE IS NEVER LOST IN THE PRINT WINDOW — finding 4. The window itself is closed by construction: the
+# file is MOVED ASIDE before it is read, so an append during the print lands in a fresh file that the next
+# turn picks up. What can be tested from outside is the crash half of that design: a `.reading.<pid>` file
+# left behind by a process that died mid-print must be delivered by the next run, not orphaned forever.
+SID_STALE="eeeeeeee-1111-2222-3333-444444444444"
+printf -- '- an older ruling nobody printed yet\n' > "$NOTIFY_NOTICES_DIR/$SID_STALE.md.reading.99999"
+printf -- '- the ruling that arrived after it\n'  > "$NOTIFY_NOTICES_DIR/$SID_STALE.md"
+out=$(printf '%s' "{\"hook_event_name\":\"UserPromptSubmit\",\"session_id\":\"$SID_STALE\"}" | "$INJECT" 2>&1)
+case "$out" in
+  *"an older ruling nobody printed yet"*) pass "a notice left behind by a dead run is delivered next turn" ;;
+  *) fail "a notice left behind by a dead run is delivered next turn" "got: $(printf '%s' "$out" | tr '\n' ' ' | cut -c1-140)" ;;
+esac
+case "$out" in
+  *"the ruling that arrived after it"*) pass "and the current notice is delivered with it, in order" ;;
+  *) fail "and the current notice is delivered with it, in order" "got: $(printf '%s' "$out" | tr '\n' ' ' | cut -c1-140)" ;;
+esac
+if [ -e "$NOTIFY_NOTICES_DIR/$SID_STALE.md.reading.99999" ]; then fail "both are cleared afterwards" "the stale file is still there"
+elif [ -e "$NOTIFY_NOTICES_DIR/$SID_STALE.md" ]; then fail "both are cleared afterwards" "the notice is still there"
+else pass "both are cleared afterwards"; fi
+
 echo "=== the hook fails OPEN on everything, because it must never block a turn"
 for bad in '' 'not json' '{}' '{"hook_event_name":"UserPromptSubmit"}' '{"session_id":"x"}' \
            '{"hook_event_name":"PreToolUse","session_id":"'"$sid"'"}' '[1,2,3]'; do

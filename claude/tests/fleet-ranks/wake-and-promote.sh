@@ -165,7 +165,11 @@ refused "--name never carries A0" -- \
   "$P" --session $LT --to commander --name "[A0] rear admiral" --by "[A0] rear admiral" --why x --jobs-dir "$JOBSNULL" --log "$LOG" --dry-run
 refused "--to captain stays refused, A0 included" -- \
   "$P" --session $LT --to captain --name "[C0-CC] x" --by "[A0] rear admiral" --why x --jobs-dir "$JOBSNULL" --log "$LOG" --dry-run
-refused_because "a commander still may not promote a captain" "not below" -- \
+# This passes `--to commander` with a `[C1-CC]` caller, which is the caller's OWN rank, not `--to captain` —
+# that rail is a different one and is already covered at line 166 ("--to captain stays refused, A0 included").
+# So what this proves is narrower: a commander may not promote a peer up to its own rank, on the "not below"
+# rail rather than the captain rail.
+refused_because "a commander may not promote a peer to its own rank" "not below" -- \
   "$P" --session $LT --to commander --name "[C1-CC] x" --by "$HOP" --why x --jobs-dir "$JOBSCAP" --log "$LOG" --dry-run
 
 printf -- '=== promote-session: the old rails still hold\n'
@@ -192,6 +196,25 @@ done
 refused "promote: --name '[A0-CC] x' is refused (its code matches no --to)" -- \
   "$P" --session "$LT" --to lieutenant-commander --name "[A0-CC] x" --by "[A0] rear admiral" --why x --jobs-dir "$JOBSNULL" --log "$LOG" --dry-run
 
+printf -- '=== wake-session: the write path tells ONE session, and never surveys or resumes the fleet\n'
+# THE WORST OF THE REVIEW'S FINDINGS, and it was invisible from the feature's own side. Rank -2 sits above
+# every rank, so the two widened gates also opened `--all`: the survey stopped skipping captains, every row
+# was "below" the caller including the rear admiral's own, and the new reporting-line exemption passed any
+# target whose chain ends at the top — which is every correctly-recorded session. `--all --resume-stopped
+# --by human:nelson` would have resumed the whole fleet in one command, from a string nothing authenticates.
+# Both forms are refused now, and the refusal says which road it is closing rather than "not below".
+refused_because "the write path may not survey the fleet" "tells one session at a time" -- \
+  "$W" --all --by human:nelson --notebook-dir "$NB" --jobs-dir "$JOBSNULL" --log "$LOG"
+refused_because "the write path may not mass-resume the fleet" "tells one session at a time" -- \
+  "$W" --all --resume-stopped --by human:nelson --why x --notebook-dir "$NB" --jobs-dir "$JOBSNULL" --log "$LOG"
+# AND THE RANKS KEEP IT. The refusal is keyed on the caller being BELOW -1, so the rear admiral's own survey
+# must still work — a fix that closed the road for everyone would be its own outage.
+allowed "and A0 still surveys, as it always did" -- \
+  "$W" --all --by "[A0] rear admiral" --notebook-dir "$NB" --jobs-dir "$JOBSNULL" --log "$LOG"
+# The single-target road is what the verb actually uses, and it is untouched by the refusal above.
+allowed "while the write path still reaches one named session" -- \
+  "$W" --session $LT --by human:nelson --why "one at a time" --notebook-dir "$NB" --jobs-dir "$JOBSNULL" --log "$LOG" --dry-run
+
 printf -- '=== the leash on --jobs-dir (captain, 2026-09-27)\n'
 # BOTH WAYS, in both scripts. A temp path is accepted — every case above proves that, since they all pass one
 # — and a path outside /tmp or the system temp dir is refused with its own sentence. The refusal must name
@@ -216,16 +239,28 @@ fi
 allowed "and a real temp path is still accepted" -- \
   "$W" --session $LT --by "[A0] rear admiral" --why x --notebook-dir "$NB" --jobs-dir "$JOBSNULL" --log "$LOG" --dry-run
 
-printf -- '=== the rank tables themselves\n'
+printf -- '=== wake-session: every listed rank code is accepted, not the numbers it maps to\n'
+# THIS ASSERTS ONLY THAT THE CODE PARSES. Each code below reaches the "--by" check as a valid rank code and
+# gets past it, so the run dies on the unknown session instead of on an unrecognized caller — that is the one
+# thing this loop measures. It says nothing about which NUMBER a code maps to; the "want" alongside each pair
+# is documentation of the intended value, carried into the label for a human reading the output, not
+# something this loop compares against anything. The numbers themselves are asserted in
+# claude/tests/fleet-ranks/table-agrees.sh — read that file for evidence about the rank values.
 for pair in "A0:-1" "C0:0" "C1:1" "C2:2" "L0:3" "L1:3"; do
   code=${pair%%:*}; want=${pair##*:}
   got=$(printf '%s' "$("$W" --session nosuch --by "[$code] x" --why x --notebook-dir "$NB" --jobs-dir "$JOBSNULL" --dry-run 2>&1)")
   # a valid code gets past the --by check and dies on the unknown session instead
-  if printf '%s' "$got" | grep -q 'no background session'; then pass "[$code] is a known rank code (rank $want)"
-  else fail "[$code] is a known rank code (rank $want)" "$(printf '%s' "$got" | head -n 1)"; fi
+  if printf '%s' "$got" | grep -q 'no background session'; then pass "[$code] is accepted as a rank code (rank $want, per table-agrees.sh)"
+  else fail "[$code] is accepted as a rank code (rank $want, per table-agrees.sh)" "$(printf '%s' "$got" | head -n 1)"; fi
 done
 
+# THIS MUST BE A REAL CASE, counted through pass/fail like every other one above — it used to be printed and
+# never compared, which is the same disease this file's own header describes for the captain cases: a check
+# that cannot fail is not a check. Every case above was a dry run or a refusal, so no case should ever have
+# appended a "## " entry to the log; assert that instead of only announcing the number, while still printing
+# the number in the label, because it is the first thing worth reading when it is not 0.
 lines=$(grep -c '^## ' "$LOG" 2>/dev/null) || lines=0
-printf '\nlog lines written: %s (must be 0 — every case was a dry run or a refusal)\n' "$lines"
+if [ "$lines" = 0 ]; then pass "no case wrote a log line (log lines written: $lines)"
+else fail "no case wrote a log line (log lines written: $lines)" "every case was a dry run or a refusal"; fi
 printf '%s cases, %s failed\n' "$n" "$fails"
 [ "$fails" = 0 ] || exit 1
