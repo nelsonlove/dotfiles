@@ -41,10 +41,25 @@ eq "a lowercase code"         "$(rank_of_name '[c0] x')"               9
 eq "a code later in the name" "$(rank_of_name 'x [C0] y')"             9
 
 echo
-echo "=== rank_of_caller: identical to rank_of_name until package 5 adds its arm"
-for name in '[A0] rear admiral' '[C0] x' '[C1-CC] y' '[L0] z' 'nothing' 'human:nelson'; do
-  eq "caller and name agree on '$name'" "$(rank_of_caller "$name")" "$(rank_of_name "$name")"
+echo "=== rank_of_caller: the rank codes fall through, and the one non-rank arm does not"
+# `human:nelson` WAS in this list, asserting that the seam was still empty — and the review of #61 said
+# plainly that the assertion had to be DELETED when the arm landed rather than kept, because it was a claim
+# about the seam being unused and not about correctness. Package 5 landed the arm, so it is deleted, and
+# what replaces it is the pair of facts that matter: the table itself still does not know the name, and the
+# caller function does.
+for name in '[A0] rear admiral' '[C0] x' '[C1-CC] y' '[L0] z' 'nothing'; do
+  label="caller and name agree on '$name'"
+  eq "$label" "$(rank_of_caller "$name")" "$(rank_of_name "$name")"
 done
+eq "the TABLE does not know human:nelson"      "$(rank_of_name 'human:nelson')"   9
+eq "the CALLER function does, at -2"           "$(rank_of_caller 'human:nelson')" -2
+# -2 outranks the rear admiral at -1, which is the point and the risk: it is the only caller that may wake
+# a captain or the rear admiral, and `--by` is not authenticated, so the protection is the log line and not
+# the number. Asserted here so that a later edit cannot quietly demote or promote it.
+eq "it outranks the rear admiral"              "$([ "$(rank_of_caller 'human:nelson')" -lt "$(rank_of_name '[A0] x')" ] && echo yes)" yes
+eq "a near-miss spelling is NOT the arm"       "$(rank_of_caller 'human:Nelson')"  9
+eq "nor is a bare human:"                      "$(rank_of_caller 'human:')"        9
+eq "nor is a name that merely contains it"     "$(rank_of_caller 'x human:nelson')" 9
 
 echo
 echo "=== rank_of_agent: the definition names, and no A0 definition"

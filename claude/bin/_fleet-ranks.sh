@@ -59,7 +59,20 @@ rank_of_name() {
 # for `--by`, so that adding the arm is one line in one file.
 rank_of_caller() {
   case "$1" in
-    # no non-rank callers yet; see the paragraph above
+    # THE ARM THIS FUNCTION WAS BUILT FOR, landed by package 5. `human:nelson` is the accept verbs' own
+    # write path: the verb runs inside Obsidian when NELSON CLICKS, so it has no session and no rank, and
+    # without this it could not tell a session that its item was verified. Rank -2, above the rear admiral,
+    # because the click is the admiral's own hand and a ruling of his must not sit unread behind a rank
+    # check. Ruled by [A0] rear admiral on 2026-09-27 inside Nelson's "get it built", in the queue note
+    # "Rule the two calls in the verified-item notifier before it is built".
+    #
+    # DISCIPLINE WITH A RECORD, NOT A LOCK, and the ruling says so in as many words: `--by` is not
+    # authenticated — it is a string a caller supplies — so any session could pass this, exactly as any
+    # session could already write a stamp or a name it did not earn. What it buys is that the verb's wake is
+    # attributed and logged in his name, so a wake nobody can account for is VISIBLE in the log. What it
+    # cannot do is stop a session that decides to lie, and the guard against that is the same as for
+    # `verified` itself: the act is in the log, and the fleet reads the log.
+    human:nelson) echo -2 ;;
     *) rank_of_name "$1" ;;
   esac
 }
