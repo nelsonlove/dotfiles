@@ -130,7 +130,9 @@
 # runtime or held in a variable; `$(which obsidian)`; an `obsidian://` URI opened from a shell — because
 # the only thing that ever distinguished `open "<uri>"` from a session writing that URI into a note was a
 # list of runners that cannot be completed, and it stays closed where it IS enumerable, on
-# `mcp__claude-in-chrome__navigate`; the Local REST API called from a shell, for the same reason; a payload
+# `mcp__claude-in-chrome__navigate` — and there, a navigate to an ORDINARY url that REDIRECTS to an
+# `obsidian://…commandid=` uri passes, because the guard sees the url it is GIVEN and not where that url
+# lands, which is equally true of a shortener; the Local REST API called from a shell, for the same reason; a payload
 # decoded from base64; and a road arriving through a pipe. Also `js-engine:*` ids, which run arbitrary
 # vault JS — the reason cli-policy.ts denies them by default. And every rate here was measured on an idle
 # machine, so under load an under-cap payload can still be killed, and a killed hook reads as allow.
@@ -214,9 +216,17 @@ if [ "$tool_l" != "bash" ]; then
       nav=$(printf '%s' "$input" | jq -r '(.tool_input // {}) | [.. | strings] | join(" ")' 2>/dev/null) \
         || refuse "the tool input could not be examined"
       nav=$(printf '%s' "$nav" | tr '[:upper:]' '[:lower:]')
-      case "$nav" in
-        *obsidian://*commandid*) refuse "the tool $tool is being asked to open an obsidian:// uri carrying a commandid, which runs an Obsidian command" ;;
-      esac ;;
+      # SCHEME POSITION, the same principle as command position on the Bash road: the URL must BE an
+      # obsidian:// uri, not merely contain one. Asking whether the string contained it refused two things
+      # that invoke nothing — browsing Obsidian own URI documentation with the anchor
+      # `https://help.obsidian.md/uri#obsidian://advanced-uri?commandid=x`, and an https page carrying the
+      # uri as a `?to=` parameter. Both load an https page. Each string in the payload is tested on its
+      # own, so a second field holding the uri is still caught.
+      for one in $nav; do
+        case "$one" in
+          obsidian://*commandid*) refuse "the tool $tool is being asked to open an obsidian:// uri carrying a commandid, which runs an Obsidian command" ;;
+        esac
+      done ;;
   esac
   exit 0
 fi
