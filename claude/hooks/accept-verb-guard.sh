@@ -66,7 +66,10 @@
 #     URI road only, `python3 -c` and `node -e` count too: code they run cannot reach Obsidian's `app`
 #     object, but opening a URL needs no API at all, and exempting interpreters from every road was how
 #     the previous version let `webbrowser.open` through.
-#   * LINES. The payload is NOT flattened any more. Version two collapsed newlines to defeat separator
+#   * LINES, and ONE ORDERING that is the whole difference. The comment strip runs BEFORE the heredoc
+#     scan: the other way round, a `#` comment containing `<<` opens a heredoc whose delimiter never
+#     arrives, and every line after it — including a real call — is read as body. My first attempt had
+#     that order wrong and allowed exactly that. The payload is NOT flattened any more. Version two collapsed newlines to defeat separator
 #     dodges inside a verb name; with no name to defend, the lines stay — and keeping them lets a heredoc
 #     BODY end at its delimiter line and a `#` comment end at its newline. That closes both shapes the
 #     previous version had to accept as boundaries: a real call placed after a heredoc write in the same
