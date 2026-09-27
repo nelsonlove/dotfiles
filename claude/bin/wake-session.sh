@@ -154,59 +154,23 @@ else
   [ "$resume_stopped" = 0 ] || die "--resume-stopped belongs to --all"
 fi
 
-# --- ranks -----------------------------------------------------------------------------------
-# Smaller number = higher rank. Repository variants share the rank of their base. Identical to
-# promote-session.sh; the two scripts must never disagree about the rank line.
-rank_of_agent() {
-  case "$1" in
-    captain) echo 0 ;;
-    commander) echo 1 ;;
-    lieutenant-commander|lieutenant-commander-repository) echo 2 ;;
-    lieutenant|lieutenant-repository) echo 3 ;;
-    *) echo 9 ;;
-  esac
-}
-rank_of_name() {
-  # Both forms of the code: the bare `[L0]` and the ship-suffixed `[L0-CC]` / `[L0-OB]` the rank
-  # files took on 2026-09-26, where CC is the Claude Code ship and OB the obsidian ship.
-  #
-  # `[A0]` is the rear admiral, the session Nelson put between himself and the captains on
-  # 2026-09-26. It is numbered -1 rather than by shifting C0..L0 up one, deliberately: the shift
-  # would renumber four ranks across two scripts to say the same thing, and the shared table in
-  # `_fleet-ranks.sh` is the place that renumbering belongs if it is ever wanted. A0 carries no ship
-  # code, because it sits above every ship — so A0 is the one rank matched on the BARE code alone.
-  # `[A0-CC]` and `[A0-]` therefore carry no rank code at all and are refused, not read as the rear
-  # admiral: a ship-coded A0 is a typo or an impostor, and it is not a name the fleet gives anyone.
-  # (Found by the reviewer of PR #56, which accepted `"[A0-"*` and so contradicted this very line.)
-  case "$1" in
-    "[A0]"*) echo -1 ;;   # the bare code only — see the paragraph above
-    "[C0]"*|"[C0-"*) echo 0 ;;
-    "[C1]"*|"[C1-"*) echo 1 ;;
-    "[C2]"*|"[C2-"*) echo 2 ;;
-    "[L0]"*|"[L0-"*|"[L1]"*|"[L1-"*) echo 3 ;;  # [L1] was the lieutenant code until 2026-09-24
-    *) echo 9 ;;
-  esac
-}
-word_of_rank() {
-  case "$1" in -1) echo "rear admiral" ;; 0) echo captain ;; 1) echo commander ;; 2) echo "lieutenant commander" ;; 3) echo lieutenant ;; *) echo unknown ;; esac
-}
-# The ship a name declares, `CC` in `[L0-CC] dotfiles`; empty for a bare `[L0] dotfiles`, which is
-# never guessed at — a wrong ship code puts a session in the wrong tree, and only Nelson renames.
-# The ships are CC (Claude Code), OB (obsidian) and HS (home server, captain `[C0-HS] orange`), all
-# three ruled 2026-09-26; FL is not a ship but the marker of a floating session shared across
-# captains, and it is listed beside them because it is what such a name carries. An unknown code
-# still groups under itself and is labelled, because a new ship must not
-# make the fleet unreachable; the rank check and the reporting line are what actually gate a wake,
-# and neither reads the ship. So FL needs no exception here: this script never refuses on ship.
-KNOWN_SHIPS="CC OB HS FL"
-ship_of_name() {
-  printf '%s' "$1" | sed -n -E 's/^\[[A-Za-z][0-9]-([A-Za-z]{1,4})\].*/\1/p'
-}
-ship_is_known() {
-  case " $KNOWN_SHIPS " in *" $1 "*) return 0 ;; *) return 1 ;; esac
-}
+# --- ranks and ships, from the one table ------------------------------------------------------
+# `_fleet-ranks.sh` beside this script holds the rank line and the ship codes: `rank_of_name`,
+# `rank_of_caller`, `rank_of_agent`, `word_of_rank`, `bare_code_of_rank`, `code_of_rank`, `KNOWN_SHIPS`,
+# `FLOATING_SHIP`, `ship_of_name` and `ship_is_known`. Both this script and its sibling held byte-identical
+# copies of most of those, and copies of `rank_of_name` that differed in the comment only — the rank line
+# is the one thing two fleet scripts must never disagree about, so it is one file now. Adding a ship code
+# is one line THERE, not here.
+#
+# Sourced by path beside this script, resolved with `pwd -P`, so it works from the repo and through the
+# `~/.claude/bin` symlink the installer makes. A missing or unreadable table is fatal: every rank check in
+# this script depends on it, and a script that cannot read the rank line must not act on a rank.
+FLEET_RANKS="$script_dir/_fleet-ranks.sh"
+[ -r "$FLEET_RANKS" ] || die "the rank table is missing or unreadable at $FLEET_RANKS; this script cannot judge a rank without it"
+# shellcheck source=_fleet-ranks.sh
+. "$FLEET_RANKS" || die "the rank table at $FLEET_RANKS could not be sourced"
 
-by_rank=$(rank_of_name "$by")
+by_rank=$(rank_of_caller "$by")
 [ "$by_rank" != 9 ] || die "--by must start with a rank code, bare or ship-coded ([C0], [C1], [C2], [L0], [L0-CC], [C2-OB] …), or the bare [A0], which carries no ship code; got '$by'"
 
 # --- the notebook, which is where the reporting line lives ------------------------------------
