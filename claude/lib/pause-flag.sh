@@ -57,11 +57,22 @@
 # whichever came last, and the survey in `docs/fleet-machinery/` exists because same-name/different-contract
 # functions are exactly the trap. If a third caller ever wants both, one of them has to be renamed first.
 #
-# THE WALK FINDS *A* REPO, NOT NECESSARILY *THIS* ONE. `.git` above a caller could belong to another tree
-# that happens to contain a `claude/lib/pause-flag.sh`, and the caller would source THAT — under which a
-# paused note was read as clear and a write went through. So each caller also checks that the root it found
-# contains the caller ITSELF at its expected path, which is cheap and makes "a repo" into "my repo". It
-# needs a misconfiguration to reach, and a fail-open is the one class worth two lines to close.
+# THE WALK FINDS *A* REPO, NOT NECESSARILY *THIS* ONE, and this is the one paragraph in this file worth
+# reading twice. `.git` above a caller could belong to another tree that happens to contain a
+# `claude/lib/pause-flag.sh`, and the caller would source THAT. Measured consequence, not a worry: a PAUSED
+# note was read as CLEAR, a write went through, and a job ran. **That is precisely the failure the fleet
+# pause rule exists to prevent** — 01.65 design rule 10, one flag note is the whole state — so the
+# convenience of finding the library by walking up bought, as a side effect, the one outcome the thing it
+# serves forbids. The walk-up was approved by the captain when he ruled out counting levels, and that is
+# part of the record rather than a reason to be quiet about the cost: a convenience approved in good faith
+# still has to be paid for.
+#
+# SO EACH CALLER ALSO CHECKS THAT THE ROOT IT FOUND CONTAINS THE CALLER ITSELF at its expected path, and
+# that is the REASON the check exists rather than a detail of how it works: it turns "a repo" into "my
+# repo", which is the only question that matters. A root that does not hold this script is not this
+# script's root, however many `.git` directories are above it. Reaching the bad case needs a
+# misconfiguration — a copy of a caller somewhere under an unrelated checkout — and a fail-open is the one
+# class of defect worth two lines to close on a maybe.
 #
 # Works under /bin/bash 3.2 (macOS). Needs grep, sed, awk, tr, head.
 
