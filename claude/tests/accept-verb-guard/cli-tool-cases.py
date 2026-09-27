@@ -46,12 +46,10 @@ t(0, "command=eval that reads and invokes nothing", {"command": "eval", "params"
 print("\n=== CONDITION 1: only the command line is read, never the content")
 t(0, "command=append whose CONTENT documents both roads", {"command": "append", "params": {"file": "x.md", "content": DOC}})
 t(0, "command=create whose CONTENT documents both roads", {"command": "create", "params": {"path": "x.md", "content": DOC}})
-# KNOWN, REPORTED, NOT FIXED: the eval road tests for the API name as a SUBSTRING, so code that merely
-# MENTIONS it in a string is refused. It is the same substring-in-free-text failure the inversion exists
-# to kill, surviving inside one road, and it predates this commit — the Bash eval road does it too. The
-# case is pinned at what the guard actually does so this file never lies; the proposal upstairs is to
-# require a call shape (the name followed by `(`) rather than the bare name.
-t(2, "KNOWN FALSE REFUSAL: eval code that only MENTIONS executeChoice", {"command": "eval", "params": {"code": "app.vault.create('n.md', 'the api is executeChoice, do not call it')"}})
+# FIXED by the narrowing: the eval test now requires a CALL — the api name followed by an open
+# parenthesis — rather than the bare name, so code that merely MENTIONS it in a string or a comment
+# passes. It was the first version failure surviving in the one place free text was still read.
+t(0, "eval code that only MENTIONS executeChoice", {"command": "eval", "params": {"code": "app.vault.create('n.md', 'the api is executeChoice, do not call it')"}})
 
 print("\n=== the exception is by EXACT name, so these are judged by name alone")
 t(0, "a write tool whose body documents both roads", {"path": "x.md", "content": DOC}, tool="mcp__vault-mcp__obsidian_write_note")

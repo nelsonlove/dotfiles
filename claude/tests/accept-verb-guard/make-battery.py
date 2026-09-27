@@ -45,13 +45,13 @@ c(2, "CLI quickadd:run", bash('obsidian quickadd:run choice="x"'))
 c(2, "CLI quickadd:run-template-from-folder", bash("obsidian quickadd:run-template-from-folder folder=x"))
 c(2, "eval invoking a command by id", bash('obsidian eval code="app.commands.executeCommandById(\\"editor:toggle-bold\\")"'))
 c(2, "eval invoking a choice", bash('obsidian eval code="app.plugins.plugins.quickadd.api.executeChoice(\\"x\\")"'))
-c(2, "an advanced-uri opened", bash("open -g 'obsidian://advanced-uri?vault=obsidian&commandid=quickadd%3Achoice%3Ax'"))
-c(2, "an advanced-uri, DOUBLE encoded", bash("open -g 'obsidian://advanced-uri?vault=obsidian&commandid=quickadd%253Achoice%253Ax'"))
-c(2, "an advanced-uri through python webbrowser", bash("python3 -c \"import webbrowser; webbrowser.open('obsidian://advanced-uri?commandid=x')\""))
-c(2, "the JXA open location form", bash("osascript -l JavaScript -e 'Application(\"Obsidian\").openLocation(\"obsidian://advanced-uri?commandid=x\")'"))
-c(2, "the Local REST API on loopback", bash("curl -s -X POST http://127.0.0.1:27123/commands/ -d x"))
-c(2, "a call wrapped in bash -c", bash('bash -c "obsidian command id=x"'))
-c(2, "a call over ssh to another ship", bash("ssh orange 'obsidian quickadd choice=x'"))
+c(0, "BOUNDARY an advanced-uri opened from a shell", bash("open -g 'obsidian://advanced-uri?vault=obsidian&commandid=quickadd%3Achoice%3Ax'"))
+c(0, "BOUNDARY an advanced-uri, double encoded", bash("open -g 'obsidian://advanced-uri?vault=obsidian&commandid=quickadd%253Achoice%253Ax'"))
+c(0, "BOUNDARY an advanced-uri through python", bash("python3 -c \"import webbrowser; webbrowser.open('obsidian://advanced-uri?commandid=x')\""))
+c(0, "BOUNDARY the JXA open location form", bash("osascript -l JavaScript -e 'Application(\"Obsidian\").openLocation(\"obsidian://advanced-uri?commandid=x\")'"))
+c(0, "BOUNDARY the Local REST API from a shell", bash("curl -s -X POST http://127.0.0.1:27123/commands/ -d x"))
+c(0, "BOUNDARY a call wrapped in bash -c", bash('bash -c "obsidian command id=x"'))
+c(0, "BOUNDARY a call over ssh", bash("ssh orange 'obsidian quickadd choice=x'"))
 c(2, "a call after a stderr redirect", bash("command -v jq 2>/dev/null; obsidian quickadd choice=x"))
 c(2, "a call after a herestring", bash("cat <<< hello ; obsidian command id=x"))
 c(2, "a call AFTER a heredoc write (was #59)", bash("cat <<EOF >> /tmp/n.md\nprose about the road\nEOF\nobsidian command id=x"))
@@ -90,6 +90,43 @@ c(0, "another server tool named execute", {"tool_name": "mcp__claude-in-chrome__
 c(0, "a Bash description naming a call", bash("ls -la", description="before the obsidian command id=x work"))
 c(0, "an ordinary path mentioning obsidian", bash('ls -la "$HOME/obsidian/00-09 System" | head'))
 c(0, "a large vault heredoc write", bash("cat <<EOF >> ~/obsidian/x.md\n" + ("the note lives at ~/obsidian/00-09 System/x.md\n" * 200) + "EOF"))
+
+# --- the narrowed design: the binary however it is spelled ------------------------------------------
+c(2, "an absolute path to the binary", bash("/usr/local/bin/obsidian command id=x"))
+c(2, "the homebrew path", bash("/opt/homebrew/bin/obsidian vault=obsidian command id=x"))
+c(2, "the app bundle and the REAL binary name", bash("/Applications/Obsidian.app/Contents/MacOS/obsidian-cli command id=x"))
+c(2, "obsidian-cli by name", bash("obsidian-cli command id=x"))
+c(2, "./obsidian", bash("./obsidian command id=x"))
+c(2, "a backslash-newline continuation", bash("obsidian \\\n  vault=obsidian command id=x"))
+c(2, "after a backtick", bash("out=`obsidian command id=x`; echo $out"))
+c(2, "a bare -- before the command word", bash("obsidian -- command id=x"))
+c(2, "a leading VAR=value assignment", bash("FOO=1 obsidian quickadd choice=x"))
+
+# --- the wrapper-verb class, which the previous version REFUSED -------------------------------------
+c(0, "timeout + grep for the grammar", bash("timeout 30 grep -rn 'obsidian quickadd:run' ~/obsidian"))
+c(0, "env + grep", bash("env LC_ALL=C grep -rn 'obsidian command' ~/obsidian"))
+c(0, "time + grep", bash("time grep -rn 'obsidian quickadd' ~/obsidian"))
+c(0, "nice + grep", bash("nice -n 10 grep -c 'obsidian quickadd:run' /tmp/log"))
+c(0, "watch + grep", bash("watch -n5 grep -c 'obsidian command' /tmp/log"))
+c(0, "ssh + a remote grep", bash('ssh air "grep -rn \'obsidian command\' /tmp/log"'))
+c(0, "nohup + echo", bash("nohup echo 'obsidian command id=x is the road' >> /tmp/log &"))
+c(0, "find | xargs grep", bash("find ~/obsidian -name '*.md' | xargs grep -l 'obsidian command'"))
+c(0, "curl posting a body that quotes the grammar", bash('curl -X POST -d \'{"body":"refuses obsidian command id=x"}\' https://api.github.com/x'))
+
+# --- the heredoc forms the previous version got wrong ----------------------------------------------
+c(0, "the escaped delimiter form", bash("cat <<\\EOF >> /tmp/notes.md\nobsidian vault=obsidian command id=foo\nEOF"))
+c(0, "a terminator with trailing whitespace", bash("cat <<'EOF' > /tmp/a\nline\nEOF \nobsidian command id=x\nEOF"))
+c(0, "a delimiter with a hyphen", bash("cat <<EOF-1 > /tmp/a\nbody\nEOF-1\necho done"))
+
+# --- the eval road: a CALL refuses, a MENTION passes ----------------------------------------------
+c(0, "eval that only MENTIONS the api in a string", bash('obsidian eval code="console.log(\'never call executeChoice\')"'))
+c(0, "eval that mentions it in a comment", bash('obsidian eval code="// do not use executeCommandById here"'))
+c(2, "eval with an invoking call past 4000 characters", bash('obsidian eval code="' + "x" * 4200 + 'app.plugins.plugins.quickadd.api.executeChoice(\'y\')"'))
+
+# --- the browser road, enumerable by tool name ----------------------------------------------------
+c(2, "navigate to an obsidian:// uri with a commandid", {"tool_name": "mcp__claude-in-chrome__navigate", "tool_input": {"url": "obsidian://advanced-uri?vault=obsidian&commandid=quickadd%3Achoice%3Ax"}})
+c(0, "navigate to an ordinary page", {"tool_name": "mcp__claude-in-chrome__navigate", "tool_input": {"url": "https://example.com/docs"}})
+c(0, "navigate to an obsidian:// uri with no commandid", {"tool_name": "mcp__claude-in-chrome__navigate", "tool_input": {"url": "obsidian://open?vault=obsidian&file=x.md"}})
 
 manifest = []
 for i, (want, label, payload) in enumerate(cases, 1):
