@@ -63,76 +63,24 @@ fi
 
 input=$(cat)
 
-# ---- flag parser (keep identical to tickle/scripts/_lib/pause-gate.sh) ----
-# Sets: flag_state = absent | paused | clear | bad, flag_reason, flag_block.
-# CR is stripped everywhere: a CRLF note otherwise never matches the `---`
-# fence, which used to leave the frontmatter empty and the guard wide open.
-
-sq="'"
-flag_state=""
-flag_reason=""
-flag_block=""
-
-fm_value() {
-  printf '%s\n' "$flag_block" \
-    | grep -E "^[[:space:]]*$1[[:space:]]*:" \
-    | head -n 1 \
-    | sed -E "s/^[[:space:]]*$1[[:space:]]*:[[:space:]]*//" \
-    | sed -E "s/^\"(.*)\"\$/\1/; s/^${sq}(.*)${sq}\$/\1/" \
-    | sed -E "s/[[:space:]]+\$//"
-}
-
-read_pause_flag() {
-  if [ ! -e "$PAUSE_NOTE" ]; then
-    flag_state="absent"
-    return 0
-  fi
-  if [ ! -f "$PAUSE_NOTE" ] || [ ! -r "$PAUSE_NOTE" ]; then
-    flag_state="bad"
-    flag_reason="the note exists but is not a readable file"
-    return 0
-  fi
-
-  # The opening fence must be the FIRST line. Matching any `---` anywhere
-  # would read a thematic break in the body as the start of frontmatter.
-  first_line=$(head -n 1 "$PAUSE_NOTE" 2>/dev/null | tr -d '\r' | sed -E "s/[[:space:]]+\$//")
-  if [ "$first_line" != "---" ]; then
-    flag_state="bad"
-    flag_reason="the note has no frontmatter block (it does not begin with ---)"
-    return 0
-  fi
-
-  flag_block=$(tr -d '\r' < "$PAUSE_NOTE" | awk 'NR==1{next} /^---[ \t]*$/{closed=1; exit} {print} END{if(!closed) exit 1}')
-  if [ $? -ne 0 ]; then
-    flag_state="bad"
-    flag_reason="the note's frontmatter block is never closed"
-    return 0
-  fi
-
-  paused_line=$(printf '%s\n' "$flag_block" | grep -E "^[[:space:]]*paused[[:space:]]*:" | head -n 1)
-  if [ -z "$paused_line" ]; then
-    flag_state="bad"
-    flag_reason="the note's frontmatter has no 'paused' key"
-    return 0
-  fi
-
-  paused_value=$(printf '%s' "$paused_line" \
-    | sed -E "s/^[[:space:]]*paused[[:space:]]*:[[:space:]]*//" \
-    | sed -E "s/[[:space:]]+#.*\$//" \
-    | sed -E "s/^\"(.*)\"\$/\1/; s/^${sq}(.*)${sq}\$/\1/" \
-    | sed -E "s/^[[:space:]]+//; s/[[:space:]]+\$//" \
-    | tr '[:upper:]' '[:lower:]')
-
-  case "$paused_value" in
-    true|yes) flag_state="paused" ;;
-    false|no) flag_state="clear" ;;
-    *)
-      flag_state="bad"
-      flag_reason="the note's 'paused' value is not true/false/yes/no (found: '$paused_value')"
-      ;;
-  esac
-  return 0
-}
+# ---- the flag parser, from the one shared file ----
+# `claude/lib/pause-flag.sh` holds it. This block and its twin in `tickle/scripts/_lib/pause-gate.sh` carried BYTE-IDENTICAL copies of
+# a 69-line parser, each with a comment telling the reader to keep it identical to the other — and by the
+# time they were unified they already differed by one word.
+#
+# Found by walking UP to the repo root rather than counting levels, because the two callers sit at
+# different depths and a copied `../..` resolves to a path that does not exist. `.git` is a directory in
+# the main checkout and a file in a worktree, so `-e` covers both, and from a worktree this reads that
+# worktree's own copy.
+pf_dir=$(cd "$(dirname "$0")" 2>/dev/null && pwd -P) || pf_dir=""
+while [ -n "$pf_dir" ] && [ ! -e "$pf_dir/.git" ]; do [ "$pf_dir" != "/" ] || { pf_dir=""; break; }; pf_dir=$(dirname "$pf_dir"); done
+PAUSE_FLAG_LIB="$pf_dir/claude/lib/pause-flag.sh"
+if [ -z "$pf_dir" ] || [ ! -r "$PAUSE_FLAG_LIB" ]; then
+  printf 'pause-guard: the pause parser could not be found from %s (no .git above it, or %s is unreadable); refusing, because a pause that cannot be read must not be assumed absent\n' "$(dirname "$0")" "$PAUSE_FLAG_LIB" >&2
+  exit 2
+fi
+# shellcheck source=../lib/pause-flag.sh
+. "$PAUSE_FLAG_LIB" || { printf 'pause-guard: the pause parser at %s could not be sourced; refusing\n' "$PAUSE_FLAG_LIB" >&2; exit 2; }
 # ---- end flag parser ----
 
 read_pause_flag
