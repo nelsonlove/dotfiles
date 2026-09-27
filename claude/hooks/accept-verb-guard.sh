@@ -37,9 +37,23 @@
 #   * keystroke automation — `keystroke`, `key code`, `cliclick` — with an `osascript` or `cliclick`
 #     driver actually present, because those reach the palette with no API at all;
 #   * a Local REST API `/commands` call on 127.0.0.1 / localhost / :27123, whose body carries the name;
-#   * a run tool's own payload: a tool whose name carries `run_command` or `execute_command`, or a
+#   * a run tool's command field: a tool whose name carries `run_command` or `execute_command`, or a
 #     looser `execute` only when the name also says obsidian or vault, so that widening the matchers
-#     later cannot make this vault rule judge another server's `shortcuts_execute`.
+#     later cannot make this vault rule judge another server's `shortcuts_execute`. There the id is
+#     structured, so the test is EQUALITY on the last `/` or `:` segment rather than a search: the
+#     command named must BE a verb. A choice called "Request revision from the GAL" is a real thing for
+#     a QuickAdd folder to hold, and Nelson is entitled to have an agent run it.
+#
+# WHAT THE HOOK NEVER SEES, so that a later reader does not "fix" it: this repo's own advanced-uri
+# callers. `tickle/scripts/vault-skills-export/export.sh:21` fires one on a schedule, seven Alfred
+# workflow scripts build one, and `info.plist:2967` aims one at QuickAdd. None of them is a session's
+# tool call, so none of them passes through any PreToolUse hook. They are legitimate roads, they are not
+# holes in this guard, and nothing here should be changed on their account.
+#
+# The rule carries to the uri road in both directions, proved as cases: an advanced-uri WRITTEN — with
+# `printf … > note.md`, in a heredoc, inside a markdown link, or piped to `pbcopy` — is prose, because a
+# URL in a file invokes nothing; the same uri handed to `open`, `open -g`, `curl` or an osascript
+# `open location` is a call.
 #
 # A quoted run is a value being USED, not text being carried, when it is handed to something that runs
 # it: `sh`/`bash`/`zsh` with `-c`, a shell `eval`, `xargs`, `osascript`, `open` and `open location` /
@@ -388,16 +402,43 @@ verb=${found%%$'\t'*}
 how=${found#*$'\t'}
 [ -n "$verb" ] || exit 0
 
-# A run tool carries no shell text, so its whole payload is the argument.
+# A run tool carries no shell text, so quoting cannot find its value — but the SAME rule applies, and the
+# id it is given is structured, which makes the value test exact rather than positional: the command it
+# names must BE a verb, not merely contain one. Reading the whole payload instead refused three calls the
+# soak found, all of them legitimate — a choice named "Request revision from the GAL", one named "Answer
+# current note questions in the inbox", and an `editor:toggle-bold` call with a verb sitting in a
+# neighbouring field. Only the field that names the command can invoke anything, so only that field is
+# read; the last `/` or `:` segment, without its `.md` and without its `#choice` or `#macro` fragment, is
+# compared for EQUALITY. (A run tool that names its command in some field not on this list is not read:
+# that is a named boundary, not a claim of completeness.)
 if [ -z "$how" ]; then
+  runner=""
   case "$tool_l" in
-    *run_command*|*runcommand*|*execute_command*|*executecommand*)
-      how="the tool $tool exists to run a command, and its payload names a verb" ;;
+    *run_command*|*runcommand*|*execute_command*|*executecommand*) runner="exists to run a command" ;;
     *execute*)
       case "$tool_l" in
-        *obsidian*|*vault*) how="the tool $tool exists to run something, and its payload names a verb" ;;
+        *obsidian*|*vault*) runner="exists to run something" ;;
       esac ;;
   esac
+  if [ -n "$runner" ]; then
+    id_verb=$(printf '%s' "$input" \
+      | jq -r '(.tool_input // {}) | to_entries | map(select(.key | ascii_downcase | test("^(cmd|command|commandid|command_id|commandname|command_name|id|choice|choiceid|choice_id)$"))) | .[] | .value | tostring' 2>/dev/null \
+      | perl -ne '
+          s/%([0-9a-fA-F]{2})/chr(hex($1))/ge; $_ = lc $_; chomp;
+          s/#.*$//;                       # the #choice or #macro fragment is not part of the name
+          s/\.md$//;
+          my $base = $_;
+          $base = substr($base, rindex($base, "/") + 1) if rindex($base, "/") >= 0;
+          $base = substr($base, rindex($base, ":") + 1) if rindex($base, ":") >= 0;
+          $base =~ s/[^a-z0-9]//g;
+          for my $v (qw(verifycurrentnote reopencurrentnote requestrevision answercurrentnote)) {
+            if ($base eq $v) { print $v; exit }
+          }') || id_verb=""
+    if [ -n "$id_verb" ]; then
+      verb="$id_verb"
+      how="the tool $tool $runner, and the command it names IS the accept verb"
+    fi
+  fi
 fi
 
 [ -z "$how" ] || refuse "this call invokes the accept verb '$verb': $how"
