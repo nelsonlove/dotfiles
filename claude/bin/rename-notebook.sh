@@ -23,8 +23,17 @@
 #                exited by then.
 #   --no-obsidian  rename with `mv` and repoint inbound wikilinks here, instead of asking a running
 #                Obsidian to do it. Used when Obsidian is not running, and by the tests.
-#   --notebook-dir, --log, --pause-note  overrides, for testing only.
-#   --dry-run    say what would happen and touch nothing.
+#   --notebook-dir, --log, --pause-note, --vault-path  overrides, for testing only. `--vault-path`
+#                also bounds the link-repoint pass, so a test can keep it inside a scratch tree.
+#   --dry-run    say what would happen and touch nothing, including while the fleet is paused.
+#
+# Two deliberate departures from its siblings, said here rather than left to be noticed. A paused or
+# unreadable pause flag makes this script do nothing and exit 0, where promote-session.sh and
+# wake-session.sh refuse with exit 2: this one is called by a hook on every prompt, and handing that a
+# failure for a paused fleet would be noise, while leaving the file alone is already the safe state.
+# And its log line is headed with the renamed session's name rather than an acting session's, because
+# there is no `--by`: the actor is this machinery, usually fired by a hook, and inventing an actor
+# would put a name in the record that did nothing.
 #
 # What it renames, and what it leaves alone. Only an entry whose filename is already the ruled form
 # `Agent session <stamp> <name>.md` and whose `<name>` no longer matches the session's is renamed.
@@ -88,7 +97,12 @@ done
 [ -n "$session" ] || die "a sessionId is required (positionally, or as --session)"
 command -v jq >/dev/null || die "jq is required"
 
-# --- the pause: doing nothing is the safe state, so a pause and an unreadable flag both skip ------
+# --- the pause ------------------------------------------------------------------------------------
+# Deliberately unlike the siblings: promote-session.sh and wake-session.sh refuse with exit 2, because
+# for them refusing IS the safe state. Here the safe state is to leave the file alone and say so, and
+# a caller is usually the hook on every prompt, which must not be handed a failure for a paused fleet.
+# A dry run reports the flag instead of stopping on it, as wake-session.sh's dry run does.
+pause_state="clear"
 if [ -x "$PAUSE_GATE" ]; then
   gate_rc=0
   if [ -n "$pause_note" ]; then
@@ -98,11 +112,14 @@ if [ -x "$PAUSE_GATE" ]; then
   fi
   case "$gate_rc" in
     0) ;;
-    1) say "the fleet is paused; nothing done"; exit 0 ;;
-    *) say "the fleet pause flag cannot be read (pause-gate exit $gate_rc); nothing done"; exit 0 ;;
+    1) pause_state="the fleet is paused" ;;
+    *) pause_state="the fleet pause flag cannot be read (pause-gate exit $gate_rc)" ;;
   esac
 else
-  say "the pause gate is not at $PAUSE_GATE; nothing done"
+  pause_state="the pause gate is not at $PAUSE_GATE"
+fi
+if [ "$pause_state" != "clear" ] && [ "$dry_run" = 0 ]; then
+  say "$pause_state; nothing done"
   exit 0
 fi
 
@@ -225,17 +242,19 @@ vault_rel() {  # the path as the vault sees it
 }
 
 repoint_links() {  # $1 = old basename without .md, $2 = new basename without .md; prints the count
+  # The count is what was actually rewritten, not what a plain grep matched: perl reports its own
+  # substitution count per file on stderr, because a name that is a strict prefix of another entry's
+  # name would match the grep and then be left alone by the gated substitution.
   link_files=$(grep -rl -F "[[$1" "$VAULT_PATH" --include='*.md' 2>/dev/null || true)
   link_count=0
   if [ -n "$link_files" ]; then
     while IFS= read -r lf; do
       [ -n "$lf" ] || continue
-      hits=$(grep -o -F "[[$1" "$lf" 2>/dev/null | grep -c . || true)
-      [ "${hits:-0}" -gt 0 ] || continue
-      link_count=$((link_count + hits))
-      # Only the link target is rewritten: an alias or a heading after it is left as it stands.
-      perl -0777 -pi -e "BEGIN { \$o = quotemeta(\$ARGV[0]); \$n = \$ARGV[1]; shift; shift } s/\\[\\[\$o(?=[\\]|#])/[[\$n/g" "$1" "$2" "$lf" 2>/dev/null \
+      # Only the link target is rewritten: an alias (|) or a heading (#) after it is left as it is.
+      hits=$(perl -0777 -pi -e "BEGIN { \$o = quotemeta(\$ARGV[0]); \$n = \$ARGV[1]; shift; shift; \$c = 0 } \$c += s/\\[\\[\$o(?=[\\]|#])/[[\$n/g; END { print STDERR \$c }" "$1" "$2" "$lf" 2>&1 >/dev/null) \
         || die "could not repoint links in $lf"
+      case "$hits" in ''|*[!0-9]*) hits=0 ;; esac
+      link_count=$((link_count + hits))
     done <<EOF
 $link_files
 EOF
@@ -248,7 +267,26 @@ if [ "$dry_run" = 1 ]; then
     printf '  road: the obsidian CLI (Obsidian is running), which repoints inbound links itself\n'
   else
     printf '  road: mv, plus a repoint pass here (Obsidian is not running%s)\n' "$( [ "$no_obsidian" = 1 ] && printf ', --no-obsidian' )"
-    printf '  inbound link occurrences that would be repointed: %s\n' "$(grep -r -o -F "[[${old_base%.md}" "$VAULT_PATH" --include='*.md' 2>/dev/null | grep -c . || echo 0)"
+    # Counted the same way the real pass counts: the gated pattern, so a name that is a strict prefix
+    # of another entry's name is not counted as something that would be rewritten.
+    would_files=$(grep -rl -F "[[${old_base%.md}" "$VAULT_PATH" --include='*.md' 2>/dev/null || true)
+    would_count=0
+    if [ -n "$would_files" ]; then
+      while IFS= read -r wf; do
+        [ -n "$wf" ] || continue
+        wh=$(perl -0777 -ne "BEGIN { \$o = quotemeta(\$ARGV[0]); shift } \$c = () = /\\[\\[\$o(?=[\\]|#])/g; print \$c" "${old_base%.md}" "$wf" 2>/dev/null || printf 0)
+        case "$wh" in ''|*[!0-9]*) wh=0 ;; esac
+        would_count=$((would_count + wh))
+      done <<EOF
+$would_files
+EOF
+    fi
+    printf '  inbound link occurrences that would be repointed: %s\n' "$would_count"
+  fi
+  if [ "$pause_state" = "clear" ]; then
+    printf '  the pause is clear, so a real run would go ahead.\n'
+  else
+    printf '  %s, so a real run would do nothing at all.\n' "$pause_state"
   fi
   printf '  dry run: nothing touched\n'
   exit 0

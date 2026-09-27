@@ -8,10 +8,10 @@
 # input carries `session_id` but never the display name, so the session registry is the only route to
 # the current name, and the rename script does that lookup.
 #
-# The fast path is one grep. If some notebook entry already carries `session: "<current name>"`, the
-# filename and the key are in step and this exits silently. Only when no entry carries the current
-# name does it call the script, which is the one place that knows which forms may be renamed, which
-# entries are records, and how to rename through Obsidian.
+# The fast path is a grep for the name and a grep for the status. If a RUNNING entry already carries
+# `session: "<current name>"`, the filename and the key are in step and this exits silently. Only
+# when no running entry carries the current name does it call the script, which is the one place that
+# knows which forms may be renamed, which entries are records, and how to rename through Obsidian.
 #
 # It never blocks a prompt: every path exits 0, the script's output goes nowhere (its record is the
 # cross-session log line it writes), and a failure says so on stderr only, which does not enter the
@@ -54,10 +54,21 @@ for candidate in "$SESSIONS_DIR"/*.json; do
 done
 [ -n "$name" ] || exit 0
 
-# The fast path: an entry already carrying this name means nothing has drifted.
-if grep -rlF --include='*.md' "session: \"$name\"" "$NOTEBOOK_DIR" >/dev/null 2>&1; then
-  exit 0
-fi
+# The fast path: a RUNNING entry already carrying this name means nothing has drifted. The
+# session-status test is not optional — a name recurs across days, so an `ended` entry from an
+# earlier day carrying the same name would otherwise satisfy this and leave today's running entry
+# misnamed for good. Two cheap greps: the name narrows it to a file or two, the status decides.
+in_step=0
+while IFS= read -r hit; do
+  [ -n "$hit" ] || continue
+  if grep -qE '^[[:space:]]*session-status[[:space:]]*:[[:space:]]*"?running"?[[:space:]]*$' "$hit" 2>/dev/null; then
+    in_step=1
+    break
+  fi
+done <<EOF
+$(grep -rlF --include='*.md' "session: \"$name\"" "$NOTEBOOK_DIR" 2>/dev/null || true)
+EOF
+[ "$in_step" = 0 ] || exit 0
 
 [ -x "$RENAME" ] || exit 0
 if ! out=$("$RENAME" "$sid" 2>&1); then
