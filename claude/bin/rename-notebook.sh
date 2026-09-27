@@ -223,15 +223,44 @@ case "$old_base" in
     exit 0 ;;
 esac
 
-if [ "$old_base" = "$new_base" ]; then
-  say "$old_base already carries the session's name; nothing to do"
+# --- what needs doing: the filename, the keys, or neither ----------------------------------------
+# The filename and the keys are checked separately on purpose. A filename that already carries the
+# name while `session:` or `title:` still holds the old one is the fingerprint of an earlier run that
+# was interrupted between the rename and the key rewrites; a filename-only idempotency check would
+# declare that "nothing to do" for ever and the stale keys would never be reachable again.
+#
+# The `title:` test is deliberately narrow. A machine-written notebook title is the filename, so one
+# that no longer matches it is stale and is repaired; a title a person has written instead is theirs
+# and is left alone, whatever the filename says. Both the decision to act and the act itself use this
+# one predicate, so a title left alone can never make the script think there is work left to do —
+# which would have it repeat a no-op repair, and a log line with it, on every prompt for ever.
+title_is_stale() {  # $1 = the file to read
+  case "$(fm_value "$1" title)" in
+    "${new_base%.md}") return 1 ;;                  # already right
+    "" | "Agent session "*) return 0 ;;             # missing, or a machine title that has drifted
+    *) return 1 ;;                                  # a person's own words
+  esac
+}
+
+needs_rename=0
+[ "$old_base" = "$new_base" ] || needs_rename=1
+needs_keys=0
+[ "$(fm_value "$entry" session)" = "$current_name" ] || needs_keys=1
+if title_is_stale "$entry"; then needs_keys=1; fi
+
+if [ "$needs_rename" = 0 ] && [ "$needs_keys" = 0 ]; then
+  say "$old_base already carries the session's name, and its keys agree; nothing to do"
   exit 0
 fi
 
 new_path="$(dirname "$entry")/$new_base"
-[ ! -e "$new_path" ] || die "refused: $new_path already exists; two entries would collide"
-
-printf 'rename: %s\n    to: %s\n  session %s -> %s (sessionId %s)\n' "$old_base" "$new_base" "$(fm_value "$entry" session)" "$current_name" "$session"
+if [ "$needs_rename" = 1 ]; then
+  [ ! -e "$new_path" ] || die "refused: $new_path already exists; two entries would collide"
+  printf 'rename: %s\n    to: %s\n  session %s -> %s (sessionId %s)\n' "$old_base" "$new_base" "$(fm_value "$entry" session)" "$current_name" "$session"
+else
+  new_path="$entry"
+  printf 'repair: %s keeps its name, but its keys are stale — the mark of an interrupted earlier run\n  session %s -> %s (sessionId %s)\n' "$old_base" "$(fm_value "$entry" session)" "$current_name" "$session"
+fi
 
 # --- the two rename roads ------------------------------------------------------------------------
 obsidian_running=0
@@ -263,7 +292,9 @@ EOF
 }
 
 if [ "$dry_run" = 1 ]; then
-  if [ "$obsidian_running" = 1 ]; then
+  if [ "$needs_rename" = 0 ]; then
+    printf '  road: none — only the keys would be rewritten, in place\n'
+  elif [ "$obsidian_running" = 1 ]; then
     printf '  road: the obsidian CLI (Obsidian is running), which repoints inbound links itself\n'
   else
     printf '  road: mv, plus a repoint pass here (Obsidian is not running%s)\n' "$( [ "$no_obsidian" = 1 ] && printf ', --no-obsidian' )"
@@ -292,42 +323,73 @@ EOF
   exit 0
 fi
 
-renamed_by=""
+renamed_by="nothing: the filename was already right, only its keys were stale"
 links_repointed=""
-if [ "$obsidian_running" = 1 ]; then
-  command -v obsidian >/dev/null || die "Obsidian is running but the obsidian CLI is not on PATH"
-  # The CLI follows the most recently focused window, so the vault is pinned AND its path asserted,
-  # from a neutral working directory.
-  seen_path=$(cd / && obsidian "vault=$VAULT_NAME" vault info=path 2>/dev/null | head -n 1 | tr -d '\r') || seen_path=""
-  [ "$seen_path" = "$VAULT_PATH" ] || die "refused: the obsidian CLI answers for '$seen_path', not '$VAULT_PATH'; nothing was touched"
-  out=$(cd / && obsidian "vault=$VAULT_NAME" rename "path=$(vault_rel "$entry")" "name=${new_base%.md}" 2>&1) || die "the obsidian CLI rename failed: $out"
-  [ -f "$new_path" ] || die "the obsidian CLI reported '$out' but $new_base is not on disk; nothing else was changed"
-  renamed_by="the obsidian CLI, which repointed inbound links itself"
-else
-  mv "$entry" "$new_path" || die "mv failed; nothing else was changed"
-  links_repointed=$(repoint_links "${old_base%.md}" "${new_base%.md}")
-  renamed_by="mv, with $links_repointed inbound link occurrence(s) repointed by this script"
+repoint_failed=""
+if [ "$needs_rename" = 1 ]; then
+  if [ "$obsidian_running" = 1 ]; then
+    command -v obsidian >/dev/null || die "Obsidian is running but the obsidian CLI is not on PATH"
+    # The CLI follows the most recently focused window, so the vault is pinned AND its path asserted,
+    # from a neutral working directory.
+    seen_path=$(cd / && obsidian "vault=$VAULT_NAME" vault info=path 2>/dev/null | head -n 1 | tr -d '\r') || seen_path=""
+    [ "$seen_path" = "$VAULT_PATH" ] || die "refused: the obsidian CLI answers for '$seen_path', not '$VAULT_PATH'; nothing was touched"
+    out=$(cd / && obsidian "vault=$VAULT_NAME" rename "path=$(vault_rel "$entry")" "name=${new_base%.md}" 2>&1) || die "the obsidian CLI rename failed: $out"
+    [ -f "$new_path" ] || die "the obsidian CLI reported '$out' but $new_base is not on disk; nothing else was changed"
+    renamed_by="the obsidian CLI, which repointed inbound links itself"
+  else
+    # -n, because the existence check above and this move are not one act: another writer could have
+    # created the destination in between, and a plain mv would overwrite it without a word. With -n a
+    # losing race leaves both files alone, which the check afterwards turns into a refusal.
+    mv -n "$entry" "$new_path" || die "mv failed; nothing else was changed"
+    if [ -e "$entry" ] || [ ! -f "$new_path" ]; then
+      die "refused: $new_base appeared while this was working, so mv -n moved nothing; both files are as they were"
+    fi
+    # A failure here must NOT abort before the keys are rewritten: the file has already moved, and a
+    # half-done entry that no later run can see is worse than unrepointed links, which a person can fix.
+    links_repointed=$(repoint_links "${old_base%.md}" "${new_base%.md}") || repoint_failed=1
+    if [ -n "$repoint_failed" ]; then
+      renamed_by="mv; the inbound-link repoint pass FAILED and those links still name $old_base"
+    else
+      renamed_by="mv, with $links_repointed inbound link occurrence(s) repointed by this script"
+    fi
+  fi
 fi
 
 # --- the keys inside the entry --------------------------------------------------------------------
+# Always, whether or not the filename moved just now: this is the only path that can repair the keys
+# of an entry whose earlier rename was interrupted.
 entry_session=$(fm_value "$new_path" session)
 if [ "$entry_session" != "$current_name" ]; then
   perl -0777 -pi -e 'BEGIN { $n = $ARGV[0]; shift } s/^(session[ \t]*:[ \t]*).*$/$1"$n"/m' "$current_name" "$new_path" \
-    || die "the file is renamed but its session: key could not be rewritten; fix it by hand"
+    || die "the file is at $new_base but its session: key could not be rewritten; fix it by hand"
 fi
-entry_title=$(fm_value "$new_path" title)
-if [ "$entry_title" = "${old_base%.md}" ]; then
+if title_is_stale "$new_path"; then
   perl -0777 -pi -e 'BEGIN { $n = $ARGV[0]; shift } s/^(title[ \t]*:[ \t]*).*$/$1$n/m' "${new_base%.md}" "$new_path" \
-    || die "the file is renamed but its title: key could not be rewritten; fix it by hand"
+    || die "the file is at $new_base but its title: key could not be rewritten; fix it by hand"
 fi
 
 # --- the record -----------------------------------------------------------------------------------
 stamp=$(date '+%Y-%m-%dT%H:%M')
+if [ "$needs_rename" = 1 ]; then
+  headline="notebook entry renamed to match the session's name"
+  body="Renamed \`$old_base\` to \`$new_base\` by \`rename-notebook.sh\` (sessionId $session): $renamed_by."
+else
+  headline="notebook entry's keys repaired after an interrupted rename"
+  body="\`$old_base\` already carried the session's name while its keys did not, which is what an interrupted earlier rename leaves behind; \`rename-notebook.sh\` (sessionId $session) rewrote the keys and moved no file."
+fi
 cat <<EOF >> "$log"
 
-## $stamp · $current_name — notebook entry renamed to match the session's name
+## $stamp · $current_name — $headline
 
-Renamed \`$old_base\` to \`$new_base\` by \`rename-notebook.sh\` (sessionId $session): $renamed_by. The entry's \`session:\` now reads \`$current_name\`. Nothing else in the entry was changed, and no \`ended\` entry was touched.
+$body The entry's \`session:\` now reads \`$current_name\`. Nothing else in the entry was changed, and no \`ended\` entry was touched.
 EOF
 
-printf 'done: %s is now %s; %s\n' "$old_base" "$new_base" "$renamed_by"
+if [ -n "$repoint_failed" ]; then
+  printf 'done with a failure: %s is now %s and its keys are right, but the inbound-link repoint pass failed and those links still name %s; repoint them by hand\n' "$old_base" "$new_base" "${old_base%.md}" >&2
+  exit 2
+fi
+if [ "$needs_rename" = 1 ]; then
+  printf 'done: %s is now %s; %s\n' "$old_base" "$new_base" "$renamed_by"
+else
+  printf 'done: %s keeps its name; its stale keys are repaired\n' "$old_base"
+fi
