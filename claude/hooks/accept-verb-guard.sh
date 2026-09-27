@@ -176,18 +176,62 @@ case "$tool_l" in
     esac ;;
 esac
 
+# WHICH MATCHER THIS CALL CAME THROUGH, and it decides everything below. THE GENERALISATION: a tool whose
+# payload IS a command line is judged as one; every other tool's payload is DATA handed to that tool and
+# is never read as a command line. On `mcp__vault-mcp__.*` that means the verdict comes from the TOOL NAME
+# (road 1 above) — `obsidian_write_note` whose body documents `obsidian command id=…` or an advanced-uri
+# is a note being written and nothing else. Reading an MCP payload as shell text refused exactly the work
+# this fleet does, documenting this machinery in the vault, which is how the rule was found.
+#
+# ONE TOOL TODAY HAS A PAYLOAD THAT IS A COMMAND LINE: `obsidian_cli` (packages/host/src/mcp/tools-cli.ts,
+# "Run an official Obsidian CLI command"), taking a `command` word plus `params`. Refusing it by name would
+# refuse `append`, `help` and `theme:set` with it, so its `command` word is read against the same opaque
+# set, and within the eval case only `params.code`. Matched by EXACT tool name, never by pattern, and NO
+# other field is read — `params.content` above all, or the note-body failure would be rebuilt inside the
+# exception. A new tool of this kind joins this list the same way: a header line and a ruling, not a patch.
+#
+# THE LIMIT ON THAT EXCEPTION, plainly: `obsidian_cli` is not exposed to this fleet's sessions, so its
+# cases are synthetic stdin payloads and this guard has never seen a live call of it.
+#
+# WHAT WAS CHECKED IN THE SUITE'S SOURCE, so the name list is not a guess, and what was not. All 18
+# `packages/host/src/mcp/tools-*.ts` files plus `external-tools.ts` were pattern-checked for
+# `executeCommandById`, `executeChoice`, `quickAddApi` and Templater, and every matching site in the five
+# files that matched was read. Only `obsidian_run_command` (tools-complementary.ts:292) invokes an
+# ARBITRARY payload-supplied id. `obsidian_periodic_note` (tools-nav.ts:359) builds its id from an enum,
+# `periodic-notes:open-${granularity}-note`, and tools-nav.ts:385 uses a literal id, so neither is a
+# payload-supplied road and NEITHER JOINS THE LIST — written here so a later reader does not widen it by
+# reflex. The Templater tool (tools-integrations.ts:182) takes a template PATH rather than an id, and its
+# handler scans that template pre-exec and fails closed on an acceptance fence, a `<% %>` tag, a `{{ }}`
+# field or an unreadable template: checked and excluded. The limit: the files were pattern-checked and the
+# matches read, not every handler end to end.
+if [ "$tool_l" != "bash" ]; then
+  # the tool's own name is the last segment of `mcp__<server>__<tool>`
+  tool_leaf=${tool_l##*__}
+  if [ "$tool_leaf" = "obsidian_cli" ]; then
+    cli_cmd=$(printf '%s' "$input" | jq -r '(.tool_input // {}) | (.command // "") | tostring' 2>/dev/null)       || refuse "the tool input could not be examined"
+    cli_cmd=$(printf '%s' "$cli_cmd" | tr '[:upper:]' '[:lower:]')
+    case "$cli_cmd" in
+      command|quickadd|quickadd:run|quickadd:run-template|quickadd:run-template-from-folder)
+        refuse "the tool $tool is given the obsidian CLI command word \`$cli_cmd\`, which runs an Obsidian command or a QuickAdd choice" ;;
+      eval)
+        cli_code=$(printf '%s' "$input" | jq -r '(.tool_input // {}) | (.params // {}) | (.code // "") | tostring' 2>/dev/null)           || refuse "the tool input could not be examined"
+        cli_code=$(printf '%s' "$cli_code" | tr '[:upper:]' '[:lower:]')
+        case "$cli_code" in
+          *executecommandbyid*|*executechoice*|*quickaddapi*)
+            refuse "the tool $tool is given an obsidian CLI eval whose code invokes a command or a choice" ;;
+        esac ;;
+    esac
+  fi
+  exit 0
+fi
+
 # The payload as its decoded scalar values, joined by NEWLINES so the line structure survives — that is
 # what lets a heredoc body and a comment be bounded. `description` is dropped for the Bash tool only: it
 # is the harness's own note about the call, nothing executes it, and dropping it everywhere would delete
 # content on tools where that field is content.
 scratch=$(mktemp -t accept-verb-guard) || refuse "no scratch file could be made, so this call cannot be read"
-if [ "$tool_l" = "bash" ]; then
-  printf '%s' "$input" | jq -r '(.tool_input // {}) | del(.description) | [.. | scalars | tostring] | join("\n")' > "$scratch" \
-    || refuse "the tool input could not be normalised"
-else
-  printf '%s' "$input" | jq -r '(.tool_input // {}) | [.. | scalars | tostring] | join("\n")' > "$scratch" \
-    || refuse "the tool input could not be normalised"
-fi
+printf '%s' "$input" | jq -r '(.tool_input // {}) | del(.description) | [.. | scalars | tostring] | join("\n")' > "$scratch" \
+  || refuse "the tool input could not be normalised"
 
 found=$(perl -e '
 # The inversion matcher. Answers ONE question from structure: does this payload INVOKE an Obsidian
