@@ -34,10 +34,18 @@
 #      by EXACT tool name, whose payload IS a command line: its `command` word is read against the opaque
 #      set, and within the eval case only `params.code`. No other field is read — `params.content` above
 #      all, or the note-body failure below would be rebuilt inside the exception.
-#    * `mcp__claude-in-chrome__navigate`, by exact name, whose payload is a URL to open: refused when that
-#      URL is an `obsidian://` carrying a `commandid`. A browser tool that opens a URL invokes a command as
-#      surely as a shell does.
-#    Every other MCP tool's payload is DATA handed to that tool, never a command line. `obsidian_write_note`
+#    * `mcp__claude-in-chrome__navigate`, by exact name, whose payload is a URL to open: refused when the URL
+#      IS an `obsidian://` one (scheme position, not merely containing one) carrying a `commandid` OR a
+#      `commandname` — the advanced-uri plugin runs a command by display NAME too, and a verb is a named
+#      thing, so that is the spelling reached for first. A browser tool that opens a URL invokes a command as
+#      surely as a shell does. By exact tool name rather than the claude-in-chrome family, because a hook on
+#      every browser call is latency for nothing.
+#    * `obsidian_call_tool`, a DISPATCHER (tools-code-mode.ts:177) whose payload names another tool and
+#      carries its arguments — so its payload is a call, and the same rule is applied ONE LEVEL DOWN to the
+#      `name` it gives. One level only: a dispatcher naming a dispatcher is refused rather than followed,
+#      and a target that is absent or unreadable is refused, because a call whose target cannot be read must
+#      not run. It is not refused wholesale, which would refuse all 65 tools it routes to.
+#    Every OTHER MCP tool's payload is DATA handed to that tool, never a command line. `obsidian_write_note`
 #    whose BODY documents `obsidian command id=…` is a note being written; reading it as shell text refused
 #    exactly the work this fleet does, documenting this machinery in the vault, which is how the rule was
 #    found. The claim a previous header made — that the unregistered tools "cannot invoke anything" — was
@@ -50,10 +58,21 @@
 #      `||` `|` `&` newline `(` or backtick — with leading `VAR=value` assignments skipped. Quoted text
 #      inside a stage is an ARGUMENT and never a command, which is what lets `grep -rn "obsidian quickadd"`
 #      pass with no exemption for grep: that `obsidian` is a pattern. The positive test replaced a list of
-#      "runners", and the list is gone.
+#      "runners" — but it is NOT coverage, and the second review was right to call the old sentence out:
+#      it inspects a stage's FIRST token only, so any wrapper word in front of the binary defeats it
+#      (`timeout 30 obsidian command id=x`, and `env`, `sudo`, `nohup`, `exec`, `command`, `time`,
+#      `xargs -I{}`), as do same-line shell keywords (`{ … }`, `if … then`, `while`, `!`). Multi-line forms
+#      ARE caught. That whole class is in the boundary paragraph, because enumerating wrappers is what the
+#      cut removed and re-adding one word would re-open the false-refusal class it cost.
 #    * THE BINARY is decided by BASENAME beginning `obsidian`, so `/usr/local/bin/obsidian`, `./obsidian`,
-#      `/Applications/Obsidian.app/Contents/MacOS/obsidian-cli` and the real binary name `obsidian-cli` all
-#      match. The previous version keyed on the literal token `obsidian` and missed every one of them.
+#      `/Applications/Obsidian.app/Contents/MacOS/obsidian-cli`, a QUOTED path, one carrying a
+#      backslash-escaped space, and the real binary name `obsidian-cli` all match. Two histories worth
+#      keeping: the version before this keyed on the literal token `obsidian` and missed every path form;
+#      and then the FAST PATH in front of the parser disagreed with it, exiting 0 on a quoted path and on
+#      any `;` `&` `|` inside an earlier token, so the worked examples above were true of the parser and
+#      false of the hook. The fast path is now TWO INDEPENDENT TESTS with no chain between them — is the
+#      word `obsidian` present, and is an opaque word present — which cannot break that way and errs
+#      toward running the parser.
 #    * THE COMMAND WORD is the first bare argument, skipping `key=value` pairs, flags and a bare `--`. The
 #      opaque set is `command`, `eval`, `quickadd`, `quickadd:run`, `quickadd:run-template`,
 #      `quickadd:run-template-from-folder` — the first five from the suite's own
@@ -116,16 +135,38 @@
 # bypass. The order is the fast path first at any size, then: over the cap with no candidate road, pass;
 # over the cap WITH one, refuse unread and say the call must be split.
 #
-# THE CAP IS DERIVED, NOT CHOSEN, and the arithmetic is here so it can be redone when either number
-# changes: worst measured rate for the guarded path 1.2 s/MB (linear, after the second quadratic was
-# hoisted), plus the fast path's own 0.07 s/MB; half the declared 10 s timeout is 5 s; 5 / 1.27 = 3.9;
-# round down to 4 MB, which costs about 4.8 s. TWICE this file has been quadratic — the region builder, and
-# then a per-hit rescan of the region list — and the second time it was a FAIL-OPEN: 396 KB took 9.74 s
-# against a 10 s timeout, and 1 MB took 72 s. Both are now single passes with binary search, 1 MB answering
-# in 1.19 s. The battery has a case shaped like that failure specifically.
+# THIS FILE HAS BEEN QUADRATIC FOUR TIMES, and that number is in the header on purpose. The quote-region
+# builder searched for both quote characters on every iteration. A per-hit rescan of the region list in the
+# road scan took 396 KB to 9.74 s and 1 MB to 72 s. The heredoc-opener liveness test walked the region list
+# per opener: 200 KB took 9.58 s and 800 KB took 151 s. And the leading-assignment stripper copied the rest
+# of the stage per assignment: 1.76 MB took 10.26 s and 4 MB took 52.68 s. Every one was a FAIL-OPEN, because
+# a hook the harness kills reads as allow, and every one passed every verdict case while it was broken. All
+# four are single passes now — binary search for a position, `\G` matching instead of copying — and the
+# worst shape that took 151 s answers in 0.73 s.
+#
+# SO THE TEST FOR THIS IS A PROPERTY, not a shape. `claude/tests/accept-verb-guard/property-timing.py` runs
+# every payload shape at 1x, 2x and 4x size and fails if the time grows more than 6x for a 4x increase
+# (linear is 4x, quadratic is 16x), and fails if a verdict CHANGES with size. It earned its place twice
+# before it was committed: it caught two of the four quadratics on the build it was written against, and
+# then it caught a bug in the fix itself — one `(?:…)+` repetition over 50,000 assignments hit perl's
+# repetition limit and silently matched nothing, so the same payload refused at 200 KB and ALLOWED at
+# 400 KB. No verdict case would have seen that.
+#
+# THE CAP IS DERIVED, NOT CHOSEN, and the arithmetic is here so it can be redone when either number changes.
+# Worst measured rate after the fixes, taken pessimistically at 1 MB where fixed process start-up inflates
+# the per-MB figure: 0.94 s/MB. Half the declared 10 s timeout is 5 s, and 5 / 0.94 = 5.3 MB. The cap STAYS
+# AT 4 MB rather than widening to 5: the arithmetic permits 5, nothing is gained by widening the window in
+# which a payload goes unread, and a fail-closed bound is not widened without a reason. At 4 MB the worst
+# shape costs about 3.8 s.
 #
 # WHAT THIS GUARD DOES NOT STOP, named rather than implied, and all of it following from the honest claim
-# above: a shell by path or with an option before `-c`; an interpreter shelling out to the CLI or posting
+# above: A WRAPPER WORD OR A SHELL KEYWORD in front of the binary on the same line — `timeout 30 obsidian
+# command id=x`, and `env`, `sudo`, `nohup`, `exec`, `command`, `time`, `xargs -I{}`, `{ … }`, `if … then`,
+# `while`, `!` — because the road test reads a stage's first token, and enumerating wrappers is exactly what
+# the cut removed (multi-line `if … then` on its own line IS caught); an `eval` whose call is assembled so
+# the api name and its parenthesis are not adjacent (`"executeCommandById"'('`), or reached by bracket
+# notation, or held in a variable, since the test is a call shape and not a JS parser; a dispatcher naming a
+# dispatcher; a shell by path or with an option before `-c`; an interpreter shelling out to the CLI or posting
 # to the Local REST API; `tmux send-keys` typing into a pane; a remote shell; a binary name assembled at
 # runtime or held in a variable; `$(which obsidian)`; an `obsidian://` URI opened from a shell — because
 # the only thing that ever distinguished `open "<uri>"` from a session writing that URI into a note was a
@@ -199,16 +240,61 @@ if [ "$tool_l" != "bash" ]; then
     obsidian_cli)
       cli_cmd=$(printf '%s' "$input" | jq -r '(.tool_input // {}) | (.command // "") | tostring' 2>/dev/null) \
         || refuse "the tool input could not be examined"
-      cli_cmd=$(printf '%s' "$cli_cmd" | tr '[:upper:]' '[:lower:]')
+      # trimmed as well as lowercased: `{"command":" command "}` slipped past the case list untrimmed
+      cli_cmd=$(printf '%s' "$cli_cmd" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
       case "$cli_cmd" in
         command|quickadd|quickadd:run|quickadd:run-template|quickadd:run-template-from-folder)
           refuse "the tool $tool is given the obsidian CLI command word \`$cli_cmd\`, which runs an Obsidian command or a QuickAdd choice" ;;
         eval)
-          cli_code=$(printf '%s' "$input" | jq -r '(.tool_input // {}) | (.params // {}) | (.code // "") | tostring' 2>/dev/null) \
+          # EVERY params value, not only `params.code`. The schema declares no `code` key at all — `params`
+          # is a record of arbitrary keys — so a claim resting on that name rested on nothing, and an eval
+          # body under any other key passed. When the command word is `eval` the params ARE the command
+          # line, which is why reading them all stays inside the rule; for every other command word only
+          # the command-naming field is read and `params.content` is never touched.
+          cli_code=$(printf '%s' "$input" | jq -r '(.tool_input // {}) | (.params // {}) | [.. | scalars | tostring] | join(" ")' 2>/dev/null) \
             || refuse "the tool input could not be examined"
           cli_code=$(printf '%s' "$cli_code" | tr '[:upper:]' '[:lower:]' | tr -d ' ')
           case "$cli_code" in
             *executecommandbyid\(*|*executechoice\(*) refuse "the tool $tool is given an obsidian CLI eval whose code CALLS a command or a choice" ;;
+          esac ;;
+      esac ;;
+    obsidian_call_tool)
+      # A DISPATCHER: its payload names another tool and carries that tool's arguments, so the payload IS a
+      # call. It is not put on the refused-by-name list wholesale, because it routes to all 65 tools and
+      # that would refuse every one of them the day code mode is on. Instead the same rule is applied ONE
+      # LEVEL DOWN: the `name` field is read and judged as a tool name would be. One level only — a
+      # dispatcher naming a dispatcher is a named boundary, not a recursion. A name that is absent,
+      # unreadable or unresolvable REFUSES, which is this guard doctrine: a call whose target cannot be
+      # read must not run. (Registered only in code mode, which is off by default, so no risk today and a
+      # certainty the day a session connects that way.)
+      inner=$(printf '%s' "$input" | jq -r '(.tool_input // {}) | (.name // .tool // "") | tostring' 2>/dev/null) \
+        || refuse "the dispatched tool name could not be read"
+      inner=$(printf '%s' "$inner" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
+      [ -n "$inner" ] || refuse "the tool $tool dispatches another tool but names none, and a call whose target cannot be read must not run"
+      case "$inner" in
+        *run_command*|*runcommand*|*execute_command*|*executecommand*)
+          refuse "the tool $tool dispatches \`$inner\`, which exists to run an Obsidian command" ;;
+        *execute*)
+          case "$inner" in
+            *obsidian*|*vault*) refuse "the tool $tool dispatches \`$inner\`, which runs something in the vault" ;;
+          esac ;;
+        obsidian_call_tool)
+          refuse "the tool $tool dispatches itself, and this guard reads one level only" ;;
+        obsidian_cli)
+          inner_cmd=$(printf '%s' "$input" | jq -r '(.tool_input // {}) | (.args // .arguments // {}) | (.command // "") | tostring' 2>/dev/null) \
+            || refuse "the dispatched command word could not be read"
+          inner_cmd=$(printf '%s' "$inner_cmd" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
+          case "$inner_cmd" in
+            command|quickadd|quickadd:run|quickadd:run-template|quickadd:run-template-from-folder)
+              refuse "the tool $tool dispatches obsidian_cli with the command word \`$inner_cmd\`, which runs an Obsidian command or a QuickAdd choice" ;;
+            eval)
+              inner_code=$(printf '%s' "$input" | jq -r '(.tool_input // {}) | (.args // .arguments // {}) | (.params // {}) | [.. | scalars | tostring] | join(" ")' 2>/dev/null) \
+                || refuse "the dispatched eval body could not be read"
+              inner_code=$(printf '%s' "$inner_code" | tr '[:upper:]' '[:lower:]' | tr -d ' ')
+              case "$inner_code" in
+                *executecommandbyid\(*|*executechoice\(*)
+                  refuse "the tool $tool dispatches an obsidian_cli eval whose code CALLS a command or a choice" ;;
+              esac ;;
           esac ;;
       esac ;;
     navigate)
@@ -222,9 +308,13 @@ if [ "$tool_l" != "bash" ]; then
       # `https://help.obsidian.md/uri#obsidian://advanced-uri?commandid=x`, and an https page carrying the
       # uri as a `?to=` parameter. Both load an https page. Each string in the payload is tested on its
       # own, so a second field holding the uri is still caught.
+      # `commandname=` is the SAME road: the advanced-uri plugin runs a command by its display NAME, and a
+      # verb is a named thing, so that is the spelling reached for first. (The plugin is not installed in
+      # ~/obsidian today, only in a test vault — which is a reason to watch the road, not to ignore it.)
       for one in $nav; do
         case "$one" in
-          obsidian://*commandid*) refuse "the tool $tool is being asked to open an obsidian:// uri carrying a commandid, which runs an Obsidian command" ;;
+          obsidian://*commandid*|obsidian://*commandname*)
+            refuse "the tool $tool is being asked to open an obsidian:// uri that names a command, which runs it" ;;
         esac
       done ;;
   esac
@@ -251,13 +341,27 @@ my $DQ = chr(34);
 my $file = shift; my $cap = shift; $cap = 0 unless defined $cap;
 open my $fh, "<", $file or exit 3; local $/; my $s = <$fh>;
 exit 0 unless defined $s && length $s;
-$s = lc $s;
+# CRLF is normalised so that a heredoc delimiter written on a CRLF line matches its terminator: bash sees
+# the carriage return on BOTH, and stripping it from both keeps the guard reading what the shell reads.
+$s =~ s/\r\n/\n/g;
+# NOT lowercased here. A heredoc terminator is case-SENSITIVE to the shell, and lowercasing the payload
+# first made a body line `eof` end a `<<EOF` body early, so the rest of the body was read as code and a
+# documented call inside it was refused. The road tests lowercase their own copy instead.
 
 # THE FAST PATH: is there anything here shaped like the road at all? Keyed on the grammar — a token whose
 # basename begins with `obsidian` followed by an opaque command word — never on the word "obsidian",
 # because this fleet writes `~/obsidian/...` in nearly every payload. It fails TOWARD the slow path.
 my $OPAQUE_RE = qr{command|eval|quickadd(?::run(?:-template(?:-from-folder)?)?)?};
-exit 0 unless $s =~ m{obsidian[a-z0-9_.-]*\s+(?:[^\s;&|]*\s+)*?(?:$OPAQUE_RE)\b};
+# THE FAST PATH IS TWO INDEPENDENT TESTS WITH NO CHAIN BETWEEN THEM, which is what "fail toward the parser"
+# has to mean. The previous version matched the binary and the command word in ONE expression with a
+# repetition between them, and that chain broke on three ordinary things — a QUOTED path (`.../obsidian`
+# in quotes), any `;` `&` or `|` inside an earlier token, and more than about 65,000 tokens in between,
+# where perl silently gives up on the repetition. Each break exited 0 BEFORE the parser, which would have
+# refused all three. Two separate questions cannot break that way: is the word `obsidian` here at all, and
+# is an opaque command word here as a whole word. Both true, and the parser decides.
+my $lc = lc $s;
+exit 0 unless index($lc, "obsidian") >= 0;
+exit 0 unless $lc =~ m{(?:^|[^a-z0-9:_-])(?:$OPAQUE_RE)(?![a-z0-9_-])};
 
 # THE CAP, which REFUSES rather than allows: a payload this size cannot be read inside the declared
 # timeout, and a hook the harness kills reads as allow. Derived, not chosen — see the header.
@@ -279,7 +383,15 @@ sub regions {
     if ($k > 0 && substr($t, $k - 1, 1) eq "\\") { $i = $k + 1; next }
     my $q = substr($t, $k, 1);
     my $close;
-    if ($q eq $SQ) { $close = index($t, $SQ, $k + 1); $close = $n if $close < 0 }
+    # A dollar-quoted run is ANSI-C quoting, where a backslash escapes the closing quote. Treating it as a
+    # plain single-quoted run ended it early on an escaped quote inside one, which shifted every quote pair
+    # after it and made the rest of the payload read as quoted text.
+    if ($q eq $SQ && $k > 0 && substr($t, $k - 1, 1) eq "\$") {
+      my $j = $k + 1;
+      while ($j < $n) { my $d = substr($t, $j, 1); last if $d eq $SQ; $j += ($d eq "\\") ? 2 : 1 }
+      $close = ($j > $n) ? $n : $j;
+    }
+    elsif ($q eq $SQ) { $close = index($t, $SQ, $k + 1); $close = $n if $close < 0 }
     else {
       my $j = $k + 1;
       while ($j < $n) { my $d = substr($t, $j, 1); last if $d eq $DQ; $j += ($d eq "\\") ? 2 : 1 }
@@ -305,9 +417,19 @@ sub code_only {
   while ($i <= $#lines) {
     my $line = $lines[$i];
     my @reg = regions($line);
+    # BINARY SEARCH, not a walk. A walk here cost 9.58 s at 200 KB and 151 s at 800 KB on a line carrying
+    # many heredoc openers, because each opener asked the whole region list again — the FOURTH time a
+    # per-position question in this file was answered by walking a list, and the second time it was a
+    # fail-open past the declared timeout.
     my $live = sub {
       my $p = shift;
-      for my $r (@reg) { next if $p > $r->[1]; return 0 if $p >= $r->[0]; return 1 }
+      my ($lo, $hi) = (0, $#reg);
+      while ($lo <= $hi) {
+        my $mid = int(($lo + $hi) / 2);
+        if    ($p < $reg[$mid][0]) { $hi = $mid - 1 }
+        elsif ($p > $reg[$mid][1]) { $lo = $mid + 1 }
+        else                       { return 0 }
+      }
       return 1;
     };
     my $cut = -1;
@@ -328,10 +450,17 @@ sub code_only {
     # (`<<EOF-1`, which the previous version read as `eof` so the terminator never matched and the rest of
     # the payload was swallowed as body).
     my @delims;
-    while ($code =~ /<<(-?)\s*(?:\\([a-z0-9_.-]+)|$DQ([^$DQ]*)$DQ|$SQ([^$SQ]*)$SQ|([a-z0-9_.-]+))/g) {
+    # The delimiter word may carry anything a shell word may carry — `<<EOF!` is a legal delimiter, and the
+    # narrower class read it as `EOF` so the terminator never matched and the rest of the payload was
+    # swallowed as body. It may also be quoted or backslash-escaped.
+    while ($code =~ /<<(-?)\s*(?:\\([^\s;&|<>()]+)|$DQ([^$DQ]*)$DQ|$SQ([^$SQ]*)$SQ|([^\s;&|<>()`]+))/gi) {
       my $at = pos($code) - length($&);
       next unless $live->($at);
       next if substr($code, $at + 2, 1) eq "<";
+      # An ARITHMETIC left shift is not a heredoc: in `$((1<<2))` the `<<` follows a digit, where a real
+      # heredoc redirection follows whitespace or a file descriptor. Reading it as an opener created a
+      # phantom body with delimiter `2` that swallowed every line after it, including a real call.
+      next if $at > 0 && substr($code, $at - 1, 1) =~ /[a-z0-9_)]/i;
       my $dash = $1;
       my $word = defined $2 ? $2 : defined $3 ? $3 : defined $4 ? $4 : $5;
       push @delims, { word => $word, dash => ($dash eq "-" ? 1 : 0) };
@@ -344,6 +473,7 @@ sub code_only {
         $i++;
         my $test = $cand;
         $test =~ s/^\s+// if $d->{dash};
+        # case-SENSITIVE, as a shell is: `eof` does not end a `<<EOF` body
         # NOT trimmed at the end: a shell does not strip trailing whitespace from a terminator, so `EOF `
         # is body and not the end of it. Trimming made the hook stricter than the shell, which refused a
         # body that was written correctly.
@@ -359,7 +489,7 @@ sub code_only {
 # `;` `&&` `||` `|` `&` newline `(` or backtick, and may carry leading VAR=value assignments. Quoted text
 # inside a stage is an ARGUMENT and never a command, which is what lets `grep -rn "obsidian quickadd" f`
 # pass without any exemption list: that `obsidian` is a pattern, not a command.
-my $code = code_only($s);
+my $code = lc code_only($s);
 my @stages;
 {
   my @reg = regions($code);
@@ -387,25 +517,37 @@ my @stages;
 }
 
 for my $stage (@stages) {
-  # leading whitespace and VAR=value assignments
-  my $t = $stage;
-  $t =~ s/^\s+//;
-  while ($t =~ s/^[a-z_][a-z0-9_]*=(?:$DQ[^$DQ]*$DQ|$SQ[^$SQ]*$SQ|\S*)\s+//) { }
-  # the command token, which may be a path; its BASENAME decides, so /usr/local/bin/obsidian, ./obsidian
-  # and the real binary name obsidian-cli all match, and none of them needed a list
-  next unless $t =~ s/^(\S+)\s+//;
+  # NOTHING IS COPIED PER TOKEN. Both loops below used `s///` on the remaining text, which copies the rest
+  # of the stage every time: one stage of leading `VAR=value` assignments cost 10.26 s at 1.76 MB — past
+  # the declared timeout, so a bypass — and 52.68 s at 4 MB, just under the old cap. `\G` matching walks
+  # the same string in place.
+  pos($stage) = 0;
+  $stage =~ /\G\s+/gc;
+  # every leading VAR=value assignment, one at a time but WITHOUT copying: `\G…/gc` advances the match
+  # position in place. Two wrong ways were tried first. `while ($t =~ s/^…//)` copied the rest of the stage
+  # per assignment, which cost 52 s at 4 MB. Then ONE match with a `(?:…)+` repetition, which hit perl
+  # repetition limit at about 50,000 assignments and silently matched nothing — so the same payload refused
+  # at 200 KB and ALLOWED at 400 KB. The property timing test caught that by noticing the verdict changed
+  # with the size, which no verdict case would have.
+  while ($stage =~ /\G[a-z_][a-z0-9_]*=(?:$DQ[^$DQ]*$DQ|$SQ[^$SQ]*$SQ|\S*)\s+/gc) { }
+  # the command token, which may be a path, and may carry backslash-escaped spaces (`/opt/my\ dir/obsidian`
+  # is one word to the shell; taking `\S+` truncated it before the basename). Its BASENAME decides, so
+  # /usr/local/bin/obsidian, ./obsidian, a quoted path and the real binary name obsidian-cli all match.
+  next unless $stage =~ /\G((?:[^\s\\]|\\.)+)\s+/gc;
   my $cmd = $1;
+  $cmd =~ s/^[$DQ$SQ]+//;
   $cmd =~ s{^.*/}{};
+  $cmd =~ s/^[$DQ$SQ]+//;
   next unless $cmd =~ /^obsidian/;
   # the first bare argument token, skipping key=value pairs, flags, and a bare --
   my $word = "";
-  while (length $t) {
-    $t =~ s/^\s+//;
-    last unless length $t;
-    if ($t =~ s/^--\s+//)                                      { next }
-    if ($t =~ s/^-[^\s]*\s*//)                                 { next }
-    if ($t =~ s/^[a-z_-]+=(?:$DQ[^$DQ]*$DQ|$SQ[^$SQ]*$SQ|\S*)\s*//) { next }
-    if ($t =~ /^([a-z0-9:_-]+)/)                               { $word = $1 }
+  while (pos($stage) < length $stage) {
+    $stage =~ /\G\s+/gc;
+    last if pos($stage) >= length $stage;
+    if ($stage =~ /\G--\s+/gc)                                          { next }
+    if ($stage =~ /\G-[^\s]*\s*/gc)                                     { next }
+    if ($stage =~ /\G[a-z_-]+=(?:$DQ[^$DQ]*$DQ|$SQ[^$SQ]*$SQ|\S*)\s*/gc) { next }
+    if ($stage =~ /\G([a-z0-9:_-]+)/gc)                                 { $word = $1 }
     last;
   }
   next unless length $word;
@@ -415,6 +557,7 @@ for my $stage (@stages) {
     # it is not refused for existing. What is refused is a CALL that invokes: the api name followed by an
     # open parenthesis. Testing the bare name refused code that merely MENTIONED it in a string or a
     # comment, which was the first version failure surviving inside the one place free text is still read.
+    pos($stage) = undef;
     next unless $stage =~ /(?:executecommandbyid|executechoice)\s*\(/
              || $stage =~ /quickaddapi\s*\.\s*[a-z]+\s*\(/;
     print "an obsidian CLI eval whose code CALLS a command or a choice";
