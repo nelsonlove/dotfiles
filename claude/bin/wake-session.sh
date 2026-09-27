@@ -74,6 +74,9 @@
 # What it refuses, and why:
 #   * A target at or above the caller's rank, and a `[C0]` target for every caller but the rear
 #     admiral: only Nelson or A0 wakes a captain, and the script cannot verify that it is Nelson.
+#   * `--all` from the accept verbs' write path (rank -2). That caller sits above every rank, so a survey
+#     would list the whole fleet and `--resume-stopped` would resume it; the verb needs one named session at
+#     a time, and a mass resume belongs to a rank that answers for it.
 #   * A target outside the caller's reporting line. The line is data: each session's notebook entry
 #     carries `reports-to`, the name of the session that dispatched it (or `Nelson` for a captain),
 #     and this script walks that chain up from the target, reading the most recent entry for each
@@ -216,6 +219,21 @@ command -v rank_of_name >/dev/null 2>&1 || die "the rank table at $FLEET_RANKS p
 
 by_rank=$(rank_of_caller "$by")
 [ "$by_rank" != 9 ] || die "--by must start with a rank code, bare or ship-coded ([C0], [C1], [C2], [L0], [L0-CC], [C2-OB] …), or the bare [A0], which carries no ship code; got '$by'"
+
+# THE WRITE PATH TELLS ONE SESSION AT A TIME. `human:nelson` is rank -2, which is above every rank in the
+# fleet, so without this line `--all` would list every session including the captains and the rear admiral,
+# and `--all --resume-stopped` would RESUME THEM ALL — from a `--by` string that nothing authenticates, in one
+# command, where the same string was refused outright before package 5 existed. That is not what the verb
+# needs: `notify-session.sh` addresses exactly the session a note names, or that ship's captain, one at a
+# time. The survey and the mass resume stay with the ranks, who answer for them.
+#
+# Found by the review of #63, which is the second time in this package that widening ONE gate for this caller
+# turned out to widen a road nobody was looking at. The lesson is written here rather than in a report: when a
+# rank is added below every existing one, every `-gt`, `-lt` and `!=` that mentions a rank is a site to read,
+# not just the one the feature needed.
+if [ "$all_mode" = 1 ] && [ "$by_rank" -lt -1 ]; then
+  die "refused: '$by' is the accept verbs' write path; it tells one session at a time, and the survey and the mass resume belong to the ranks who answer for them"
+fi
 
 # --- the notebook, which is where the reporting line lives ------------------------------------
 # One pass over the notebook builds the whole index: for every entry that names a `session:`, a line
