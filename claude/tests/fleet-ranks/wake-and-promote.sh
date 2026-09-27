@@ -9,7 +9,7 @@
 # HOW TO RUN IT. Dispatch one throwaway of your own, then pass its id:
 #
 #     cd /tmp
-#     claude --bg --agent lieutenant --name "[L0-FL] battery lieutenant" \
+#     claude --bg --agent lieutenant --name "[L0-FL] wake-and-promote battery target" \
 #            "[test artifact — safe to delete] Do nothing. Reply standing-by and stop."
 #     bash claude/tests/fleet-ranks/wake-and-promote.sh <id>
 #     claude stop <id>; claude rm <id>      # afterwards, and check the listing after
@@ -85,7 +85,7 @@ allowed() {  # allowed <label> -- cmd...   (the gate let it through; nothing was
 # which is what an A0 case needs, and every hop is a file this script wrote.
 mkdir -p "$NB/2026-09"
 mk() { printf -- '---\ntitle: %s\nsession: "%s"\nsession-status: %s\nreports-to: "%s"\n---\n\n[test artifact — safe to delete]\n' "$1" "$2" "$3" "$4" > "$NB/2026-09/$1.md"; }
-TARGET="[L0-FL] battery lieutenant"
+TARGET="[L0-FL] wake-and-promote battery target"
 HOP="[C1-CC] battery line hop"
 TOP="[C0-CC] battery line top"
 mk "Agent session 2026-09-27T0101" "$TARGET" ended "$HOP"
@@ -191,6 +191,30 @@ for bad in "[A0-CC] impostor" "[A0-] noship-empty" "[A0-CC-extra] weird" "[A0x] 
 done
 refused "promote: --name '[A0-CC] x' is refused (its code matches no --to)" -- \
   "$P" --session "$LT" --to lieutenant-commander --name "[A0-CC] x" --by "[A0] rear admiral" --why x --jobs-dir "$JOBSNULL" --log "$LOG" --dry-run
+
+printf -- '=== the leash on --jobs-dir (captain, 2026-09-27)\n'
+# BOTH WAYS, in both scripts. A temp path is accepted — every case above proves that, since they all pass one
+# — and a path outside /tmp or the system temp dir is refused with its own sentence. The refusal must name
+# the flag rather than fail later on a missing state.json, because a flag that silently ignores its argument
+# is worse than one that refuses it. `$HOME/.claude/jobs` is the real one, and it is the exact path a caller
+# would reach for to make this flag do something in a real run.
+refused_because "wake: --jobs-dir outside a temp dir is refused" "must be under /tmp" -- \
+  "$W" --session $LT --by "[A0] rear admiral" --why x --notebook-dir "$NB" --jobs-dir "$HOME/.claude/jobs" --log "$LOG" --dry-run
+refused_because "promote: --jobs-dir outside a temp dir is refused" "must be under /tmp" -- \
+  "$P" --session $LT --to lieutenant-commander --name "[C2-FL] x" --by "[A0] rear admiral" --why x --jobs-dir "$HOME/.claude/jobs" --log "$LOG" --dry-run
+refused_because "wake: --jobs-dir must exist" "directory that exists" -- \
+  "$W" --session $LT --by "[A0] rear admiral" --why x --notebook-dir "$NB" --jobs-dir "$TMP/no-such-jobs-dir" --log "$LOG" --dry-run
+# A SYMLINK IS RESOLVED BEFORE IT IS JUDGED, so a temp-looking path pointing at the real jobs dir is refused
+# too. Without `pwd -P` the case-glob would have passed it, and the leash would have been decoration.
+ln -s "$HOME/.claude/jobs" "$TMP/looks-like-temp" 2>/dev/null || true
+if [ -d "$HOME/.claude/jobs" ]; then
+  refused_because "wake: a temp symlink to the real jobs dir is refused" "must be under /tmp" -- \
+    "$W" --session $LT --by "[A0] rear admiral" --why x --notebook-dir "$NB" --jobs-dir "$TMP/looks-like-temp" --log "$LOG" --dry-run
+else
+  printf 'SKIP  a temp symlink to the real jobs dir is refused (there is no %s to point at)\n' "$HOME/.claude/jobs"
+fi
+allowed "and a real temp path is still accepted" -- \
+  "$W" --session $LT --by "[A0] rear admiral" --why x --notebook-dir "$NB" --jobs-dir "$JOBSNULL" --log "$LOG" --dry-run
 
 printf -- '=== the rank tables themselves\n'
 for pair in "A0:-1" "C0:0" "C1:1" "C2:2" "L0:3" "L1:3"; do

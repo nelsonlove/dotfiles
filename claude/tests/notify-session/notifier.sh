@@ -13,7 +13,7 @@
 # `claude/tests/fleet-ranks/wake-and-promote.sh` does, and never a live fleet id:
 #
 #     cd /tmp
-#     claude --bg --agent lieutenant --name "[L0-FL] battery lieutenant" \
+#     claude --bg --agent lieutenant --name "[L0-FL] notifier battery target" \
 #            "[test artifact — safe to delete] Do nothing. Reply standing-by and stop."
 #     bash claude/tests/notify-session/notifier.sh <id>
 #     claude stop <id>; claude rm <id>      # afterwards, and check the listing after

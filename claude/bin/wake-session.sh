@@ -51,7 +51,8 @@
 #   --log      the cross-session log to append the record to (default: the fleet log).
 #   --notebook-dir  where the agent notebook lives. For testing only.
 #   --jobs-dir  where Claude Code's job state lives, which is where a target's RANK is read from
-#              (`<id>/state.json`, key `template`, through the rank definitions). For testing only, and it
+#              (`<id>/state.json`, key `template`, through the rank definitions). For testing only, and
+#              REFUSED unless it resolves under /tmp or the system temp directory — see the leash below. It
 #              is the flag that lets a battery exercise the captain gate without dispatching a captain or
 #              naming a throwaway as one: the row comes from the real listing, the rank from a stub.
 #   --pause-note  the Pause note the gate reads. For testing only; an ordinary run reads the fleet's
@@ -126,6 +127,34 @@ on_exit() {
     printf 'wake-session: %s was woken but its record was not appended to the log (exit %s); write it by hand\n' "$woken_unlogged" "$rc" >&2
   fi
 }
+
+# THE LEASH ON `--jobs-dir`, put on it by the captain on 2026-09-27 when the flag landed. The flag says where
+# a TARGET'S RANK is read from, and rank decides reach, so a flag that moves it must not be usable to dress
+# an ordinary session up as something else in a real run. The leash: the path must resolve, with symlinks
+# followed, to somewhere under /tmp or the system temp directory — the only places a battery writes.
+#
+# WHY A LEASH AND NOT A REFUSAL OUTRIGHT. The flag adds no authority it did not already have: `--by` is a
+# string the caller supplies, so anyone who can pass `--jobs-dir` can already claim any rank they like, and
+# anyone holding a shell can skip both scripts entirely. What the flag buys is a real test of the ONE gate
+# nobody could otherwise exercise — the captain gate, which needs a captain-ranked target, which needs a
+# session dispatched `--agent captain`, which is a captain in the fleet view and is exactly what the fixture
+# rule forbids. So it stays, and it stays pointed at a temp directory.
+check_jobs_dir() {  # $1 = the path as given; prints the resolved path, or dies
+  jd_real=$(cd "$1" 2>/dev/null && pwd -P) || jd_real=""
+  [ -n "$jd_real" ] || die "--jobs-dir must name a directory that exists; got '$1'"
+  case "$jd_real" in
+    /tmp/*|/private/tmp/*|/var/folders/*|/private/var/folders/*) printf '%s' "$jd_real"; return 0 ;;
+  esac
+  if [ -n "${TMPDIR:-}" ]; then
+    jd_tmp=$(cd "$TMPDIR" 2>/dev/null && pwd -P) || jd_tmp=""
+    if [ -n "$jd_tmp" ]; then
+      case "$jd_real" in
+        "$jd_tmp"/*) printf '%s' "$jd_real"; return 0 ;;
+      esac
+    fi
+  fi
+  die "refused: --jobs-dir is test-only and must be under /tmp or the system temp directory; '$1' resolves to '$jd_real', which is neither"
+}
 trap on_exit EXIT
 
 while [ $# -gt 0 ]; do
@@ -136,7 +165,7 @@ while [ $# -gt 0 ]; do
     --message)      [ $# -ge 2 ] || die "--message needs a value"; message="$2"; shift 2 ;;
     --log)          [ $# -ge 2 ] || die "--log needs a value"; log="$2"; shift 2 ;;
     --notebook-dir) [ $# -ge 2 ] && [ -n "$2" ] || die "--notebook-dir needs a path"; NOTEBOOK_DIR="$2"; shift 2 ;;
-    --jobs-dir) [ $# -ge 2 ] && [ -n "$2" ] || die "--jobs-dir needs a path"; JOBS_DIR="$2"; shift 2 ;;
+    --jobs-dir) [ $# -ge 2 ] && [ -n "$2" ] || die "--jobs-dir needs a path"; JOBS_DIR=$(check_jobs_dir "$2"); shift 2 ;;
     --pause-note)   [ $# -ge 2 ] && [ -n "$2" ] || die "--pause-note needs a path"; pause_note="$2"; shift 2 ;;
     --all)          all_mode=1; shift ;;
     --resume-stopped) resume_stopped=1; shift ;;
