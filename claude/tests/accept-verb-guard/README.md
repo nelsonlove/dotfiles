@@ -1,5 +1,7 @@
 # Tests for `claude/hooks/accept-verb-guard.sh`
 
+The discipline that binds every suite in `claude/tests/` — prove a suite can FAIL before its greens mean anything, and meet the real population, not only your own fixtures — is one level up in `claude/tests/README.md`, with the evidence for each rule. What follows is this suite in particular.
+
 Nothing here installs. `install/manifest.yaml` maps `claude/hooks` and `claude/bin` to `~/.claude/`; this directory is deliberately not in it, because these are tests, not machinery.
 
 **No test here ever invokes anything.** Every case is the hook's own answer to a payload fed on stdin. No accept verb is invoked, no Obsidian command is issued, no `obsidian` CLI call is made, and nothing is run against the vault — 01.65 rule 19 forbids invoking a verb even on a test artifact, so the test is always the hook's answer to text, never a call.
