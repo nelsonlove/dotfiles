@@ -65,6 +65,20 @@ E_OTHER_NEW=$(entry other-new   "[L0-CC] other new"     'status: stable/verified
 E_QUOTED=$(entry quoted         "[L0-CC] quoted"        'session-status: "running"')
 E_QUOTED_NEW=$(entry quotednew  "[L0-CC] quoted new"    "status: 'draft/running'")
 
+# THE SHAPES THE REVIEW FOUND, every one of which the two readers disagreed about because no well-formed
+# fixture had them. They are first in the file now, so a reader meets the hard cases before the easy ones.
+E_LIVE_DRAFT=$(entry live-draft   "[L0-CC] the live case"  'session-status: ended' 'status: draft')
+E_QUOTED_SP="$NB/quoted-space.md"
+printf -- '---\nsession: "[L0-CC] quoted with a trailing space"\nsession-status: "running"  \nreports-to: "[C0-CC] top"\n---\n' > "$E_QUOTED_SP"
+E_DUP=$(entry duplicate-key "[L0-CC] duplicate key" 'session-status: ended' 'session-status: running')
+E_BODY_KEY="$NB/body-key.md"
+printf -- '---\nsession: "[L0-CC] key in the body"\nsession-status: running\n---\n\nsome prose\n\n---\n\nstatus: archived/ended\n' > "$E_BODY_KEY"
+E_NO_FM="$NB/no-frontmatter.md"
+printf -- 'not frontmatter\n\n---\nsession: "[L0-CC] no frontmatter"\nstatus: draft/running\n---\n' > "$E_NO_FM"
+E_COMMENT=$(entry commented "[L0-CC] commented" 'status: draft/running # while it runs')
+E_STABLE=$(entry stable "[L0-CC] a stable note" 'status: stable/verified')
+E_NEWVAL_OLDKEY=$(entry newval-oldkey "[L0-CC] new value on the old key" 'session-status: draft/running')
+
 eq "old key alone, running"        "$(state_of "$E_OLD_RUN")"    running
 eq "old key alone, ended"          "$(state_of "$E_OLD_END")"    ended
 eq "new key alone, running"        "$(state_of "$E_NEW_RUN")"    running
@@ -75,25 +89,85 @@ eq "both keys disagreeing"         "$(state_of "$E_CONFLICT")"   conflict
 eq "both keys disagreeing, other way round" "$(state_of "$E_CONFLICT2")" conflict
 eq "neither key present"           "$(state_of "$E_NEITHER")"    absent
 eq "old key carrying something else" "$(state_of "$E_OTHER_OLD")" other
-eq "new key carrying a stable path" "$(state_of "$E_OTHER_NEW")" other
+# CHANGED BY THE REVIEW, not by a whim: `status: stable/verified` is the vault's own note status and is NOT a
+# session claim, so it reads as `absent` rather than `other`. Under the rejected rule it was `other`, which is
+# what made seven live entries conflict. `other` now has ONE source, our own key carrying something malformed.
+eq "a stable path on the shared key is not a claim" "$(state_of "$E_OTHER_NEW")" absent
 eq "a quoted old value"            "$(state_of "$E_QUOTED")"     running
 eq "a single-quoted new value"     "$(state_of "$E_QUOTED_NEW")" running
+# THE CASE THAT WAS A FATAL DEFECT, and the reason this suite exists at all now. `status` is the vault's
+# UNIVERSAL note-status key: seven live entries carry `session-status: ended` beside `status: draft`, the
+# vault's own note status, which says nothing about a session. Reading that as a session claim made every one a
+# `conflict`, and `rename-notebook.sh` refuses on the first conflict it meets — so the renamer was dead for
+# EVERY session until somebody hand-edited seven historical records. The old key decides here; the shared key
+# is not making a claim at all.
+eq "the live case: session-status ended beside status draft" "$(state_of "$E_LIVE_DRAFT")" ended
+eq "a stable note status is not a session claim"             "$(state_of "$E_STABLE")"     absent
+# BE LIBERAL ON OUR OWN KEY. CLAUDE.md now tells every session to write both keys during the window, so a
+# session putting the NEW value on the OLD key is a plausible mistake with an unrecoverable outcome if it reads
+# as a conflict. Both values are accepted on `session-status`, which is ours alone.
+eq "the new value on the old key is still a live claim"      "$(state_of "$E_NEWVAL_OLDKEY")" running
+# THE FOUR SHAPES WHERE THE TWO READERS DISAGREED, each fixed in the library rather than in the awk:
+eq "a quoted value with a trailing space"        "$(state_of "$E_QUOTED_SP")"  running
+eq "a duplicated key: the LAST one wins"         "$(state_of "$E_DUP")"        running
+eq "a key after a --- in the BODY is not read"   "$(state_of "$E_BODY_KEY")"   running
+eq "a file whose first line is not a fence"      "$(state_of "$E_NO_FM")"      absent
+eq "a trailing YAML comment is not part of the value" "$(state_of "$E_COMMENT")" running
+
 # A CONFLICT MUST NAME BOTH VALUES, because a refusal that says only "they disagree" leaves a human opening
 # the file to find out which key is stale — and which is stale is the whole question during the window.
 case "$(detail_of "$E_CONFLICT")" in
   *"'running'"*"'archived/ended'"*) eq "the conflict detail names both values" yes yes ;;
   *) eq "the conflict detail names both values" "no: $(detail_of "$E_CONFLICT")" yes ;;
 esac
-# `stable/*` is never a session status. The ruling says so in as many words, so `other` rather than running.
-case "$(detail_of "$E_OTHER_NEW")" in
-  *"stable/verified"*) eq "an unknown new value is named in the detail" yes yes ;;
-  *) eq "an unknown new value is named in the detail" "no" yes ;;
+# AND THE DETAIL IS EMPTY FOR IT, because nothing is wrong: a note carrying the vault's own status is ordinary,
+# and a sentence about it would be noise in a refusal. The detail belongs to `conflict` and to a malformed
+# value on OUR key — this case asserts the silence rather than a sentence.
+eq "and nothing is said about it, because nothing is wrong" "$(detail_of "$E_OTHER_NEW")" ""
+case "$(detail_of "$E_OTHER_OLD")" in
+  *"paused"*) eq "a malformed value on our own key IS named in the detail" yes yes ;;
+  *) eq "a malformed value on our own key IS named in the detail" "no: $(detail_of "$E_OTHER_OLD")" yes ;;
 esac
 eq "session_is_running agrees on the new key"  "$(bash -c '. "$1" && session_is_running "$2" && echo yes || echo no' _ "$LIB" "$E_NEW_RUN")" yes
 eq "session_is_running refuses a conflict"     "$(bash -c '. "$1" && session_is_running "$2" && echo yes || echo no' _ "$LIB" "$E_CONFLICT")" no
 eq "session_is_running refuses an absent key"  "$(bash -c '. "$1" && session_is_running "$2" && echo yes || echo no' _ "$LIB" "$E_NEITHER")" no
 
 echo
+echo
+echo "=== 1b. under the callers real shell options, which is how the fatal one hid"
+# `rename-notebook.sh` runs under `set -euo pipefail`. The library's key reader used to end in a `grep` that
+# exits 1 when a key is absent, so under `pipefail` the assignment failed and under `set -e` the CALLER died
+# mid-loop with exit 1 — on every entry carrying only one key, which is almost every entry in the notebook.
+# Nothing in the first version of this suite ran either script under those options, which is exactly why 48
+# checks passed over a script that could not survive its own notebook. These cases run the library the way its
+# caller does, and one of them walks the REAL notebook, which is the population that broke it.
+strict_state() {  # the library under the callers own options
+  bash -euo pipefail -c '. "$1" && session_status_of "$2" && printf "%s" "$sess_state"' _ "$LIB" "$1" 2>/dev/null
+}
+for pair in "$E_OLD_RUN:running" "$E_NEW_RUN:running" "$E_NEITHER:absent" "$E_LIVE_DRAFT:ended" "$E_CONFLICT:conflict"; do
+  f=${pair%:*}; want=${pair##*:}
+  eq "strict: $(basename "$f")" "$(strict_state "$f")" "$want"
+done
+REAL_NB="$HOME/obsidian/00-09 System/03 Agents/03.04 Records/Agent notebook"
+if [ -d "$REAL_NB" ]; then
+  # READ-ONLY, and the population that matters: every entry in the live notebook, in one strict shell. What is
+  # asserted is that the run SURVIVES — a non-zero exit means some real entry aborts a caller — and that no
+  # entry reads as a conflict, because a single conflict refuses the renamer for every session.
+  real_out=$(bash -euo pipefail -c '
+    . "$1" || exit 9
+    shift
+    for f in "$@"; do session_status_of "$f"; printf "%s\n" "$sess_state"; done
+  ' _ "$LIB" "$REAL_NB"/*/*.md 2>/dev/null)
+  real_rc=$?
+  eq "the live notebook does not abort a strict caller" "$real_rc" 0
+  eq "no live entry reads as a conflict" "$(printf '%s\n' "$real_out" | grep -c '^conflict$' || true)" 0
+  printf '      live census: %s entries — %s\n' \
+    "$(printf '%s\n' "$real_out" | grep -c . || true)" \
+    "$(printf '%s\n' "$real_out" | sort | uniq -c | tr '\n' ' ' | sed -E 's/[[:space:]]+/ /g')"
+else
+  printf 'SKIP  the live notebook is not at %s, so the population case did not run\n' "$REAL_NB"
+fi
+
 echo "=== 2. wake-session: its own awk index, run directly, gives the same word"
 # THE PROGRAM IS EXTRACTED AND RUN, rather than the script driven. `wake-session.sh` builds this index only on
 # a path that first resolves a live session, so driving the script would need a live fixture — and the thing
@@ -120,15 +194,25 @@ eq "awk: both disagreeing"            "$(index_word "$E_CONFLICT")"   conflict
 eq "awk: the other disagreement"      "$(index_word "$E_CONFLICT2")"  conflict
 eq "awk: neither key"                 "$(index_word "$E_NEITHER")"    absent
 eq "awk: an unnamed old value"        "$(index_word "$E_OTHER_OLD")"  other
-eq "awk: a stable path is not a session status" "$(index_word "$E_OTHER_NEW")" other
+eq "awk: a stable path on the shared key is not a claim" "$(index_word "$E_OTHER_NEW")" absent
 eq "awk: a quoted old value"          "$(index_word "$E_QUOTED")"     running
 eq "awk: a single-quoted new value"   "$(index_word "$E_QUOTED_NEW")" running
 # AND THE TWO ROADS MUST AGREE ENTRY BY ENTRY, which is the assertion that actually guards the duplication:
 # the library and the awk are two copies of one rule, and this compares them on every fixture rather than
 # trusting that both were edited.
 disagreements=0
-for f in "$E_OLD_RUN" "$E_OLD_END" "$E_NEW_RUN" "$E_NEW_END" "$E_BOTH_RUN" "$E_BOTH_END" "$E_CONFLICT" "$E_CONFLICT2" "$E_NEITHER" "$E_OTHER_OLD" "$E_OTHER_NEW" "$E_QUOTED" "$E_QUOTED_NEW"; do
+# EVERY FIXTURE, THE MALFORMED ONES ESPECIALLY. The review's verdict on this assertion was that it is the right
+# one and proved nothing, because all thirteen fixtures were well-formed — and all four disagreements it found
+# by hand were shapes no fixture had. Those shapes are now fixtures, and they are in this loop.
+for f in "$E_OLD_RUN" "$E_OLD_END" "$E_NEW_RUN" "$E_NEW_END" "$E_BOTH_RUN" "$E_BOTH_END" "$E_CONFLICT" "$E_CONFLICT2" \
+         "$E_NEITHER" "$E_OTHER_OLD" "$E_OTHER_NEW" "$E_QUOTED" "$E_QUOTED_NEW" \
+         "$E_LIVE_DRAFT" "$E_QUOTED_SP" "$E_DUP" "$E_BODY_KEY" "$E_NO_FM" "$E_COMMENT" "$E_STABLE" "$E_NEWVAL_OLDKEY"; do
   a=$(state_of "$f"); b=$(index_word "$f")
+  # An entry the INDEX does not carry at all — no `session:` key inside its frontmatter, which is true of the
+  # no-frontmatter fixture — yields an empty word rather than `absent`. That is the same answer in the index's
+  # own terms: it only lists entries that name a session. Read as `absent` for the comparison, and said here
+  # rather than hidden in a `||`.
+  [ -n "$b" ] || b=absent
   if [ "$a" != "$b" ]; then
     disagreements=$((disagreements + 1))
     printf '      %s: library says %s, awk says %s\n' "$(basename "$f")" "$a" "$b"
@@ -137,7 +221,7 @@ done
 eq "the library and the awk agree on every fixture" "$disagreements" 0
 
 echo
-echo "=== 3. rename-notebook: it reads the shared rule rather than carrying its own"
+echo "=== 3. rename-notebook, at source level only: it reads the shared rule, it does not restate it"
 # WHAT CANNOT BE TESTED HERE, said rather than skipped quietly: this script resolves the session NAME from
 # `~/.claude/sessions/<pid>.json` through a `SESSIONS_DIR` that is a plain variable, not a flag, so an
 # end-to-end run needs either a live session or a `--sessions-dir` test flag the script does not have. Adding
@@ -149,44 +233,156 @@ src_has() {  # src_has <label> <pattern> <want yes|no>
   if grep -qE "$2" "$RENAME"; then got=yes; else got=no; fi
   eq "$1" "$got" "$3"
 }
-src_has "it sources the shared rule"                 'session-status\.sh' yes
-src_has "it calls the shared reader"                 'session_status_of' yes
-src_has "it refuses a conflict"                      'disagrees with itself' yes
-src_has "its refusal carries the shared detail"      'sess_detail' yes
-src_has "it no longer tests the old key by hand"     'fm_value .* session-status' no
+# EVERY LABEL HERE SAYS "the source", because that is all a grep can prove — the review was right that "it
+# refuses a conflict" claimed behaviour a string match cannot show. Section 4b drives the refusal for real; these
+# cases only guard against the rule being re-derived in this file instead of read from the library.
+src_has "the source sources the shared rule"         'session-status\.sh' yes
+src_has "the source calls the shared reader"         'session_status_of' yes
+src_has "the source carries the conflict refusal"    'disagrees with itself' yes
+src_has "the source passes the shared detail on"     'sess_detail' yes
+src_has "the source no longer tests the old key by hand" 'fm_value .* session-status' no
 # The three guards #61 ruled for a sourced library, each by name: readable, parses, defines what is wanted.
-src_has "it refuses an unreadable rule file"         'is missing or unreadable at' yes
-src_has "it refuses a rule file that does not parse" 'does not parse' yes
-src_has "it refuses a rule file that defines nothing" 'defined no reader' yes
+src_has "the source refuses an unreadable rule file" 'is missing or unreadable at' yes
+src_has "the source refuses one that does not parse" 'does not parse' yes
+src_has "the source refuses one that defines nothing" 'defined no reader' yes
 
-echo "=== 4. the hook: either key stops it, and it NEVER fails a turn"
-# The hook decides whether a rename is needed at all. It is given a payload for a session id that no registry
-# row matches, so it exits early — what matters here is that every path exits 0, including the ones that read
-# the notebook. A hook that refuses is worse than a name out of step.
-for line in 'session-status: running' 'status: draft/running' 'session-status: running
-status: archived/ended' ''; do
-  d="$TMP/hook"; rm -rf "$d"; mkdir -p "$d/2026-09"
+echo "=== 4. the hook: it reads the notebook for real, and NEVER fails a turn"
+# THE FIRST VERSION OF THIS SECTION COULD NOT FAIL, and the review said so plainly. It passed the fixture as
+# `NOTEBOOK_DIR`, which the hook does not read — it reads `NOTEBOOK_NAME_SYNC_DIR` — and it used a session id
+# that matches no registry row, so the hook exited before it read any notebook at all. Four cases, one
+# assertion, and none of it about the status keys.
+#
+# What it takes to drive the real path: a session id that IS in the registry (this session's own, read from
+# `~/.claude/sessions`, never invented), the two real override variables, and a fake rename script so nothing
+# is ever renamed. `NOTEBOOK_NAME_SYNC_SCRIPT` pointing at `/usr/bin/true` means "a rename would have been
+# attempted here" without one happening.
+MY_SID=$(bash -c '
+  for f in "$HOME"/.claude/sessions/*.json; do
+    [ -f "$f" ] || continue
+    sid=$(sed -n '"'"'s/.*"sessionId"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p'"'"' "$f" | head -n 1)
+    nm=$(sed -n '"'"'s/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p'"'"' "$f" | head -n 1)
+    if [ -n "$sid" ] && [ -n "$nm" ]; then printf "%s\t%s" "$sid" "$nm"; exit 0; fi
+  done')
+HOOK_SID=$(printf '%s' "$MY_SID" | cut -f1)
+HOOK_NAME=$(printf '%s' "$MY_SID" | cut -f2)
+hook_run() {  # hook_run <status line for the entry> [extra env assignments are not needed]
+  d="$TMP/hookreal"; rm -rf "$d"; mkdir -p "$d/2026-09"
   {
-    printf -- '---\nsession: "[L0-CC] hook target"\n'
-    [ -z "$line" ] || printf '%s\n' "$line"
-    printf -- '---\n'
+    printf -- '---\ntitle: entry\nsession: "%s"\n' "$HOOK_NAME"
+    [ -z "$1" ] || printf '%s\n' "$1"
+    printf 'reports-to: "[C0-CC] top"\n---\n'
   } > "$d/2026-09/Agent session 2026-09-27T0101.md"
-  printf '%s' '{"hook_event_name":"UserPromptSubmit","session_id":"11111111-2222-3333-4444-555555555555"}' \
-    | NOTEBOOK_DIR="$d" "$HOOK" >/dev/null 2>&1
-  rc=$?
-  eq "the hook exits 0 on: ${line:-(no key)}" "$rc" 0
-done
+  # NOT CALLED THROUGH `$( )`. A function whose output is captured runs in a SUBSHELL, so `hook_rc` set inside
+  # it never comes back — the same trap that cost the notifier its duplicate-name clause earlier today, and
+  # this is the fourth time in one session. The output goes to a file and both facts are read from the caller.
+  printf '%s' "{\"hook_event_name\":\"UserPromptSubmit\",\"session_id\":\"$HOOK_SID\"}" \
+    | NOTEBOOK_NAME_SYNC_DIR="$d" NOTEBOOK_NAME_SYNC_SCRIPT=/usr/bin/true "$HOOK" > "$TMP/hook.out" 2>&1
+  hook_rc=$?
+  hook_out=$(cat "$TMP/hook.out" 2>/dev/null || true)
+}
+if [ -z "$HOOK_SID" ]; then
+  printf 'SKIP  no readable session registry, so the hook cases did not run (they need a real id)\n'
+else
+  # A RUNNING ENTRY UNDER EITHER KEY means nothing has drifted, so the hook says nothing and exits 0. An entry
+  # that is NOT running means a rename is attempted — with the fake script, that is silent too. What separates
+  # the cases is the CONFLICT, which must produce the warning on stderr, and every case must exit 0.
+  for pair in "session-status: running:0" "status: draft/running:0" "session-status: ended:0" "status: archived/ended:0" ":0"; do
+    line=${pair%:*}; want=${pair##*:}
+    hook_run "$line"
+    eq "the hook exits 0 on: ${line:-(no key)}" "$hook_rc" "$want"
+  done
+  hook_run "session-status: running
+status: archived/ended"
+  eq "a conflicting entry still exits 0"  "$hook_rc" 0
+  case "$hook_out" in
+    *"disagrees with itself"*) eq "and the conflict is said out loud, on stderr" yes yes ;;
+    *) eq "and the conflict is said out loud, on stderr" "no: $(printf '%s' "$hook_out" | tr '\n' ' ' | cut -c1-110)" yes ;;
+  esac
+  # THE LIBRARY MISSING, UNPARSEABLE, OR DEFINING NOTHING. The hook must exit 0 and say so — it never refuses,
+  # because a missed rename is a name out of step in a record while a refusal is Nelson's session unable to
+  # think. Driven by copying the hook to a directory whose `../lib` holds each broken shape in turn.
+  for shape in missing unparseable empty; do
+    d="$TMP/broken-$shape"; rm -rf "$d"; mkdir -p "$d/hooks" "$d/lib" "$d/nb/2026-09"
+    cp "$HOOK" "$d/hooks/notebook-name-sync.sh"
+    case "$shape" in
+      unparseable) printf 'session_status_of() {\n  if [\n}\n' > "$d/lib/session-status.sh" ;;
+      empty)       printf '# defines nothing at all\n' > "$d/lib/session-status.sh" ;;
+    esac
+    printf -- '---\nsession: "%s"\nstatus: draft/running\n---\n' "$HOOK_NAME" > "$d/nb/2026-09/Agent session 2026-09-27T0101.md"
+    printf '%s' "{\"hook_event_name\":\"UserPromptSubmit\",\"session_id\":\"$HOOK_SID\"}" \
+      | NOTEBOOK_NAME_SYNC_DIR="$d/nb" NOTEBOOK_NAME_SYNC_SCRIPT=/usr/bin/true "$d/hooks/notebook-name-sync.sh" >/dev/null 2>&1
+    eq "the hook exits 0 with a $shape status rule" "$?" 0
+  done
+  # A NOTEBOOK DIRECTORY THAT IS NOT THERE.
+  printf '%s' "{\"hook_event_name\":\"UserPromptSubmit\",\"session_id\":\"$HOOK_SID\"}" \
+    | NOTEBOOK_NAME_SYNC_DIR="$TMP/there-is-no-notebook" NOTEBOOK_NAME_SYNC_SCRIPT=/usr/bin/true "$HOOK" >/dev/null 2>&1
+  eq "the hook exits 0 with no notebook directory" "$?" 0
+fi
 
 echo
+echo "=== 4b. rename-notebook: the refusal is REACHED, not merely present in the source"
+# D7: the first version of this section grepped the script for its own message strings, which proves a string
+# exists and nothing about whether the branch runs. This drives the script instead. It cannot be driven
+# end-to-end — the display name comes from `~/.claude/sessions` through a plain variable, not a flag, which is
+# issue #66 — but the CONFLICT REFUSAL can be reached with a notebook whose matching entry disagrees with
+# itself, because the name is resolved from the registry row of a real session id.
+if [ -z "$HOOK_SID" ]; then
+  printf 'SKIP  no readable session registry, so the refusal case did not run\n'
+else
+  d="$TMP/renreal"; rm -rf "$d"; mkdir -p "$d/2026-09"
+  {
+    printf -- '---\nsession: "%s"\n' "$HOOK_NAME"
+    printf 'session-status: running\nstatus: archived/ended\n'
+    printf 'reports-to: "[C0-CC] top"\n---\n'
+  } > "$d/2026-09/Agent session 2026-09-27T0101.md"
+  out=$("$RENAME" --session "$HOOK_SID" --notebook-dir "$d" --dry-run 2>&1); rc=$?
+  eq "rename refuses a conflicting entry of its own, exit 2" "$rc" 2
+  case "$out" in
+    *"disagrees with itself"*"'running'"*"'archived/ended'"*) eq "and the refusal names both values" yes yes ;;
+    *) eq "and the refusal names both values" "no: $(printf '%s' "$out" | tr '\n' ' ' | cut -c1-130)" yes ;;
+  esac
+  # AND AN UNRELATED RECORD MUST NOT POISON IT. This is D1's second half: the conflict test now runs only for an
+  # entry whose name matches, so a disagreeing entry belonging to somebody else is skipped, not refused.
+  d2="$TMP/renother"; rm -rf "$d2"; mkdir -p "$d2/2026-09"
+  printf -- '---\nsession: "[L0-CC] somebody else entirely"\nsession-status: running\nstatus: archived/ended\n---\n' > "$d2/2026-09/Agent session 2026-09-01T0101.md"
+  printf -- '---\nsession: "%s"\nstatus: draft/running\nreports-to: "[C0-CC] top"\n---\n' "$HOOK_NAME" > "$d2/2026-09/Agent session 2026-09-27T0102.md"
+  out=$("$RENAME" --session "$HOOK_SID" --notebook-dir "$d2" --dry-run 2>&1); rc=$?
+  case "$rc" in
+    2) fail "another session's conflicting entry does not refuse ours" "it refused: $(printf '%s' "$out" | tr '\n' ' ' | cut -c1-130)" ;;
+    *) pass "another session's conflicting entry does not refuse ours" ;;
+  esac
+fi
+
 echo "=== 5. nothing in this repository writes the old key any more"
 # The ruling says what is WRITTEN from now carries `status: draft/running` and never `session-status`. Nothing
 # in this repo writes either key into a note today, so what this guards is that it stays that way: a writer
 # added later that emits the old key would be building work for the same migration twice.
-writers=$(grep -rn "session-status[[:space:]]*:" "$ROOT/claude" --include='*.sh' 2>/dev/null \
-  | grep -v '^\s*#' \
-  | grep -E 'printf|echo|>>|cat <<|sed -i' \
-  | grep -v '/tests/' || true)
-eq "no script writes session-status into a note" "$(printf '%s' "$writers" | grep -c . || true)" 0
+# D6: THE FILTER WAS DEAD AND THE SEARCH MISSED THIS REPO'S OWN IDIOM. `grep -v '^\s*#'` removed nothing,
+# because `grep -rn` prefixes every line with `path:lineno:` so `^` never sees the `#` (and `\s` is not BRE
+# anyway) — measured, 15 hits before and after. Worse, a heredoc writer is invisible to a line-based search:
+# `cat <<'EOF' >> "$f"` on one line and `session-status: running` on the next share no line, and the atomic
+# heredoc append is the idiom this repo's CLAUDE.md MANDATES for shared files. So the question is asked the
+# other way round: find every line that writes the old key's TEXT, whatever the mechanism, by looking for the
+# key in a context that is not a comment and not a read. Comments are dropped by looking after the line number
+# prefix, and the tests are excluded by path because their fixtures write it on purpose.
+writers=$(grep -rn "session-status" "$ROOT/claude" --include='*.sh' 2>/dev/null \
+  | grep -v '/tests/' \
+  | sed -E 's/^[^:]+:[0-9]+://' \
+  | grep -vE '^[[:space:]]*#' \
+  | grep -E "session-status[[:space:]]*:" \
+  | grep -vE 'grep|match\(|session_status_value|case |\|\||printf .notebook-name-sync' || true)
+if [ -z "$writers" ]; then
+  pass "no script writes session-status into a note"
+else
+  fail "no script writes session-status into a note" "$(printf '%s' "$writers" | head -n 2 | tr '\n' ' ')"
+fi
+# AND THE HEREDOC SHAPE IS PROVEN TO BE CATCHABLE, on a fixture, so the search above is not trusted blind: a
+# file that writes the old key through a heredoc must be FOUND by it. A test of the test, because the review
+# found this exact false negative.
+FAKEW="$TMP/fake-writer.sh"
+printf '#!/usr/bin/env bash\ncat <<EOF >> "$1"\nsession-status: running\nEOF\n' > "$FAKEW"
+found=$(grep -rn "session-status" "$FAKEW" 2>/dev/null | sed -E 's/^[^:]+:[0-9]+://' | grep -cE "session-status[[:space:]]*:" || true)
+eq "a heredoc writer would be caught by that search" "$found" 1
 # And the state table itself must still be readable as the authority: one file, both keys, the expiry date.
 # NOT A COUNT. The first version of these two asserted how MANY times each string appears, which is a number
 # that changes whenever a sentence is rewritten and says nothing about correctness — a test that fails on an
