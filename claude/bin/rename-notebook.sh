@@ -190,7 +190,7 @@ EOF
 # fixed (`claude/bin/` beside `claude/lib/`), and one level up cannot land in a stranger's repository the way
 # a walk can. Guarded the way #61 ruled — readable, parses, defines what is wanted — because a status reader
 # that silently defines nothing would make every entry unreadable and rename nothing, quietly.
-SESSION_STATUS_LIB="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)/../lib/session-status.sh"
+SESSION_STATUS_LIB="$script_dir/../lib/session-status.sh"
 [ -r "$SESSION_STATUS_LIB" ] || die "the session-status rule is missing or unreadable at $SESSION_STATUS_LIB"
 bash -n "$SESSION_STATUS_LIB" 2>/dev/null || die "the session-status rule at $SESSION_STATUS_LIB does not parse; refusing rather than guessing which entry is running"
 # shellcheck source=../lib/session-status.sh
@@ -204,15 +204,21 @@ candidates=$(grep -rl -E "^[[:space:]]*session[[:space:]]*:" "$NOTEBOOK_DIR" 2>/
 if [ -n "$candidates" ]; then
   while IFS= read -r nb; do
     [ -n "$nb" ] || continue
-    # EITHER KEY, until 2026-10-04, and a disagreement refuses rather than picking one. The rule and the
-    # five states live in `claude/lib/session-status.sh`; this reads it, it does not restate it.
+    # NAME FIRST, THEN STATUS. The order is not a style choice: this loop walks EVERY entry with a `session:`
+    # key, so judging the status before the name let one unrelated record decide the fate of every session —
+    # the review of #65 proved seven live entries would have refused the renamer for everybody. A record that
+    # is not ours is not our business, and `continue` is the only right answer to it.
+    name_matches "$(fm_value "$nb" session)" || continue
+    # EITHER KEY, until 2026-10-04, and a disagreement refuses rather than picking one. The rule and the five
+    # states live in `claude/lib/session-status.sh`; this reads it, it does not restate it. The refusal stands
+    # for an entry that IS ours: renaming the wrong file cannot be undone, and which key is stale is a thing
+    # only a human can settle.
     session_status_of "$nb"
     case "$sess_state" in
       running) ;;
       conflict) die "refused: $nb disagrees with itself about whether its session is running — $sess_detail; fix the entry, because renaming the wrong one cannot be undone" ;;
       *) continue ;;
     esac
-    name_matches "$(fm_value "$nb" session)" || continue
     nb_stamp=$(stamp_of_name "$(basename "$nb")")
     # Newest by the stamp in the filename, because a name recurs across days.
     if [ -z "$entry" ] || [ "$nb_stamp" \> "$entry_stamp" ]; then entry="$nb"; entry_stamp="$nb_stamp"; fi

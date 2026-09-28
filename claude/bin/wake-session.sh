@@ -265,6 +265,18 @@ index_awk='
 function strip(s) {
   gsub(/\r/, "", s)
   sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s)
+  # THE COMMENT COMES OFF BEFORE THE QUOTES, and the order is the whole of it. The fix-forward added this strip
+  # to this program and to `claude/lib/session-status.sh` in DIFFERENT positions, so on a quoted value carrying
+  # a comment the quote test below ran with the comment still attached and failed, and a `#` inside quotes had
+  # the quotes taken off first and part of the value eaten. Six inputs disagreed between the two readers, and
+  # no fixture combined a quote with a comment, so the agreement check could not see one of them. The order in
+  # claude/lib/session-status.sh is the correct one and this matches it: comment, then whitespace, then quotes.
+  #
+  # AND NO APOSTROPHE IN THIS BLOCK, ever: it sits in a single-quoted shell string, so one ends the string and
+  # the shell parses awk source as commands. That has happened twice in one evening, both times in a careful
+  # comment, so the suite now fails on a literal apostrophe anywhere in this program.
+  sub(/[ \t]+#.*$/, "", s)
+  sub(/[ \t]+$/, "", s)
   gsub(/\t/, " ", s)   # the index is tab-separated, so a tab inside a value would split a field
   if (s ~ /^".*"$/) s = substr(s, 2, length(s) - 2)
   else if (s ~ /^\047.*\047$/) s = substr(s, 2, length(s) - 2)
@@ -295,8 +307,19 @@ function stamp_of(path) {
 # ambiguity note, where saying `conflict` rather than a value that was quietly picked is the whole point.
 function state_word() {
   o = ""; n = ""
-  if (old_stat == "running") o = "running"; else if (old_stat == "ended") o = "ended"; else if (old_stat != "") o = "other"
-  if (new_stat == "draft/running") n = "running"; else if (new_stat == "archived/ended") n = "ended"; else if (new_stat != "") n = "other"
+  if (old_stat == "running" || old_stat == "draft/running") o = "running"
+  else if (old_stat == "ended" || old_stat == "archived/ended") o = "ended"
+  else if (old_stat != "") o = "other"
+  # THE ASYMMETRY, and the library says why at length: `status` is the vault-wide note key, so ONLY these two
+  # values are session claims and every other value is not ours to read. `session-status` is ours alone, so
+  # anything unrecognised there is a malformed session status. Reading a bare `status: draft` as a claim made
+  # seven live entries conflict and killed the renamer for every session, which the review of #65 caught.
+  if (new_stat == "draft/running") n = "running"
+  else if (new_stat == "archived/ended") n = "ended"
+  # A MALFORMED VALUE ON OUR KEY IS NOT A CLAIM, so it cannot disagree with a real one: the claim wins. The
+  # library says the same and says why at length; this arm exists because the two were fixed separately and the
+  # suite caught the difference on its first run with a fixture for it.
+  if (o == "other" && n != "") return n
   if (o != "" && n != "") { if (o == n) return o; else return "conflict" }
   if (n != "") return n
   if (o != "") return o
