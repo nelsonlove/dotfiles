@@ -72,7 +72,7 @@
 #   * A target outside the caller's reporting line. The line is data: each session's notebook entry
 #     carries `reports-to`, the name of the session that dispatched it (or `Nelson` for a captain),
 #     and this script walks that chain up from the target, reading the most recent entry for each
-#     name whatever its `session-status` — `ended` is the normal state of a session worth waking. A
+#     name whatever its status — `ended` is the normal state of a session worth waking. A
 #     target with no notebook entry at all, or whose newest entry has no `reports-to`, is refused: a
 #     missing record is not a permission.
 #   * Any wake while the fleet is paused. The flag is read by the same parser the tickle jobs use
@@ -185,10 +185,16 @@ by_rank=$(rank_of_caller "$by")
 
 # --- the notebook, which is where the reporting line lives ------------------------------------
 # One pass over the notebook builds the whole index: for every entry that names a `session:`, a line
-# of "session<TAB>reports-to<TAB>path<TAB>session-status<TAB>stamp". Read once, because a survey asks
+# of "session<TAB>reports-to<TAB>path<TAB>status word<TAB>stamp". Read once, because a survey asks
 # the same question of every session in the listing and the notebook holds hundreds of entries.
 #
-# `session-status` is recorded but NEVER required. The first version of this script read the key only
+# THE STATUS IS READ FROM EITHER KEY until 2026-10-04 — `session-status: running|ended` or `status:
+# draft/running|archived/ended` — because the notebook's status machine is folding into the vault's, ruled by
+# Nelson through `[A0] rear admiral` on 2026-09-27. The rule, the five state words and the expiry live in
+# `claude/lib/session-status.sh`; the `awk` below carries a copy of the rule because it reads the whole
+# notebook in one pass, and it says so where it does.
+#
+# The status is recorded but NEVER required. The first version of this script read the key only
 # from an entry that said `running`, which refused every session it exists to wake: under the
 # lifecycle rule a session completes its entry and sets `ended` as its last write before it stops, so
 # `ended` is the normal state of a wakeable session. Found in the field on `[C2-OB] fileclasses`,
@@ -223,13 +229,34 @@ function stamp_of(path) {
   }
   return ""
 }
+# THE SAME DUAL-READ RULE AS `claude/lib/session-status.sh`, and that file is the AUTHORITY: the five state
+# words, the two keys, the disagreement rule and the 2026-10-04 expiry are written there and only summarised
+# here. This program cannot source it — it indexes the whole notebook in ONE pass, and a shell function per
+# file would turn a survey into hundreds of processes — so it carries the rule and names where the rule lives,
+# which is what stops the pair drifting the way the two pause-parser copies did before #61.
+#
+# NO APOSTROPHES IN THIS BLOCK. It sits inside a single-quoted awk program, so one apostrophe closes the quote
+# and the shell parses awk source as commands; the first version of this comment did exactly that.
+#
+# Nothing in this script GATES on the word: the status was always recorded and never required, because an
+# `ended` entry is the normal state of a session worth waking. It reaches the refusal messages and the
+# ambiguity note, where saying `conflict` rather than a value that was quietly picked is the whole point.
+function state_word() {
+  o = ""; n = ""
+  if (old_stat == "running") o = "running"; else if (old_stat == "ended") o = "ended"; else if (old_stat != "") o = "other"
+  if (new_stat == "draft/running") n = "running"; else if (new_stat == "archived/ended") n = "ended"; else if (new_stat != "") n = "other"
+  if (o != "" && n != "") { if (o == n) return o; else return "conflict" }
+  if (n != "") return n
+  if (o != "") return o
+  return "absent"
+}
 function flush() {
   # No test on stat: an ended entry is the normal state of a session that can be woken.
-  if (fname != "" && sess != "") printf "%s\t%s\t%s\t%s\t%s\n", sess, rt, fname, stat, stamp_of(fname)
+  if (fname != "" && sess != "") printf "%s\t%s\t%s\t%s\t%s\n", sess, rt, fname, state_word(), stamp_of(fname)
 }
 FNR == 1 {
   flush()
-  fname = FILENAME; sess = ""; stat = ""; rt = ""
+  fname = FILENAME; sess = ""; old_stat = ""; new_stat = ""; rt = ""
   infm = ($0 ~ /^---[ \t\r]*$/) ? 1 : 0
   next
 }
@@ -237,7 +264,8 @@ FNR == 1 {
   if (!infm) next
   if ($0 ~ /^---[ \t\r]*$/) { infm = 0; next }
   if (match($0, "^[ \t]*session[ \t]*:[ \t]*"))             { sess = strip(substr($0, RLENGTH + 1)) }
-  else if (match($0, "^[ \t]*session-status[ \t]*:[ \t]*")) { stat = strip(substr($0, RLENGTH + 1)) }
+  else if (match($0, "^[ \t]*session-status[ \t]*:[ \t]*")) { old_stat = strip(substr($0, RLENGTH + 1)) }
+  else if (match($0, "^[ \t]*status[ \t]*:[ \t]*"))         { new_stat = strip(substr($0, RLENGTH + 1)) }
   else if (match($0, "^[ \t]*" key "[ \t]*:[ \t]*"))        { rt   = strip(substr($0, RLENGTH + 1)) }
 }
 END { flush() }
@@ -247,8 +275,9 @@ build_report_index() {
   [ "$REPORT_INDEX_BUILT" = 0 ] || return 0
   REPORT_INDEX_BUILT=1
   [ -d "$NOTEBOOK_DIR" ] || return 0
-  # Candidates are files carrying a `session:` key — which `session-status:` does not match, since
-  # the key must be followed by its colon. An entry with no `session-status` at all is still indexed.
+  # Candidates are files carrying a `session:` key — which `session-status:` does not match, since the key
+  # must be followed by its colon. An entry with NEITHER status key is still indexed, and the index says
+  # `absent` for it; nothing here requires a status.
   index_files=$(grep -rl -E "^[[:space:]]*session[[:space:]]*:" "$NOTEBOOK_DIR" 2>/dev/null | sort || true)
   # An empty file list must never reach xargs: with no arguments awk would read stdin and hang.
   [ -n "$index_files" ] || return 0
@@ -290,16 +319,16 @@ check_reporting_line() {  # $1 = target name, $2 = caller name
     chain_so_far=""
     [ -z "$chain_path" ] || chain_so_far=" (the line so far: $chain_path)"
     if ! lookup_reports_to "$chain_cur"; then
-      chain_reason="no notebook entry for '$chain_cur' under $NOTEBOOK_DIR (an entry with session: \"$chain_cur\", whatever its session-status), so the line cannot be followed past it$chain_so_far; a missing record is not a permission"
+      chain_reason="no notebook entry for '$chain_cur' under $NOTEBOOK_DIR (an entry with session: \"$chain_cur\", whatever its status), so the line cannot be followed past it$chain_so_far; a missing record is not a permission"
       return 1
     fi
     if [ "$rt_count" -gt 1 ]; then
-      chain_doubt="$chain_doubt'$chain_cur' has $rt_count notebook entries, and the newest by filename stamp was taken ($rt_entry, session-status ${rt_status:-unset}); the others: $(printf '%s\n' "$rt_all" | sort -t "$(printf '\t')" -k5,5 -k3,3 | sed \$d | cut -f 3 | tr '\n' ' ')
+      chain_doubt="$chain_doubt'$chain_cur' has $rt_count notebook entries, and the newest by filename stamp was taken ($rt_entry, status ${rt_status:-unset}); the others: $(printf '%s\n' "$rt_all" | sort -t "$(printf '\t')" -k5,5 -k3,3 | sed \$d | cut -f 3 | tr '\n' ' ')
 "
     fi
     chain_rt="$rt_value"
     if [ -z "$chain_rt" ]; then
-      chain_reason="the newest notebook entry of '$chain_cur' ($rt_entry, session-status ${rt_status:-unset}) carries no '$REPORTS_TO_KEY' key, so the line cannot be followed past it$chain_so_far; a missing record is not a permission"
+      chain_reason="the newest notebook entry of '$chain_cur' ($rt_entry, status ${rt_status:-unset}) carries no '$REPORTS_TO_KEY' key, so the line cannot be followed past it$chain_so_far; a missing record is not a permission"
       return 1
     fi
     [ -z "$chain_path" ] || chain_path="$chain_path; "

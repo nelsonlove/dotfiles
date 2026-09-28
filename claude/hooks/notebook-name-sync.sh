@@ -54,20 +54,40 @@ for candidate in "$SESSIONS_DIR"/*.json; do
 done
 [ -n "$name" ] || exit 0
 
-# The fast path: a RUNNING entry already carrying this name means nothing has drifted. The
-# session-status test is not optional — a name recurs across days, so an `ended` entry from an
-# earlier day carrying the same name would otherwise satisfy this and leave today's running entry
-# misnamed for good. Two cheap greps: the name narrows it to a file or two, the status decides.
+# The fast path: a RUNNING entry already carrying this name means nothing has drifted. The status test is not
+# optional — a name recurs across days, so an `ended` entry from an earlier day carrying the same name would
+# otherwise satisfy this and leave today's running entry misnamed for good.
+#
+# EITHER KEY DECIDES, until 2026-10-04, because the notebook's status machine is folding into the vault's:
+# `session-status: running` or `status: draft/running`. The rule and its five states live in
+# `claude/lib/session-status.sh`, which this reads rather than restates — the grep that used to be here knew
+# only the old key, so the day the vault's migration landed this hook would have found no running entry for
+# any session and quietly renamed nothing, every turn, with nothing in any log to say why.
+#
+# THE LIBRARY IS OPTIONAL HERE, AND THAT IS THE POINT: this hook must never fail a turn, so if the rule cannot
+# be read it says so once on stderr and does nothing, rather than refusing. A missed rename is a name out of
+# step in a record; a refusal is Nelson's session unable to think.
 in_step=0
-while IFS= read -r hit; do
-  [ -n "$hit" ] || continue
-  if grep -qE '^[[:space:]]*session-status[[:space:]]*:[[:space:]]*"?running"?[[:space:]]*$' "$hit" 2>/dev/null; then
-    in_step=1
-    break
-  fi
-done <<EOF
+SESSION_STATUS_LIB="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)/../lib/session-status.sh"
+if [ -r "$SESSION_STATUS_LIB" ] && bash -n "$SESSION_STATUS_LIB" 2>/dev/null && . "$SESSION_STATUS_LIB" 2>/dev/null && command -v session_status_of >/dev/null 2>&1; then
+  while IFS= read -r hit; do
+    [ -n "$hit" ] || continue
+    session_status_of "$hit"
+    case "$sess_state" in
+      running) in_step=1; break ;;
+      conflict)
+        # Not renamed, and said out loud: an entry that disagrees with itself is a thing a human must fix, and
+        # this hook is the only machinery that reads it every turn.
+        printf 'notebook-name-sync: %s disagrees with itself about its session status — %s; nothing renamed\n' "$hit" "$sess_detail" >&2
+        in_step=1; break ;;
+    esac
+  done <<EOF
 $(grep -rlF --include='*.md' "session: \"$name\"" "$NOTEBOOK_DIR" 2>/dev/null || true)
 EOF
+else
+  printf 'notebook-name-sync: the session-status rule at %s could not be read, so nothing was renamed this turn\n' "$SESSION_STATUS_LIB" >&2
+  exit 0
+fi
 [ "$in_step" = 0 ] || exit 0
 
 [ -x "$RENAME" ] || exit 0

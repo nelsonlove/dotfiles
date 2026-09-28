@@ -181,6 +181,22 @@ EOF
   return 1
 }
 
+# THE STATUS RULE IS SHARED, not copied. `claude/lib/session-status.sh` carries which keys mean a running
+# session while the notebook's status machine folds into the vault's, and this script and
+# `claude/hooks/notebook-name-sync.sh` both read it — the pair used to hold the same `session-status = running`
+# test written twice, which is exactly the shape that drifted in the pause parser before #61.
+#
+# FOUND BY COUNTING ONE LEVEL, not by walking up to `.git`: this script's depth inside its own checkout is
+# fixed (`claude/bin/` beside `claude/lib/`), and one level up cannot land in a stranger's repository the way
+# a walk can. Guarded the way #61 ruled — readable, parses, defines what is wanted — because a status reader
+# that silently defines nothing would make every entry unreadable and rename nothing, quietly.
+SESSION_STATUS_LIB="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)/../lib/session-status.sh"
+[ -r "$SESSION_STATUS_LIB" ] || die "the session-status rule is missing or unreadable at $SESSION_STATUS_LIB"
+bash -n "$SESSION_STATUS_LIB" 2>/dev/null || die "the session-status rule at $SESSION_STATUS_LIB does not parse; refusing rather than guessing which entry is running"
+# shellcheck source=../lib/session-status.sh
+. "$SESSION_STATUS_LIB" || die "the session-status rule at $SESSION_STATUS_LIB could not be sourced"
+command -v session_status_of >/dev/null 2>&1 || die "the session-status rule at $SESSION_STATUS_LIB parsed but defined no reader; refusing"
+
 [ -d "$NOTEBOOK_DIR" ] || die "the notebook directory $NOTEBOOK_DIR does not exist"
 entry=""
 entry_stamp=""
@@ -188,7 +204,14 @@ candidates=$(grep -rl -E "^[[:space:]]*session[[:space:]]*:" "$NOTEBOOK_DIR" 2>/
 if [ -n "$candidates" ]; then
   while IFS= read -r nb; do
     [ -n "$nb" ] || continue
-    [ "$(fm_value "$nb" session-status)" = "running" ] || continue
+    # EITHER KEY, until 2026-10-04, and a disagreement refuses rather than picking one. The rule and the
+    # five states live in `claude/lib/session-status.sh`; this reads it, it does not restate it.
+    session_status_of "$nb"
+    case "$sess_state" in
+      running) ;;
+      conflict) die "refused: $nb disagrees with itself about whether its session is running — $sess_detail; fix the entry, because renaming the wrong one cannot be undone" ;;
+      *) continue ;;
+    esac
     name_matches "$(fm_value "$nb" session)" || continue
     nb_stamp=$(stamp_of_name "$(basename "$nb")")
     # Newest by the stamp in the filename, because a name recurs across days.
