@@ -34,6 +34,10 @@
 #            (The refusal when --by carries no ship code names all four codes, in the captain's own
 #            wording, corrected by him on 2026-09-26 once HS existed.)
 #   --log    the cross-session log to append the record to (default: the fleet log).
+#   --jobs-dir  where Claude Code's job state lives, which is where the TARGET's rank is read from
+#              (`<id>/state.json`, key `template`). For testing only, and REFUSED unless it resolves under
+#              /tmp or the system temp directory — see the leash below. It is what lets a battery exercise a
+#              captain-ranked target without dispatching a captain or naming a throwaway as one.
 #   --pause-note  the Pause note the gate reads. For testing only; an ordinary run reads the fleet's
 #            own note, and PAUSE_NOTE is deliberately NOT inherited from the environment.
 #   --dry-run  print the plan and stop before touching anything.
@@ -102,6 +106,34 @@ on_exit() {
     printf 'promote-session: %s was stopped but not resumed (exit %s); resume it yourself with: claude --bg --resume %s\n' "$stopped_id" "$rc" "$stopped_id" >&2
   fi
 }
+
+# THE LEASH ON `--jobs-dir`, put on it by the captain on 2026-09-27 when the flag landed. The flag says where
+# a TARGET'S RANK is read from, and rank decides reach, so a flag that moves it must not be usable to dress
+# an ordinary session up as something else in a real run. The leash: the path must resolve, with symlinks
+# followed, to somewhere under /tmp or the system temp directory — the only places a battery writes.
+#
+# WHY A LEASH AND NOT A REFUSAL OUTRIGHT. The flag adds no authority it did not already have: `--by` is a
+# string the caller supplies, so anyone who can pass `--jobs-dir` can already claim any rank they like, and
+# anyone holding a shell can skip both scripts entirely. What the flag buys is a real test of the ONE gate
+# nobody could otherwise exercise — the captain gate, which needs a captain-ranked target, which needs a
+# session dispatched `--agent captain`, which is a captain in the fleet view and is exactly what the fixture
+# rule forbids. So it stays, and it stays pointed at a temp directory.
+check_jobs_dir() {  # $1 = the path as given; prints the resolved path, or dies
+  jd_real=$(cd "$1" 2>/dev/null && pwd -P) || jd_real=""
+  [ -n "$jd_real" ] || die "--jobs-dir must name a directory that exists; got '$1'"
+  case "$jd_real" in
+    /tmp/*|/private/tmp/*|/var/folders/*|/private/var/folders/*) printf '%s' "$jd_real"; return 0 ;;
+  esac
+  if [ -n "${TMPDIR:-}" ]; then
+    jd_tmp=$(cd "$TMPDIR" 2>/dev/null && pwd -P) || jd_tmp=""
+    if [ -n "$jd_tmp" ]; then
+      case "$jd_real" in
+        "$jd_tmp"/*) printf '%s' "$jd_real"; return 0 ;;
+      esac
+    fi
+  fi
+  die "refused: --jobs-dir is test-only and must be under /tmp or the system temp directory; '$1' resolves to '$jd_real', which is neither"
+}
 trap on_exit EXIT
 
 while [ $# -gt 0 ]; do
@@ -113,6 +145,7 @@ while [ $# -gt 0 ]; do
     --why)     [ $# -ge 2 ] || die "--why needs a value"; why="$2"; shift 2 ;;
     --prompt)  [ $# -ge 2 ] || die "--prompt needs a value"; prompt="$2"; shift 2 ;;
     --log)     [ $# -ge 2 ] || die "--log needs a value"; log="$2"; shift 2 ;;
+    --jobs-dir) [ $# -ge 2 ] && [ -n "$2" ] || die "--jobs-dir needs a path"; JOBS_DIR=$(check_jobs_dir "$2"); shift 2 ;;
     --ship)    [ $# -ge 2 ] && [ -n "$2" ] || die "--ship needs a value"; ship="$2"; shift 2 ;;
     --pause-note) [ $# -ge 2 ] && [ -n "$2" ] || die "--pause-note needs a path"; pause_note="$2"; shift 2 ;;
     --dry-run) dry_run=1; shift ;;
@@ -159,6 +192,13 @@ command -v rank_of_name >/dev/null 2>&1 || die "the rank table at $FLEET_RANKS p
 [ -f "$AGENTS_DIR/$to.md" ] || die "no agent definition at $AGENTS_DIR/$to.md"
 to_rank=$(rank_of_agent "$to");   [ "$to_rank" != 9 ] || die "--to must be a fleet rank, got '$to'"
 by_rank=$(rank_of_caller "$by"); [ "$by_rank" != 9 ] || die "--by must start with a rank code, bare or ship-coded ([C0], [C1], [C2], [L0], [C1-CC], [C2-OB] …), or the bare [A0], which carries no ship code; got '$by'"
+# THE ACCEPT VERBS' WRITE PATH NOTIFIES; IT DOES NOT PROMOTE. It reaches this script only because
+# `rank_of_caller` is one seam shared with wake-session.sh, which package 5 widened for the notifier. Before
+# package 5 it was refused here as a caller with no rank code, and it stays refused — but with its own
+# sentence, because the ship block below would otherwise refuse it with "pass --ship CC, OB or HS", which
+# names the wrong problem and invites a caller to pass one. Nothing was ruled about the verb path promoting
+# anybody, and a rank change nobody can attribute to a session is worse than one refused.
+[ "$by_rank" -ge -1 ] || die "refused: '$by' is the accept verbs' write path; it notifies a session, it does not promote or demote one"
 name_rank=$(rank_of_name "$name"); [ "$name_rank" != -1 ] || die "refused: --name '$name' would make a rear admiral, and only Nelson makes one; A0 is never a --name"
 [ "$name_rank" = "$to_rank" ] || die "--name '$name' must carry the rank code $(bare_code_of_rank "$to_rank") to match --to $to"
 [ "$to_rank" -gt "$by_rank" ] || die "refused: $by ($(word_of_rank "$by_rank")) may only promote or demote to a rank below its own; $to is not below it"

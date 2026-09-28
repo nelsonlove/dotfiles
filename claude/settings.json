@@ -120,6 +120,11 @@
             "type": "command",
             "command": "/Users/nelson/.claude/hooks/notebook-name-sync.sh",
             "timeout": 20
+          },
+          {
+            "type": "command",
+            "command": "/Users/nelson/.claude/hooks/notice-inject.sh",
+            "timeout": 10
           }
         ]
       }
@@ -131,6 +136,11 @@
             "type": "command",
             "command": "/Users/nelson/.claude/hooks/notebook-name-sync.sh",
             "timeout": 20
+          },
+          {
+            "type": "command",
+            "command": "/Users/nelson/.claude/hooks/notice-inject.sh",
+            "timeout": 10
           }
         ]
       }

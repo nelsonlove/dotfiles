@@ -50,6 +50,11 @@
 #   --resume-stopped  with --all, resume every stopped session in your line, one log entry each.
 #   --log      the cross-session log to append the record to (default: the fleet log).
 #   --notebook-dir  where the agent notebook lives. For testing only.
+#   --jobs-dir  where Claude Code's job state lives, which is where a target's RANK is read from
+#              (`<id>/state.json`, key `template`, through the rank definitions). For testing only, and
+#              REFUSED unless it resolves under /tmp or the system temp directory — see the leash below. It
+#              is the flag that lets a battery exercise the captain gate without dispatching a captain or
+#              naming a throwaway as one: the row comes from the real listing, the rank from a stub.
 #   --pause-note  the Pause note the gate reads. For testing only; an ordinary run reads the fleet's
 #              own note, and PAUSE_NOTE is deliberately NOT inherited from the environment.
 #   --dry-run  print the plan and touch nothing.
@@ -69,6 +74,9 @@
 # What it refuses, and why:
 #   * A target at or above the caller's rank, and a `[C0]` target for every caller but the rear
 #     admiral: only Nelson or A0 wakes a captain, and the script cannot verify that it is Nelson.
+#   * `--all` from the accept verbs' write path (rank -2). That caller sits above every rank, so a survey
+#     would list the whole fleet and `--resume-stopped` would resume it; the verb needs one named session at
+#     a time, and a mass resume belongs to a rank that answers for it.
 #   * A target outside the caller's reporting line. The line is data: each session's notebook entry
 #     carries `reports-to`, the name of the session that dispatched it (or `Nelson` for a captain),
 #     and this script walks that chain up from the target, reading the most recent entry for each
@@ -90,9 +98,9 @@
 # notebook records, so two sessions sharing a name share a line and the newest entry decides for both.
 # The session that is actually resumed is always picked by its unique id, never by name, so a
 # collision can misjudge permission but can never resume the wrong session.
-# Three flags widen them on purpose, for tests: `--notebook-dir` replaces the reporting-line record,
-# `--pause-note` replaces the pause flag, and `--log` sends the record somewhere other than the
-# fleet log. A run that passes any of them is a test, not a fleet act — say so if you use them.
+# Four flags widen them on purpose, for tests: `--notebook-dir` replaces the reporting-line record,
+# `--pause-note` replaces the pause flag, `--jobs-dir` replaces the job state a target's rank is read from,
+# and `--log` sends the record somewhere other than the fleet log. A run that passes any of them is a test, not a fleet act — say so if you use them.
 #
 # Works under /bin/bash 3.2 (macOS). Needs jq and the claude CLI.
 
@@ -122,6 +130,34 @@ on_exit() {
     printf 'wake-session: %s was woken but its record was not appended to the log (exit %s); write it by hand\n' "$woken_unlogged" "$rc" >&2
   fi
 }
+
+# THE LEASH ON `--jobs-dir`, put on it by the captain on 2026-09-27 when the flag landed. The flag says where
+# a TARGET'S RANK is read from, and rank decides reach, so a flag that moves it must not be usable to dress
+# an ordinary session up as something else in a real run. The leash: the path must resolve, with symlinks
+# followed, to somewhere under /tmp or the system temp directory — the only places a battery writes.
+#
+# WHY A LEASH AND NOT A REFUSAL OUTRIGHT. The flag adds no authority it did not already have: `--by` is a
+# string the caller supplies, so anyone who can pass `--jobs-dir` can already claim any rank they like, and
+# anyone holding a shell can skip both scripts entirely. What the flag buys is a real test of the ONE gate
+# nobody could otherwise exercise — the captain gate, which needs a captain-ranked target, which needs a
+# session dispatched `--agent captain`, which is a captain in the fleet view and is exactly what the fixture
+# rule forbids. So it stays, and it stays pointed at a temp directory.
+check_jobs_dir() {  # $1 = the path as given; prints the resolved path, or dies
+  jd_real=$(cd "$1" 2>/dev/null && pwd -P) || jd_real=""
+  [ -n "$jd_real" ] || die "--jobs-dir must name a directory that exists; got '$1'"
+  case "$jd_real" in
+    /tmp/*|/private/tmp/*|/var/folders/*|/private/var/folders/*) printf '%s' "$jd_real"; return 0 ;;
+  esac
+  if [ -n "${TMPDIR:-}" ]; then
+    jd_tmp=$(cd "$TMPDIR" 2>/dev/null && pwd -P) || jd_tmp=""
+    if [ -n "$jd_tmp" ]; then
+      case "$jd_real" in
+        "$jd_tmp"/*) printf '%s' "$jd_real"; return 0 ;;
+      esac
+    fi
+  fi
+  die "refused: --jobs-dir is test-only and must be under /tmp or the system temp directory; '$1' resolves to '$jd_real', which is neither"
+}
 trap on_exit EXIT
 
 while [ $# -gt 0 ]; do
@@ -132,6 +168,7 @@ while [ $# -gt 0 ]; do
     --message)      [ $# -ge 2 ] || die "--message needs a value"; message="$2"; shift 2 ;;
     --log)          [ $# -ge 2 ] || die "--log needs a value"; log="$2"; shift 2 ;;
     --notebook-dir) [ $# -ge 2 ] && [ -n "$2" ] || die "--notebook-dir needs a path"; NOTEBOOK_DIR="$2"; shift 2 ;;
+    --jobs-dir) [ $# -ge 2 ] && [ -n "$2" ] || die "--jobs-dir needs a path"; JOBS_DIR=$(check_jobs_dir "$2"); shift 2 ;;
     --pause-note)   [ $# -ge 2 ] && [ -n "$2" ] || die "--pause-note needs a path"; pause_note="$2"; shift 2 ;;
     --all)          all_mode=1; shift ;;
     --resume-stopped) resume_stopped=1; shift ;;
@@ -182,6 +219,21 @@ command -v rank_of_name >/dev/null 2>&1 || die "the rank table at $FLEET_RANKS p
 
 by_rank=$(rank_of_caller "$by")
 [ "$by_rank" != 9 ] || die "--by must start with a rank code, bare or ship-coded ([C0], [C1], [C2], [L0], [L0-CC], [C2-OB] …), or the bare [A0], which carries no ship code; got '$by'"
+
+# THE WRITE PATH TELLS ONE SESSION AT A TIME. `human:nelson` is rank -2, which is above every rank in the
+# fleet, so without this line `--all` would list every session including the captains and the rear admiral,
+# and `--all --resume-stopped` would RESUME THEM ALL — from a `--by` string that nothing authenticates, in one
+# command, where the same string was refused outright before package 5 existed. That is not what the verb
+# needs: `notify-session.sh` addresses exactly the session a note names, or that ship's captain, one at a
+# time. The survey and the mass resume stay with the ranks, who answer for them.
+#
+# Found by the review of #63, which is the second time in this package that widening ONE gate for this caller
+# turned out to widen a road nobody was looking at. The lesson is written here rather than in a report: when a
+# rank is added below every existing one, every `-gt`, `-lt` and `!=` that mentions a rank is a site to read,
+# not just the one the feature needed.
+if [ "$all_mode" = 1 ] && [ "$by_rank" -lt -1 ]; then
+  die "refused: '$by' is the accept verbs' write path; it tells one session at a time, and the survey and the mass resume belong to the ranks who answer for them"
+fi
 
 # --- the notebook, which is where the reporting line lives ------------------------------------
 # One pass over the notebook builds the whole index: for every entry that names a `session:`, a line
@@ -305,6 +357,20 @@ check_reporting_line() {  # $1 = target name, $2 = caller name
     [ -z "$chain_path" ] || chain_path="$chain_path; "
     chain_path="$chain_path$chain_cur -> $chain_rt"
     [ "$chain_rt" != "$2" ] || return 0
+
+    # THE ACCEPT VERBS' WRITE PATH CANNOT BE REACHED BY EQUALITY, because it is not a session: nothing
+    # reports to `human:nelson`, so the walk above would refuse every target the notifier ever has. What a
+    # caller above the fleet can be shown instead is that the line reaches ITS TOP — the rear admiral, or
+    # Nelson himself. A line that ends there is a line inside the fleet, and the verb's own notice may
+    # follow it down. A target whose line CANNOT be followed is still refused, which is the property this
+    # whole function exists for: a missing record is not a permission. Package 5 found this after widening
+    # the rank gate below and leaving this one shut, which made the notifier's wake refuse everything.
+    if [ "${by_rank:-9}" -lt -1 ]; then
+      case "$chain_rt" in
+        Nelson|nelson|NELSON) return 0 ;;
+        *) [ "$(rank_of_name "$chain_rt")" != -1 ] || return 0 ;;
+      esac
+    fi
     chain_hops=$((chain_hops + 1))
     if [ "$chain_hops" -ge 8 ]; then
       chain_reason="the reporting line of '$1' did not reach $2 within 8 hops ($chain_path)"
@@ -502,7 +568,10 @@ if [ "$all_mode" = 0 ]; then
   # A captain is woken by Nelson, or by the rear admiral he placed between himself and the captains:
   # captains report to `[A0] rear admiral`, so an A0 caller waking one is the chain working, not a
   # breach of it. Every other caller is refused, as before, because the script cannot verify Nelson.
-  if [ "$row_rank" = 0 ] && [ "$by_rank" != -1 ]; then
+  # `-gt -1` rather than `!= -1`: the rear admiral is -1 and the accept verbs' write path is -2, and both
+  # sit above a captain. Testing for equality with -1 refused the verb's own notice to a stopped captain,
+  # which is the case the notifier exists for.
+  if [ "$row_rank" = 0 ] && [ "$by_rank" -gt -1 ]; then
     die "refused: \`$row_name\` is a captain; only Nelson or the rear admiral wakes a captain, and this script cannot verify that it is Nelson calling"
   fi
   [ "$row_rank" -gt "$by_rank" ] \
@@ -575,7 +644,7 @@ while IFS= read -r one_row; do
   fi
   # The survey hides captains from everyone but the rear admiral, for the same reason the single
   # target refuses them: a captain is woken by Nelson or by A0, so only an A0 caller is shown one.
-  if [ "$row_rank" = 0 ] && [ "$by_rank" != -1 ]; then continue; fi
+  if [ "$row_rank" = 0 ] && [ "$by_rank" -gt -1 ]; then continue; fi   # above a captain: A0 (-1) and the verb path (-2)
   [ "$row_rank" -gt "$by_rank" ] || continue
   if ! check_reporting_line "$row_name" "$by"; then
     outside_list="$outside_list    $row_id  $row_name — $chain_reason
