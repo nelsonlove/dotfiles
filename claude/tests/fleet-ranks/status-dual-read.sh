@@ -15,8 +15,14 @@
 # turn a survey into hundreds of processes. This suite exists because those are three copies of one rule, and
 # the last time this repo held two copies of one rule they drifted — see #61 and the pause parser.
 #
-# IT RUNS UNATTENDED. Every case is a temp notebook this script writes; no fleet id, no live session, no
-# `claude` command, and the two scripts are pointed at the temp notebook with their own test flags.
+# IT RUNS UNATTENDED. Every case but the first is a temp notebook this script writes; no fleet id, no live
+# session dispatched, no `claude` command, and the two scripts are pointed at the temp notebook with their own
+# test flags.
+#
+# THE FIRST CASE IS THE REAL NOTEBOOK, read-only, under `bash -euo pipefail` — the options `rename-notebook.sh`
+# actually runs under. It is first because it is the case that did not exist when this suite passed 48 checks
+# over a library that could not survive its own population, and both of #65's fatal defects die in it. A suite
+# that only ever meets its own fixtures is a test of the fixtures.
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd -P)
 ROOT=$(cd "$HERE/../../.." && pwd -P)
@@ -47,7 +53,39 @@ entry() {
   printf '%s' "$f"
 }
 
-echo "=== 1. the library: every key in every state, and both keys together"
+echo "=== 1. THE REAL NOTEBOOK, under the callers own shell options"
+# THIS IS THE FIRST CASE ON PURPOSE. It is the case that did not exist when this suite passed 48 checks over a
+# library that could not survive its own notebook — #65's review found two FATAL defects that both die here in
+# the first second: a bare `status: draft` on seven live entries read as a session claim (which refused the
+# renamer for every session), and a `grep` that exits 1 on a missing key aborting a `set -euo pipefail` caller
+# mid-loop. Fixtures cannot find either. The population can, and it costs one pass over 517 files.
+#
+# READ-ONLY, and it asserts two things: that the run SURVIVES — a non-zero exit means some real entry aborts a
+# caller — and that no live entry reads as a `conflict`, because one conflict refuses the renamer for everybody.
+strict_state() {  # the library under the callers own options
+  bash -euo pipefail -c '. "$1" && session_status_of "$2" && printf "%s" "$sess_state"' _ "$LIB" "$1" 2>/dev/null
+}
+REAL_NB="$HOME/obsidian/00-09 System/03 Agents/03.04 Records/Agent notebook"
+if [ -d "$REAL_NB" ]; then
+  # READ-ONLY, and the population that matters: every entry in the live notebook, in one strict shell. What is
+  # asserted is that the run SURVIVES — a non-zero exit means some real entry aborts a caller — and that no
+  # entry reads as a conflict, because a single conflict refuses the renamer for every session.
+  real_out=$(bash -euo pipefail -c '
+    . "$1" || exit 9
+    shift
+    for f in "$@"; do session_status_of "$f"; printf "%s\n" "$sess_state"; done
+  ' _ "$LIB" "$REAL_NB"/*/*.md 2>/dev/null)
+  real_rc=$?
+  eq "the live notebook does not abort a strict caller" "$real_rc" 0
+  eq "no live entry reads as a conflict" "$(printf '%s\n' "$real_out" | grep -c '^conflict$' || true)" 0
+  printf '      live census: %s entries — %s\n' \
+    "$(printf '%s\n' "$real_out" | grep -c . || true)" \
+    "$(printf '%s\n' "$real_out" | sort | uniq -c | tr '\n' ' ' | sed -E 's/[[:space:]]+/ /g')"
+else
+  printf 'SKIP  the live notebook is not at %s, so the population case did not run\n' "$REAL_NB"
+fi
+
+echo "=== 2. the library: every key in every state, and both keys together"
 state_of() { bash -c '. "$1" && session_status_of "$2" && printf "%s" "$sess_state"' _ "$LIB" "$1"; }
 detail_of() { bash -c '. "$1" && session_status_of "$2" && printf "%s" "$sess_detail"' _ "$LIB" "$1"; }
 
@@ -134,41 +172,18 @@ eq "session_is_running refuses an absent key"  "$(bash -c '. "$1" && session_is_
 
 echo
 echo
-echo "=== 1b. under the callers real shell options, which is how the fatal one hid"
+echo "=== 2b. the fixtures too, under those same options"
 # `rename-notebook.sh` runs under `set -euo pipefail`. The library's key reader used to end in a `grep` that
 # exits 1 when a key is absent, so under `pipefail` the assignment failed and under `set -e` the CALLER died
 # mid-loop with exit 1 — on every entry carrying only one key, which is almost every entry in the notebook.
 # Nothing in the first version of this suite ran either script under those options, which is exactly why 48
 # checks passed over a script that could not survive its own notebook. These cases run the library the way its
 # caller does, and one of them walks the REAL notebook, which is the population that broke it.
-strict_state() {  # the library under the callers own options
-  bash -euo pipefail -c '. "$1" && session_status_of "$2" && printf "%s" "$sess_state"' _ "$LIB" "$1" 2>/dev/null
-}
 for pair in "$E_OLD_RUN:running" "$E_NEW_RUN:running" "$E_NEITHER:absent" "$E_LIVE_DRAFT:ended" "$E_CONFLICT:conflict"; do
   f=${pair%:*}; want=${pair##*:}
   eq "strict: $(basename "$f")" "$(strict_state "$f")" "$want"
 done
-REAL_NB="$HOME/obsidian/00-09 System/03 Agents/03.04 Records/Agent notebook"
-if [ -d "$REAL_NB" ]; then
-  # READ-ONLY, and the population that matters: every entry in the live notebook, in one strict shell. What is
-  # asserted is that the run SURVIVES — a non-zero exit means some real entry aborts a caller — and that no
-  # entry reads as a conflict, because a single conflict refuses the renamer for every session.
-  real_out=$(bash -euo pipefail -c '
-    . "$1" || exit 9
-    shift
-    for f in "$@"; do session_status_of "$f"; printf "%s\n" "$sess_state"; done
-  ' _ "$LIB" "$REAL_NB"/*/*.md 2>/dev/null)
-  real_rc=$?
-  eq "the live notebook does not abort a strict caller" "$real_rc" 0
-  eq "no live entry reads as a conflict" "$(printf '%s\n' "$real_out" | grep -c '^conflict$' || true)" 0
-  printf '      live census: %s entries — %s\n' \
-    "$(printf '%s\n' "$real_out" | grep -c . || true)" \
-    "$(printf '%s\n' "$real_out" | sort | uniq -c | tr '\n' ' ' | sed -E 's/[[:space:]]+/ /g')"
-else
-  printf 'SKIP  the live notebook is not at %s, so the population case did not run\n' "$REAL_NB"
-fi
-
-echo "=== 2. wake-session: its own awk index, run directly, gives the same word"
+echo "=== 3. wake-session: its own awk index, run directly, gives the same word"
 # THE PROGRAM IS EXTRACTED AND RUN, rather than the script driven. `wake-session.sh` builds this index only on
 # a path that first resolves a live session, so driving the script would need a live fixture — and the thing
 # under test is not the script, it is the COPY OF THE RULE inside its awk program. So the program is pulled out
@@ -221,7 +236,7 @@ done
 eq "the library and the awk agree on every fixture" "$disagreements" 0
 
 echo
-echo "=== 3. rename-notebook, at source level only: it reads the shared rule, it does not restate it"
+echo "=== 4. rename-notebook, at source level only: it reads the shared rule, it does not restate it"
 # WHAT CANNOT BE TESTED HERE, said rather than skipped quietly: this script resolves the session NAME from
 # `~/.claude/sessions/<pid>.json` through a `SESSIONS_DIR` that is a plain variable, not a flag, so an
 # end-to-end run needs either a live session or a `--sessions-dir` test flag the script does not have. Adding
@@ -246,7 +261,7 @@ src_has "the source refuses an unreadable rule file" 'is missing or unreadable a
 src_has "the source refuses one that does not parse" 'does not parse' yes
 src_has "the source refuses one that defines nothing" 'defined no reader' yes
 
-echo "=== 4. the hook: it reads the notebook for real, and NEVER fails a turn"
+echo "=== 5. the hook: it reads the notebook for real, and NEVER fails a turn"
 # THE FIRST VERSION OF THIS SECTION COULD NOT FAIL, and the review said so plainly. It passed the fixture as
 # `NOTEBOOK_DIR`, which the hook does not read — it reads `NOTEBOOK_NAME_SYNC_DIR` — and it used a session id
 # that matches no registry row, so the hook exited before it read any notebook at all. Four cases, one
@@ -320,7 +335,7 @@ status: archived/ended"
 fi
 
 echo
-echo "=== 4b. rename-notebook: the refusal is REACHED, not merely present in the source"
+echo "=== 5b. rename-notebook: the refusal is REACHED, not merely present in the source"
 # D7: the first version of this section grepped the script for its own message strings, which proves a string
 # exists and nothing about whether the branch runs. This drives the script instead. It cannot be driven
 # end-to-end — the display name comes from `~/.claude/sessions` through a plain variable, not a flag, which is
@@ -353,7 +368,7 @@ else
   esac
 fi
 
-echo "=== 5. nothing in this repository writes the old key any more"
+echo "=== 6. nothing in this repository writes the old key any more"
 # The ruling says what is WRITTEN from now carries `status: draft/running` and never `session-status`. Nothing
 # in this repo writes either key into a note today, so what this guards is that it stays that way: a writer
 # added later that emits the old key would be building work for the same migration twice.
