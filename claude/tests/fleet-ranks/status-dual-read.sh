@@ -34,8 +34,16 @@ TMP=$(mktemp -d -t status-dual-read) || exit 1
 trap 'rm -rf "$TMP"' EXIT
 NB="$TMP/notebook/2026-09"
 mkdir -p "$NB"
-n=0; fails=0
+n=0; fails=0; skips=0
 eq() { n=$((n + 1)); if [ "$2" = "$3" ]; then printf 'PASS  %-58s %s\n' "$1" "$2"; else fails=$((fails + 1)); printf 'FAIL  %-58s got %s, want %s\n' "$1" "$2" "$3"; fi; }
+# `pass` and `fail` exist because two cases cannot be written as an `eq`, and because their ABSENCE cost this
+# suite its most important assertion: the sibling suites define them, this one did not, and two `pass`/`fail`
+# calls added in the fix-forward were silent `command not found` lines. Under `set -u` a missing command does
+# not stop a script, so the run still reported "0 failed" while the headline case — an unrelated record must
+# not poison the renamer — could not fail in either direction. A helper that does not exist is worse than an
+# assertion that is wrong, because nothing in the output says so.
+pass() { n=$((n + 1)); printf 'PASS  %-58s %s\n' "$1" "${2:-yes}"; }
+fail() { n=$((n + 1)); fails=$((fails + 1)); printf 'FAIL  %-58s %s\n' "$1" "${2:-}"; }
 
 # entry <file> <session name> <frontmatter lines…>: the keys are passed verbatim so a case can write one key,
 # both keys, or neither, and nothing here normalises them.
@@ -77,12 +85,21 @@ if [ -d "$REAL_NB" ]; then
   ' _ "$LIB" "$REAL_NB"/*/*.md 2>/dev/null)
   real_rc=$?
   eq "the live notebook does not abort a strict caller" "$real_rc" 0
+  # THE POPULATION MUST NOT BE EMPTY, or the conflict check below passes by reading nothing: `grep -c` over one
+  # empty line is 0, which is indistinguishable from a clean notebook. A count is asserted here — and only here
+  # — because zero entries means this section measured NOTHING while claiming both fatal defects die in it.
+  live_n=$(printf '%s\n' "$real_out" | grep -c . || true)
+  if [ "$live_n" -gt 100 ]; then pass "the population is real ($live_n entries read)"
+  else fail "the population is real" "only $live_n entries were read; this section proves nothing at that size"; fi
   eq "no live entry reads as a conflict" "$(printf '%s\n' "$real_out" | grep -c '^conflict$' || true)" 0
   printf '      live census: %s entries — %s\n' \
     "$(printf '%s\n' "$real_out" | grep -c . || true)" \
     "$(printf '%s\n' "$real_out" | sort | uniq -c | tr '\n' ' ' | sed -E 's/[[:space:]]+/ /g')"
 else
-  printf 'SKIP  the live notebook is not at %s, so the population case did not run\n' "$REAL_NB"
+  # COUNTED, so a machine without the vault cannot run this suite green while missing the only section that
+  # meets the real population. A skip that nothing counts is a hole with a label on it.
+  n=$((n + 1)); skips=$((skips + 1))
+  printf 'SKIP  %-58s the notebook is not at %s\n' "the real-notebook population case" "$REAL_NB"
 fi
 
 echo "=== 2. the library: every key in every state, and both keys together"
@@ -115,6 +132,16 @@ E_NO_FM="$NB/no-frontmatter.md"
 printf -- 'not frontmatter\n\n---\nsession: "[L0-CC] no frontmatter"\nstatus: draft/running\n---\n' > "$E_NO_FM"
 E_COMMENT=$(entry commented "[L0-CC] commented" 'status: draft/running # while it runs')
 E_STABLE=$(entry stable "[L0-CC] a stable note" 'status: stable/verified')
+# THE COMBINATIONS, which is where the divergences hid. Six inputs disagreed between the library and the awk
+# after the fix-forward added comment-stripping to both in different positions, and not one of them was
+# reachable from the fixtures then present: every quoted fixture was uncommented and the commented one was
+# unquoted. A cross-product of two features is a different test from each feature alone.
+E_Q_COMMENT=$(entry quoted-comment     "[L0-CC] quoted and commented"   'status: "draft/running" # while it runs')
+E_Q_COMMENT2=$(entry quoted-comment2   "[L0-CC] quoted and commented 2" "session-status: 'running' # note")
+E_HASH_IN=$(entry hash-inside          "[L0-CC] hash inside the quotes" 'status: "draft/running #x"')
+E_CR_IN="$NB/cr-inside.md"
+printf -- '---\nsession: "[L0-CC] a CR inside the value"\nstatus: draft\r/running\n---\n' > "$E_CR_IN"
+E_MALFORMED_PLUS=$(entry malformed-plus "[L0-CC] malformed beside a claim" 'session-status: paused' 'status: draft/running')
 E_NEWVAL_OLDKEY=$(entry newval-oldkey "[L0-CC] new value on the old key" 'session-status: draft/running')
 
 eq "old key alone, running"        "$(state_of "$E_OLD_RUN")"    running
@@ -151,6 +178,18 @@ eq "a duplicated key: the LAST one wins"         "$(state_of "$E_DUP")"        r
 eq "a key after a --- in the BODY is not read"   "$(state_of "$E_BODY_KEY")"   running
 eq "a file whose first line is not a fence"      "$(state_of "$E_NO_FM")"      absent
 eq "a trailing YAML comment is not part of the value" "$(state_of "$E_COMMENT")" running
+eq "a QUOTED value with a comment"                    "$(state_of "$E_Q_COMMENT")"   running
+eq "single-quoted with a comment, on our own key"     "$(state_of "$E_Q_COMMENT2")"  running
+eq "a hash INSIDE the quotes is part of the value"    "$(state_of "$E_HASH_IN")"     absent
+eq "a carriage return inside the value"               "$(state_of "$E_CR_IN")"       running
+# A MALFORMED VALUE ON OUR KEY IS NOT A CLAIM, so it cannot conflict with a real one: the real claim wins and
+# the malformed value is named. The first version read this as `conflict`, which refused the renamer for that
+# session over a value that claims nothing — and contradicted the library's own state table.
+eq "malformed on our key beside a real claim"          "$(state_of "$E_MALFORMED_PLUS")" running
+case "$(detail_of "$E_MALFORMED_PLUS")" in
+  *"'paused'"*) eq "and the malformed value is still named" yes yes ;;
+  *) eq "and the malformed value is still named" "no: $(detail_of "$E_MALFORMED_PLUS")" yes ;;
+esac
 
 # A CONFLICT MUST NAME BOTH VALUES, because a refusal that says only "they disagree" leaves a human opening
 # the file to find out which key is stale — and which is stale is the whole question during the window.
@@ -197,6 +236,12 @@ echo "=== 3. wake-session: its own awk index, run directly, gives the same word"
 AWK_PROG="$TMP/index.awk"
 sed -n "/^index_awk='/,/^'\$/p" "$WAKE" | sed '1d;$d' > "$AWK_PROG"
 eq "the awk program was extracted from the script" "$([ -s "$AWK_PROG" ] && echo yes || echo no)" yes
+# NOT ONE LITERAL APOSTROPHE INSIDE THE PROGRAM. It lives in a single-quoted shell string, so one apostrophe in
+# a comment ends the string and the shell parses awk source as commands — a syntax error at a line nobody was
+# editing. It happened TWICE in one evening, both times inside a comment explaining something careful, so this
+# is a case rather than a warning in a header. awk writes a literal quote as \047.
+apos_count=$(grep -c "'" "$AWK_PROG" 2>/dev/null || true)
+eq "no literal apostrophe inside the awk program" "${apos_count:-unknown}" 0
 index_word() {  # $1 = a fixture path; prints field 4 of the index row
   awk -v key=reports-to -f "$AWK_PROG" "$1" 2>/dev/null | head -n 1 | cut -f 4
 }
@@ -212,6 +257,11 @@ eq "awk: an unnamed old value"        "$(index_word "$E_OTHER_OLD")"  other
 eq "awk: a stable path on the shared key is not a claim" "$(index_word "$E_OTHER_NEW")" absent
 eq "awk: a quoted old value"          "$(index_word "$E_QUOTED")"     running
 eq "awk: a single-quoted new value"   "$(index_word "$E_QUOTED_NEW")" running
+eq "awk: a quoted value with a comment"        "$(index_word "$E_Q_COMMENT")"  running
+eq "awk: single-quoted with a comment"         "$(index_word "$E_Q_COMMENT2")" running
+eq "awk: a hash inside the quotes"             "$(index_word "$E_HASH_IN")"    absent
+eq "awk: a carriage return inside the value"   "$(index_word "$E_CR_IN")"      running
+eq "awk: malformed on our key beside a claim"  "$(index_word "$E_MALFORMED_PLUS")" running
 # AND THE TWO ROADS MUST AGREE ENTRY BY ENTRY, which is the assertion that actually guards the duplication:
 # the library and the awk are two copies of one rule, and this compares them on every fixture rather than
 # trusting that both were edited.
@@ -221,7 +271,8 @@ disagreements=0
 # by hand were shapes no fixture had. Those shapes are now fixtures, and they are in this loop.
 for f in "$E_OLD_RUN" "$E_OLD_END" "$E_NEW_RUN" "$E_NEW_END" "$E_BOTH_RUN" "$E_BOTH_END" "$E_CONFLICT" "$E_CONFLICT2" \
          "$E_NEITHER" "$E_OTHER_OLD" "$E_OTHER_NEW" "$E_QUOTED" "$E_QUOTED_NEW" \
-         "$E_LIVE_DRAFT" "$E_QUOTED_SP" "$E_DUP" "$E_BODY_KEY" "$E_NO_FM" "$E_COMMENT" "$E_STABLE" "$E_NEWVAL_OLDKEY"; do
+         "$E_LIVE_DRAFT" "$E_QUOTED_SP" "$E_DUP" "$E_BODY_KEY" "$E_NO_FM" "$E_COMMENT" "$E_STABLE" "$E_NEWVAL_OLDKEY" \
+         "$E_Q_COMMENT" "$E_Q_COMMENT2" "$E_HASH_IN" "$E_CR_IN" "$E_MALFORMED_PLUS"; do
   a=$(state_of "$f"); b=$(index_word "$f")
   # An entry the INDEX does not carry at all — no `session:` key inside its frontmatter, which is true of the
   # no-frontmatter fixture — yields an empty word rather than `absent`. That is the same answer in the index's
@@ -380,17 +431,22 @@ echo "=== 6. nothing in this repository writes the old key any more"
 # other way round: find every line that writes the old key's TEXT, whatever the mechanism, by looking for the
 # key in a context that is not a comment and not a read. Comments are dropped by looking after the line number
 # prefix, and the tests are excluded by path because their fixtures write it on purpose.
+#
+# AND `\|\|` IS OUT OF THE EXCLUSION LIST. It dropped EVERY line containing `||`, so a real writer written as
+# `printf 'session-status: running\n' >> "$f" || die ...` was silently not found — and `|| die` is how half the
+# scripts in this repo are written. An exclusion list is exactly where a filter quietly becomes a blindfold, so
+# every term in it has to name the KIND of line it removes, never a character that appears in the lines it was
+# meant to catch.
 writers=$(grep -rn "session-status" "$ROOT/claude" --include='*.sh' 2>/dev/null \
   | grep -v '/tests/' \
   | sed -E 's/^[^:]+:[0-9]+://' \
   | grep -vE '^[[:space:]]*#' \
   | grep -E "session-status[[:space:]]*:" \
-  | grep -vE 'grep|match\(|session_status_value|case |\|\||printf .notebook-name-sync' || true)
-if [ -z "$writers" ]; then
-  pass "no script writes session-status into a note"
-else
-  fail "no script writes session-status into a note" "$(printf '%s' "$writers" | head -n 2 | tr '\n' ' ')"
-fi
+  | grep -vE 'grep|match\(|session_status_value|case |printf .notebook-name-sync' || true)
+# COUNTED, the way it was before the fix-forward replaced it with an inert `pass`. The count is the assertion;
+# the first two offenders print beside it so a failure says what to look at.
+eq "no script writes session-status into a note" "$(printf '%s' "$writers" | grep -c . || true)" 0
+[ -z "$writers" ] || printf '      offenders: %s\n' "$(printf '%s' "$writers" | head -n 2 | tr '\n' ' ')"
 # AND THE HEREDOC SHAPE IS PROVEN TO BE CATCHABLE, on a fixture, so the search above is not trusted blind: a
 # file that writes the old key through a heredoc must be FOUND by it. A test of the test, because the review
 # found this exact false negative.
@@ -406,5 +462,5 @@ eq "the library names the expiry date"  "$(grep -q '2026-10-04' "$LIB" && echo y
 eq "the library still knows the old key" "$(grep -q 'session-status' "$LIB" && echo yes || echo no)" yes
 eq "the library knows the new values"    "$(grep -q 'draft/running' "$LIB" && grep -q 'archived/ended' "$LIB" && echo yes || echo no)" yes
 
-printf '\n%s checks, %s failed\n' "$n" "$fails"
+printf '\n%s checks, %s failed, %s skipped\n' "$n" "$fails" "$skips"
 [ "$fails" = 0 ] || exit 1

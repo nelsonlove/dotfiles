@@ -18,8 +18,10 @@
 # of note since long before any of this. `session-status` was ours alone and meant nothing else. So:
 #
 #   `session-status`  OURS. `running` or `draft/running` is a live claim, `ended` or `archived/ended` a dead
-#                     one, and ANY OTHER VALUE is `other` — a malformed session status worth flagging,
-#                     because nothing else ever writes that key.
+#                     one, and any other NON-EMPTY value is `other` — a malformed session status worth
+#                     flagging, because nothing else ever writes that key. An EMPTY value (`session-status:`
+#                     with nothing after it) is treated as absent rather than malformed: a key with no value is
+#                     a key nobody finished writing, and there is nothing to flag or to act on.
 #   `status`          SHARED. Only `draft/running` and `archived/ended` are session claims. Every other value
 #                     — `draft`, `stable/verified`, `archived`, anything — IS NOT A SESSION CLAIM AT ALL and
 #                     is ignored exactly as if the key were absent.
@@ -86,9 +88,13 @@ SESSION_STATUS_DUAL_UNTIL="2026-10-04"
 # `flag_*` globals that a caller may be holding mid-loop, and two libraries writing one another's variables is
 # a collision no test would catch.
 session_status_block() {  # $1 = file; prints the frontmatter lines, or nothing
+  # EVERY `\r` GOES, not only a trailing one. The awk in `wake-session.sh` does `gsub(/\r/, "", s)`, so a value
+  # with a carriage return INSIDE it — `draft\r/running` — read as two different things in the two readers
+  # until this line matched that behaviour. A CRLF file is the ordinary case for a note edited on another
+  # platform, and the pause parser learned the same lesson before it (see `claude/lib/pause-flag.sh`).
   awk 'NR == 1 { if ($0 !~ /^---[ \t\r]*$/) exit 1; next }
        /^---[ \t\r]*$/ { exit }
-       { print }' "$1" 2>/dev/null || true
+       { gsub(/\r/, ""); print }' "$1" 2>/dev/null || true
 }
 
 # One key's value out of a block, or empty. THE LAST OCCURRENCE WINS, because that is what the `awk` index in
@@ -137,6 +143,17 @@ session_status_of() {  # $1 = the notebook entry's path
     *)                        new_state="" ;;
   esac
 
+  # A MALFORMED VALUE ON OUR KEY IS NOT A CLAIM, so it cannot disagree with one. This file's own table says
+  # `other` is "not treated as either" and `conflict` is "BOTH keys make a claim" — and the first version of
+  # this code contradicted both by reading `session-status: paused` beside `status: draft/running` as a
+  # conflict, which refused the renamer for that session over a value that claims nothing. The review of the
+  # fix-forward caught it while it was still latent (no live entry carries `other` today). The real claim wins
+  # and the malformed value is NAMED in the detail, which is what a human needs to see to fix it.
+  if [ "$old_state" = "other" ] && [ -n "$new_state" ]; then
+    sess_state="$new_state"
+    sess_detail="status says '$new_val', which this took as the answer, while session-status carries '$old_val', which is not a session status at all; the malformed key wants fixing but it changes nothing here"
+    return 0
+  fi
   if [ -n "$old_state" ] && [ -n "$new_state" ]; then
     if [ "$old_state" = "$new_state" ]; then
       sess_state="$old_state"

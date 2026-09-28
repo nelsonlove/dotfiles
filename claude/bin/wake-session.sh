@@ -265,13 +265,21 @@ index_awk='
 function strip(s) {
   gsub(/\r/, "", s)
   sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s)
+  # THE COMMENT COMES OFF BEFORE THE QUOTES, and the order is the whole of it. The fix-forward added this strip
+  # to this program and to `claude/lib/session-status.sh` in DIFFERENT positions, so on a quoted value carrying
+  # a comment the quote test below ran with the comment still attached and failed, and a `#` inside quotes had
+  # the quotes taken off first and part of the value eaten. Six inputs disagreed between the two readers, and
+  # no fixture combined a quote with a comment, so the agreement check could not see one of them. The order in
+  # claude/lib/session-status.sh is the correct one and this matches it: comment, then whitespace, then quotes.
+  #
+  # AND NO APOSTROPHE IN THIS BLOCK, ever: it sits in a single-quoted shell string, so one ends the string and
+  # the shell parses awk source as commands. That has happened twice in one evening, both times in a careful
+  # comment, so the suite now fails on a literal apostrophe anywhere in this program.
+  sub(/[ \t]+#.*$/, "", s)
+  sub(/[ \t]+$/, "", s)
   gsub(/\t/, " ", s)   # the index is tab-separated, so a tab inside a value would split a field
   if (s ~ /^".*"$/) s = substr(s, 2, length(s) - 2)
   else if (s ~ /^\047.*\047$/) s = substr(s, 2, length(s) - 2)
-  # A trailing YAML comment is not part of the value, and the library strips one too; the two readers must
-  # agree about this or a commented status reads as two different things in one repository.
-  sub(/[ \t]+#.*$/, "", s)
-  sub(/[ \t]+$/, "", s)
   return s
 }
 function stamp_of(path) {
@@ -308,6 +316,10 @@ function state_word() {
   # seven live entries conflict and killed the renamer for every session, which the review of #65 caught.
   if (new_stat == "draft/running") n = "running"
   else if (new_stat == "archived/ended") n = "ended"
+  # A MALFORMED VALUE ON OUR KEY IS NOT A CLAIM, so it cannot disagree with a real one: the claim wins. The
+  # library says the same and says why at length; this arm exists because the two were fixed separately and the
+  # suite caught the difference on its first run with a fixture for it.
+  if (o == "other" && n != "") return n
   if (o != "" && n != "") { if (o == n) return o; else return "conflict" }
   if (n != "") return n
   if (o != "") return o

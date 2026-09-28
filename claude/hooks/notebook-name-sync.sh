@@ -73,12 +73,16 @@ if [ -r "$SESSION_STATUS_LIB" ] && bash -n "$SESSION_STATUS_LIB" 2>/dev/null && 
   while IFS= read -r hit; do
     [ -n "$hit" ] || continue
     session_status_of "$hit"
-    case "$sess_state" in
+    # `${sess_state:-}` AND NOT `$sess_state`. The guard above proves the rule file is readable, parses, and
+    # defines the reader — and a file can pass all three while setting no globals at all, which under `set -u`
+    # made this line an unbound-variable abort: rc=1 from a hook whose whole contract is that it never fails a
+    # turn. Found by the review of the fix-forward, which added the broken-library cases and missed this shape.
+    case "${sess_state:-}" in
       running) in_step=1; break ;;
       conflict)
         # Not renamed, and said out loud: an entry that disagrees with itself is a thing a human must fix, and
         # this hook is the only machinery that reads it every turn.
-        printf 'notebook-name-sync: %s disagrees with itself about its session status — %s; nothing renamed\n' "$hit" "$sess_detail" >&2
+        printf 'notebook-name-sync: %s disagrees with itself about its session status — %s; nothing renamed\n' "$hit" "${sess_detail:-no detail}" >&2
         in_step=1; break ;;
     esac
   done <<EOF
