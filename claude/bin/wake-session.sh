@@ -268,6 +268,10 @@ function strip(s) {
   gsub(/\t/, " ", s)   # the index is tab-separated, so a tab inside a value would split a field
   if (s ~ /^".*"$/) s = substr(s, 2, length(s) - 2)
   else if (s ~ /^\047.*\047$/) s = substr(s, 2, length(s) - 2)
+  # A trailing YAML comment is not part of the value, and the library strips one too; the two readers must
+  # agree about this or a commented status reads as two different things in one repository.
+  sub(/[ \t]+#.*$/, "", s)
+  sub(/[ \t]+$/, "", s)
   return s
 }
 function stamp_of(path) {
@@ -295,8 +299,15 @@ function stamp_of(path) {
 # ambiguity note, where saying `conflict` rather than a value that was quietly picked is the whole point.
 function state_word() {
   o = ""; n = ""
-  if (old_stat == "running") o = "running"; else if (old_stat == "ended") o = "ended"; else if (old_stat != "") o = "other"
-  if (new_stat == "draft/running") n = "running"; else if (new_stat == "archived/ended") n = "ended"; else if (new_stat != "") n = "other"
+  if (old_stat == "running" || old_stat == "draft/running") o = "running"
+  else if (old_stat == "ended" || old_stat == "archived/ended") o = "ended"
+  else if (old_stat != "") o = "other"
+  # THE ASYMMETRY, and the library says why at length: `status` is the vault-wide note key, so ONLY these two
+  # values are session claims and every other value is not ours to read. `session-status` is ours alone, so
+  # anything unrecognised there is a malformed session status. Reading a bare `status: draft` as a claim made
+  # seven live entries conflict and killed the renamer for every session, which the review of #65 caught.
+  if (new_stat == "draft/running") n = "running"
+  else if (new_stat == "archived/ended") n = "ended"
   if (o != "" && n != "") { if (o == n) return o; else return "conflict" }
   if (n != "") return n
   if (o != "") return o
