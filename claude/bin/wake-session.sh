@@ -559,8 +559,8 @@ load_row() {  # $1 = a row as JSON
   # An admiral is matched by its FULL NAME. A row that reads as rank -1 (from the admiral definition or an [A0] name) but is not one of the two admirals was not made by Nelson, so its rank cannot be read: row_why says why, for the refusal and the survey (review 1 of #88).
   row_why=""
   if [ "$row_rank" = -1 ] && ! is_admiral "$row_name"; then
-    if [ "$(rank_of_name "$row_name")" = -1 ]; then row_why="its [A0] name is not an admiral's name"
-    else row_why="it runs the admiral definition but its name is not an admiral's name"; fi
+    if [ "$(rank_of_name "$row_name")" = -1 ]; then row_why="has an [A0] name that is not an admiral's name"
+    else row_why="runs the admiral definition under a name that is not an admiral's name"; fi
     row_rank=9
   fi
   row_alive=0

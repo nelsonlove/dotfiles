@@ -242,6 +242,9 @@ else
 fi
 
 name_ship=$(ship_of_name "$name")
+# The table reads a ship code in any case (so `[L0-dv]` is DV), but this script WRITES the new name as given, so the code in it must be in capitals (review 2 of #88).
+# Compared with its upper-cased form, not a `[a-z]` pattern, which some locales' collation matches to capitals too.
+[ "$(printf '%s' "$name" | sed -n -E 's/^\[[A-Za-z][0-9]-([A-Za-z]{1,4})\].*/\1/p')" = "$name_ship" ] || die "--name '$name' must carry its ship code in capitals, like \"$(code_of_rank "$to_rank" "$name_ship") …\""
 [ -n "$name_ship" ] || die "--name '$name' must carry the coded form, rank and ship together, like \"$(code_of_rank "$to_rank" "$new_ship") <name>\""
 ship_is_known "$name_ship" || die "--name '$name' carries the ship code '$name_ship', which is not one of: $(unguarded "$KNOWN_SHIPS")"
 # THE ADMIRALS AND THE GUARDED SHIP (areas ruling, log 2026-09-29T03:35): `ship_refusal` in the table is the
@@ -265,11 +268,11 @@ old_agent=$(jq -r '.template // "bg"' "$JOBS_DIR/$old_id/state.json" 2>/dev/null
 old_rank=$(rank_of_agent "$old_agent")
 # An admiral is matched by its FULL NAME (the table's rule). A session that runs the admiral definition under a
 # name that is not an [A0] name was not made by Nelson, so its rank cannot be read (review 1 of #80).
+[ "$old_rank" != 9 ] && [ "$old_agent" != bg ] || old_rank=$(rank_of_name "$old_name")
 if [ "$old_rank" = -1 ] && ! is_admiral "$old_name"; then
-  # An admiral is one of the two full names (the table's `is_admiral`); an [A0] name or the admiral definition under any other name is refused (review 1 of #88).
+  # After the name fallback, so it covers both roads to -1: the admiral definition, and an [A0] name with no definition. An admiral is one of the two full names (the table's `is_admiral`); anything else that reads as -1 is refused (reviews 1 and 2 of #88).
   die "refused: \`$old_name\` reads as an admiral but is not an admiral's name; only Nelson makes an admiral, so its rank cannot be read"
 fi
-[ "$old_rank" != 9 ] && [ "$old_agent" != bg ] || old_rank=$(rank_of_name "$old_name")
 [ "$old_rank" != 9 ] || die "cannot tell the target's current rank from its agent ('$old_agent') or its name ('$old_name')"
 [ "$old_rank" -gt "$by_rank" ] || die "refused: $old_name ($(word_of_rank "$old_rank")) is not below $by; a rank changes only ranks below its own"
 [ "$old_rank" -ne "$to_rank" ] || die "$old_name is already a $(word_of_rank "$to_rank")"
