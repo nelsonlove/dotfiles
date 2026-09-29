@@ -128,10 +128,14 @@ code_of_rank() {  # $1 = rank, $2 = ship code
 # PE 10-19 Personal, PP 20-29 People, HH 30-39 Household, FN 40-49 Financial, ED 50-59 Education & research,
 # WK 60-69 Work, HB 70-79 Hobbies & media, and DV 80-89 Divorce. SEVEN ARE LISTED HERE; DV IS NOT, ON
 # PURPOSE: DV is guarded (its captain starts only when Nelson starts it), and a known DV code with no guard
-# would let any honest caller promote a session onto it. So DV stays unknown, and every script refuses it,
-# until it joins this list in the same change as its guard. The same ruling puts the area ships under a
+# would let any honest caller promote a session onto it. So DV stays unknown until it joins this list in
+# the same change as its guard: promote-session.sh refuses a DV name and a DV-coded target; wake-session.sh
+# does not check ships at all yet. The same ruling puts the area ships under a
 # second admiral, `[A0] areas admiral`; this table does not yet tell the two admirals apart (both are the
-# bare `[A0]`, rank -1), and that split lands with the DV guard. FL is not a ship but the marker of a floating session shared across captains, and it is listed
+# bare `[A0]`, rank -1), and that split lands with the DV guard. Until then the rear admiral reaches the
+# seven known area ships too.
+#
+# FL is not a ship but the marker of a floating session shared across captains, and it is listed
 # beside them because it is what such a name carries.
 #
 # ADD A SHIP HERE AND NOWHERE ELSE. `FLOATING_SHIP` sits directly below on purpose: `FL` appears both in
@@ -162,5 +166,7 @@ ship_of_name() {
 }
 
 ship_is_known() {
+  # One code, no spaces: the list is matched space-padded, so 'CC OB' would otherwise match (review 6 of #72).
+  case "$1" in ""|*[[:space:]]*) return 1 ;; esac
   case " $KNOWN_SHIPS " in *" $1 "*) return 0 ;; *) return 1 ;; esac
 }

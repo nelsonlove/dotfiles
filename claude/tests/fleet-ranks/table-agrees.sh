@@ -109,6 +109,8 @@ for s in MA PE PP HH FN ED WK HB; do eq "$s is known" "$(ship_is_known "$s" && e
 eq "DV is not known until its guard lands" "$(ship_is_known DV || echo no)" no
 eq "XX is not"            "$(ship_is_known XX || echo no)"  no
 eq "an empty code is not" "$(ship_is_known '' || echo no)"  no
+eq "two codes in one value are not" "$(ship_is_known 'CC OB' || echo no)" no
+eq "a padded code is not"  "$(ship_is_known ' CC' || echo no)" no
 eq "ship of [L0-CC]"      "$(ship_of_name '[L0-CC] dotfiles')" CC
 eq "ship of [C0-HS]"      "$(ship_of_name '[C0-HS] orange')"   HS
 eq "ship of [C0-MA]"      "$(ship_of_name '[C0-MA] macos')"    MA
@@ -130,7 +132,7 @@ echo "=== promote-session.sh speaks the table: MA passes the ship gate, and both
 # and --log point into the temp dir. The one real dependency is `jq`, which the script itself needs; without
 # it these cases are counted as skipped, and the skip is in the summary line.
 PTMP=$(mktemp -d "${TMPDIR:-/tmp}/table-agrees.XXXXXX") || exit 1
-trap 'trash "$PTMP" 2>/dev/null || true' EXIT   # trash, never rm (CLAUDE.md); a dir it cannot trash stays in the temp dir
+trap '/usr/bin/trash "$PTMP" 2>/dev/null || true' EXIT   # trash, never rm (CLAUDE.md); a dir it cannot trash stays in the temp dir
 ZERO=00000000-0000-0000-0000-000000000000
 mkdir -p "$PTMP/home/.claude/agents" "$PTMP/stubbin" "$PTMP/cwd"
 : > "$PTMP/home/.claude/agents/lieutenant-commander.md"
@@ -155,12 +157,18 @@ if command -v jq >/dev/null 2>&1; then
   eq "--ship MA and a [C2-MA] name pass the ship gates" "$(reached MA "$out")" past-the-ship-gates
   out=$(pr --name "[C2-DV] x" --by "[C0] ship words test" --ship DV)
   eq "--ship DV is refused as unknown" "$out" "promote-session: --ship must be one of: CC OB HS MA PE PP HH FN ED WK HB FL; got 'DV'"
+  # A target already coded with a ship this table does not know (DV, until its guard) is refused whatever
+  # --ship says: round 6 of the review of #72 moved a `[L0-DV]` session onto CC with `--ship CC`.
+  row "[L0-DV] ship words target"
+  out=$(pr --name "[C2-CC] x" --by "[A0] rear admiral" --ship CC)
+  eq "a DV-coded target is refused even with --ship" "$out" "promote-session: refused: \`[L0-DV] ship words target\` carries the ship code 'DV', which is not one of: CC OB HS MA PE PP HH FN ED WK HB FL"
+  row "[L0] ship words target"
   # The common path: a coded MA caller, no --ship, on an MA target (the ship comes from the caller).
   row "[L0-MA] ship words target"
   out=$(pr --name "[C2-MA] x" --by "[C0-MA] macos")
   eq "[C0-MA] on an MA target, no --ship, passes" "$(reached MA "$out")" past-the-ship-gates
 else
-  skipped=5; printf 'SKIP  the five promote-session cases: jq is not installed, and the script needs it\n'
+  skipped=6; printf 'SKIP  the six promote-session cases: jq is not installed, and the script needs it\n'
 fi
 
 echo
@@ -186,10 +194,11 @@ done
 # the review of #72 (three MA table cases, `ships_in_words`, two promote-session cases, and the two new
 # negative checks), 93 with the rear admiral's refusal, 102 with the eight area ships (one
 # known-check each, and the ship of a [C0-DV] name), 103 with the [C0-MA] common-path case, 104 with ships_in_words under a strict-mode IFS, and 105
-# with DV held out (the DV known-check became a not-known check, and one promote case refuses --ship DV).
+# with DV held out (the DV known-check became a not-known check, and one promote case refuses --ship DV), and 108 with
+# a DV-coded target refused under --ship and two values with a space refused as ships (review 6).
 # Change EXPECTED only in the commit that adds or removes a check, and say which.
 # The count is part of the summary line, so a run that lost checks can never print a green summary.
-EXPECTED=105
+EXPECTED=108
 [ $((n + skipped)) = "$EXPECTED" ] || { fails=$((fails + 1)); echo "FAIL  the check count is $((n + skipped)) ($n run, $skipped skipped), expected $EXPECTED: a line was lost or added without updating EXPECTED"; }
 printf '\n%s checks (expected %s), %s skipped, %s failed\n' "$n" "$EXPECTED" "$skipped" "$fails"
 [ "$fails" = 0 ] || exit 1

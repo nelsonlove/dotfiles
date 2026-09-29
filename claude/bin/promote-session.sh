@@ -263,6 +263,10 @@ if [ "$to_rank" -lt "$old_rank" ]; then verb=promoted; else verb=demoted; fi
 # A session belongs to a captain's ship, and a rank does not reach onto another ship — except for a
 # floating session, marked FL, which is shared across captains: any rank above it may act on it.
 old_ship=$(ship_of_name "$old_name")
+# A target coded with a ship this table does not know is refused whatever --ship says. Before this, only
+# the path that takes the ship FROM the target checked it, so `--ship CC` moved a `[L0-DV]` session onto CC
+# while DV was held out of the table (review 6 of #72).
+[ -z "$old_ship" ] || ship_is_known "$old_ship" || die "refused: \`$old_name\` carries the ship code '$old_ship', which is not one of: $KNOWN_SHIPS"
 ship_note=""
 # The rear admiral's new name takes the target's own ship when no --ship was given: A0 leaves a session
 # where it is. A bare-named target has no ship to take, so it must be said rather than guessed.
