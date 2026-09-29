@@ -8,7 +8,8 @@
 # event IS the entry, and a session reads it without running anything.
 #
 # THE MONITOR COMMAND a session uses (Monitor lasts at most 30 minutes; it may expire sooner; re-arm with the
-# same command, and --state makes the new run print what arrived in between):
+# same command when it expires, and --state makes the new run print what arrived in between; timeout_ms below is
+# a ceiling, not a promise):
 #
 #     Monitor({ command: "bash ~/.claude/bin/xlog-follow.sh --state ~/.local/state/xlog-follow/$CLAUDE_CODE_SESSION_ID",
 #               description: "new cross-session log entries",
@@ -105,7 +106,7 @@ MAX_HEADS=10       # more stamped headings than this in one tick's growth is a n
 read -r inode size mtime <<< "$(fstat "$log")"
 offset=${size:-0}; fp=$(fingerprint "$log" "$offset")
 if [ -n "$state" ] && [ -f "$state" ]; then
-  # Resume where the last run stopped (a Monitor lasts 30 minutes and is re-armed), if it is the same file
+  # Resume where the last run stopped (a Monitor lasts at most 30 minutes, may expire sooner, and is re-armed), if it is the same file
   # and the bytes before the saved end are unchanged. Otherwise start at the end, as without --state.
   read -r s_inode s_offset s_fp < "$state"
   if [ "$s_inode" = "$inode" ] && [ "${s_offset:-x}" -le "$offset" ] 2>/dev/null && [ "$(fingerprint "$log" "$s_offset")" = "$s_fp" ]; then
