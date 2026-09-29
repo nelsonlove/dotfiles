@@ -94,6 +94,30 @@ done
 # missing or different, the file is rewritten through a temp file and moved into place, and every failure is
 # silent except one line on stderr. A notebook entry is a record — this adds keys to it and changes nothing
 # else, and if it cannot, the turn goes on.
+# THE ONE PARSE OF `session-id` FOR THIS HOOK, matching `claude/lib/session-roster.sh`'s
+# `roster_id_in_frontmatter` line for line. The hook cannot source that library — it runs before anything sets
+# a library path and must never fail a turn — so the program is duplicated, and the suite compares the two
+# texts so they cannot drift. Two parsers of one line disagreeing is the defect this package produced twice.
+nns_id_in_frontmatter() {  # $1 = the entry; prints the id, or nothing
+  [ -n "${1:-}" ] && [ -f "$1" ] || return 0
+  awk '
+    # ONE PARSE OF `session-id`, SHARED. Prints the id an entry states, or nothing when its block is unclosed.
+    # Inside a closed block, at column zero, the LAST occurrence wins, and the value is normalised exactly as
+    # `roster_value` normalises it: a QUOTED value is taken whole (a `#` inside quotes is part of the value),
+    # and only an UNQUOTED one can carry a trailing ` # comment`. Order decides which, and this is the order.
+    NR == 1 { if ($0 !~ /^---[ \t\r]*$/) exit 1; infm = 1; next }
+    infm && /^---[ \t\r]*$/ { closed = 1; exit }
+    infm && /^session-id[ \t]*:/ {
+      v = $0
+      sub(/^session-id[ \t]*:[ \t]*/, "", v); gsub(/\r/, "", v); sub(/[ \t]+$/, "", v)
+      if (v ~ /^".*"/)        { sub(/^"/, "", v); sub(/".*$/, "", v) }
+      else if (v ~ /^\047.*\047/) { sub(/^\047/, "", v); sub(/\047.*$/, "", v) }
+      else                    { sub(/[ \t]+#.*$/, "", v); sub(/[ \t]+$/, "", v) }
+      last = v
+    }
+    END { if (closed) print last }' "$1" 2>/dev/null || true
+}
+
 roster_write() {  # $1 = this session's running entry
   rw_entry="$1"
   [ -n "$rw_entry" ] && [ -f "$rw_entry" ] && [ -w "$rw_entry" ] || return 0
@@ -112,10 +136,7 @@ roster_write() {  # $1 = this session's running entry
   # THE LAST `session-id` WINS, because that is what the reader takes. They disagreed: this read the FIRST and
   # `roster_value` the LAST, so an entry carrying ours first and a foreign id second was written to here and
   # read as somebody else's there. Two readers of one record must not pick different lines.
-  rw_existing=$(awk 'NR == 1 { if ($0 !~ /^---[ \t\r]*$/) exit 1; next }
-                     /^---[ \t\r]*$/ { exit }
-                     /^session-id[ \t]*:/ { sub(/^session-id[ \t]*:[ \t]*/, ""); gsub(/\r/, ""); gsub(/^["\047]|["\047][ \t]*$/, ""); sub(/[ \t]+$/, ""); last = $0 }
-                     END { if (last != "") print last }' "$rw_entry" 2>/dev/null || true)
+  rw_existing=$(nns_id_in_frontmatter "$rw_entry")
   if [ -n "$rw_existing" ] && [ "$rw_existing" != "$sid" ]; then
     printf 'notebook-name-sync: %s carries session-id %s, not this session; nothing written\n' "$rw_entry" "$rw_existing" >&2
     return 0
@@ -239,13 +260,24 @@ roster_write() {  # $1 = this session's running entry
 # safe (nothing is written), but it fails where the old arbitrary order would sometimes have succeeded. An
 # entry carrying OUR id is unambiguously ours, so it goes first; everything else follows newest-first, which
 # is what stops a stale id-less entry from winning by being alphabetically early.
+rc_fm_id() {  # $1 = the entry, $2 = the id — true when the entry's FRONTMATTER names exactly this id
+  [ -f "$1" ] || return 1
+  rc_found=$(nns_id_in_frontmatter "$1")
+  [ "$rc_found" = "$2" ]
+}
+
 roster_candidates_for() {  # $1 = display name, $2 = this session's id, $3 = the notebook root
   rc_all=$(grep -rlF --include='*.md' "session: \"$1\"" "$3" 2>/dev/null || true)
   [ -n "$rc_all" ] || return 0
   rc_mine=""; rc_rest=""
   while IFS= read -r rc_f; do
     [ -n "$rc_f" ] || continue
-    if grep -qE "^session-id[[:space:]]*:[[:space:]]*[\"']?$2[\"']?[[:space:]]*\$" "$rc_f" 2>/dev/null; then
+    # STRICT, AND INSIDE THE FRONTMATTER ONLY. A whole-file grep let a BODY line reading `session-id: <ours>`
+    # — a pasted handoff, a quoted block — promote another session's id-less entry to "ours", where the writer
+    # (which reads only the frontmatter, sees no id, and adopts an id-less entry by design) wrote our facts
+    # over that session's record. This is the ownership question, so it takes the strict test; the loose one
+    # lives in the library and answers a different question at the opposite cost.
+    if rc_fm_id "$rc_f" "$2"; then
       rc_mine="$rc_mine$rc_f
 "
     else

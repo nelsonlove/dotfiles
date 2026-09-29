@@ -117,6 +117,10 @@ roster_state_for_id() {  # $1 = full id; sets `roster_pick_state` and `roster_pi
   roster_pick_state=""; roster_pick_entry=""
   roster_newest_entry_for_id "$1" "$NOTEBOOK_DIR" "$NOTEBOOK_DIR_SET" "$ARCHIVE_DIR" "$ARCHIVE_DIR_SET"
   [ -n "$roster_entry" ] || return 0
+  # AND IF THE LIBRARY COULD NOT ORDER THEM, NOTHING IS REMOVED. Two entries with the same stamp, or one whose
+  # filename carries no stamp at all, leave "newest" undefined — and this script's whole authority to delete
+  # rests on reading the newest entry. Undefined is not a reason to guess.
+  [ "${roster_entry_ambiguous:-0}" = 0 ] || return 0
   roster_read "$roster_entry"
   roster_id_is_full "$roster_id" || return 0
   [ -n "$roster_session" ] && [ -n "$roster_agent" ] && [ -n "$roster_cwd" ] || return 0

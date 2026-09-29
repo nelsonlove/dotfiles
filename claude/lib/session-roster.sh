@@ -135,29 +135,84 @@ roster_id_is_full() {  # $1 = a session-id value
 # `roster_entry` is the path, or empty. The newest by the timestamp in the FILENAME, which is the same rule
 # wake-session.sh uses for a name: a session writes a new entry rather than reopening an old one, so the
 # newest is the live one. 18 ids in tonight's notebook carry more than one entry, so this is a real case.
+# WHICH ENTRIES COMPETE TO BE THE NEWEST FOR AN ID — and this test is deliberately LOOSE. It has now been
+# wrong twice, in the same direction both times, and the second time proves it is a shape problem rather than
+# a regex problem. It first used the PARSED id, so an entry that states a key twice parsed as nothing, vanished
+# from the comparison, and let an older `archived/ended` entry decide — the sweeper removed the job of a
+# session whose newest record said running. Replacing it with an anchored raw match moved the same bug: the
+# anchor rejects `session-id: ID # note`, which `roster_value` deliberately accepts, so the newest entry
+# vanished again by a narrower door.
+#
+# The rule that stops a third version: THE DIRECTION OF PERMISSIVENESS FOLLOWS THE COST OF BEING WRONG. Here a
+# false positive costs a skip — the winner fails the caller's four-key test and nothing is deleted. A false
+# negative costs a live session's job. So anything with a `session-id` line at column zero whose value merely
+# CONTAINS the id competes, and so does any entry too broken to read. Its opposite number is
+# `roster_entry_is_id`, which answers the hook's question and is strict for exactly the same reason reversed.
+roster_entry_may_be_id() {  # $1 = the entry, $2 = the full id
+  [ -n "${1:-}" ] && [ -n "${2:-}" ] || return 1
+  grep -qE "^session-id[[:space:]]*:.*$2" "$1" 2>/dev/null
+}
+
+# THE ONE PARSE OF `session-id`, used by every piece of code that has to know what id an entry states. Three
+# places needed it and each had its own version; by the fifth review round, two of the five defects in this
+# package were two parsers of one line disagreeing — the reader stripping a trailing comment that the writer
+# kept, the selection test anchoring a line the reader did not. A shared function cannot drift.
+roster_id_in_frontmatter() {  # $1 = the entry; prints the id, or nothing
+  [ -n "${1:-}" ] && [ -f "$1" ] || return 0
+  awk '
+    # ONE PARSE OF `session-id`, SHARED. Prints the id an entry states, or nothing when its block is unclosed.
+    # Inside a closed block, at column zero, the LAST occurrence wins, and the value is normalised exactly as
+    # `roster_value` normalises it: a QUOTED value is taken whole (a `#` inside quotes is part of the value),
+    # and only an UNQUOTED one can carry a trailing ` # comment`. Order decides which, and this is the order.
+    NR == 1 { if ($0 !~ /^---[ \t\r]*$/) exit 1; infm = 1; next }
+    infm && /^---[ \t\r]*$/ { closed = 1; exit }
+    infm && /^session-id[ \t]*:/ {
+      v = $0
+      sub(/^session-id[ \t]*:[ \t]*/, "", v); gsub(/\r/, "", v); sub(/[ \t]+$/, "", v)
+      if (v ~ /^".*"/)        { sub(/^"/, "", v); sub(/".*$/, "", v) }
+      else if (v ~ /^\047.*\047/) { sub(/^\047/, "", v); sub(/\047.*$/, "", v) }
+      else                    { sub(/[ \t]+#.*$/, "", v); sub(/[ \t]+$/, "", v) }
+      last = v
+    }
+    END { if (closed) print last }' "$1" 2>/dev/null || true
+}
+
+# WHETHER AN ENTRY IS THIS SESSION'S OWN, and this test is STRICT: inside the closed frontmatter, at column
+# zero, the LAST `session-id` (the one the reader takes), parsed the way the writer parses it. A false positive
+# here writes one session's facts over another session's record, which is the worst thing in this package, so
+# a body line that happens to read `session-id: <ours>` — a pasted handoff, a quoted block — must not promote
+# somebody else's entry to ours.
+roster_entry_is_id() {  # $1 = the entry, $2 = the full id
+  [ -n "${1:-}" ] && [ -n "${2:-}" ] && [ -f "$1" ] || return 1
+  ros_found=$(roster_id_in_frontmatter "$1")
+  [ "$ros_found" = "$2" ]
+}
+
 roster_newest_entry_for_id() {  # $1 = full session id, $2… = the FOUR root arguments
   roster_entry=""
   roster_entry_count=0
+  roster_entry_ambiguous=0
   ros_id="${1:-}"
   shift || true
   [ -n "$ros_id" ] || return 0
   ros_best_stamp=""
   while IFS= read -r ros_f; do
     [ -n "$ros_f" ] || continue
-    # THE ID IS MATCHED RAW, NOT THROUGH `roster_read`. This used the parsed id, and since the round-three
-    # rule an entry that states a key twice or has no closing fence PARSES AS NOTHING — so the newest entry
-    # dropped out of this comparison entirely and an OLDER `archived/ended` entry became "the newest". The
-    # sweeper then read `ended` and removed the job of a session whose newest record says running. Making an
-    # unreadable record invisible is safe for one entry and dangerous the moment entries are compared: the
-    # broken one must still COMPETE, win on its stamp, and then fail the caller's own four-key test, which is
-    # what makes the sweeper skip. Matched at column zero, with the quotes the writer may have put on.
-    grep -qE "^session-id[[:space:]]*:[[:space:]]*[\"']?$ros_id[\"']?[[:space:]]*\$" "$ros_f" 2>/dev/null || continue
+    roster_entry_may_be_id "$ros_f" "$ros_id" || continue
     roster_entry_count=$((roster_entry_count + 1))
     ros_stamp=$(printf '%s' "${ros_f##*/}" | sed -E 's/.*([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{4}).*/\1/')
     case "$ros_stamp" in
       [0-9][0-9][0-9][0-9]-*) ;;
       *) ros_stamp="" ;;
     esac
+    # AN ENTRY THIS CANNOT DATE MAKES THE WHOLE COMPARISON UNDECIDABLE, and so does a tie. "Newest wins" needs
+    # an order; a filename carrying no stamp has none, and the old code gave it the empty string, which loses
+    # to every real stamp — so an unstamped RUNNING entry silently lost to a stamped ENDED one and the job was
+    # swept. Guessing an order is how that happened. This says it cannot order them, and the caller skips.
+    [ -n "$ros_stamp" ] || roster_entry_ambiguous=1
+    if [ -n "$roster_entry" ] && [ -n "$ros_stamp" ] && [ "$ros_stamp" = "$ros_best_stamp" ]; then
+      roster_entry_ambiguous=1
+    fi
     if [ -z "$roster_entry" ] || [ "$ros_stamp" \> "$ros_best_stamp" ]; then
       roster_entry="$ros_f"
       ros_best_stamp="$ros_stamp"

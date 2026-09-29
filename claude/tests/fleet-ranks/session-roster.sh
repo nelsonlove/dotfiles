@@ -28,7 +28,7 @@ TMP=$(mktemp -d -t session-roster) || exit 1
 trap 'rm -rf "$TMP"' EXIT
 n=0; fails=0; skips=0
 # Every check outside section 1, whose own count depends on whether the real notebook is on this machine.
-SUITE_BASE=125
+SUITE_BASE=139
 SECTION1_CHECKS=0
 SECTION1_SKIPPED=0
 eq() { n=$((n + 1)); if [ "$2" = "$3" ]; then printf 'PASS  %-56s %s\n' "$1" "$2"; else fails=$((fails + 1)); printf 'FAIL  %-56s got %s, want %s\n' "$1" "$2" "$3"; fi; }
@@ -168,6 +168,39 @@ eq "an unclosed block reads as nothing"  "$(lib 'roster_read "$1"; printf "[%s|%
 E_DUP=$(entry "Agent session 2026-09-29T0412.md" 'session: "[L0-CC] doubled"' 'session-id: 55555555-6666-7777-8888-999999999999' 'agent: lieutenant' 'cwd: /tmp/first' 'cwd: /tmp/second')
 eq "a doubled cwd reads as nothing"      "$(lib 'roster_read "$1"; printf "[%s]" "$roster_cwd"' "$E_DUP")" "[]"
 eq "and the keys beside it still read"   "$(lib 'roster_read "$1"; printf "%s" "$roster_agent"' "$E_DUP")" "lieutenant"
+# THE TWO ID TESTS ARE ASYMMETRIC ON PURPOSE, and this asserts the asymmetry rather than either half alone.
+# `roster_entry_may_be_id` decides which entries COMPETE to be the newest, where a false positive costs a skip
+# and a false negative costs a live session's job — so it is loose. `roster_entry_is_id` decides whether an
+# entry is OURS TO WRITE INTO, where a false positive overwrites another session's record — so it is strict.
+# Every previous version had one test doing both jobs, and it was wrong in the dangerous direction twice.
+ID5=abcdef01-2222-3333-4444-555555555555
+E_COMMENT=$(entry "Agent session 2026-09-29T0420.md" 'session: "[L0-CC] commented id"' "session-id: $ID5 # hand-edited" 'agent: lieutenant' 'cwd: /tmp/c')
+E_BODYID="$NB/2026-09/Agent session 2026-09-29T0421.md"
+printf -- '---\nsession: "[L0-CC] body id"\nagent: lieutenant\ncwd: /tmp/b\n---\n\nsession-id: %s\n' "$ID5" > "$E_BODYID"
+# A TRAILING COMMENT is what `roster_value` strips, so the reader calls this entry ID5 — and the selection test
+# must agree, or the entry vanishes from the comparison and an older ended one decides.
+eq "the reader takes an id with a comment"   "$(lib 'roster_read "$1"; printf "%s" "$roster_id"' "$E_COMMENT")" "$ID5"
+eq "and it competes for newest"              "$(lib 'roster_entry_may_be_id "$1" "'"$ID5"'" && echo yes || echo no' "$E_COMMENT")" yes
+eq "and it is ours to write into"            "$(lib 'roster_entry_is_id "$1" "'"$ID5"'" && echo yes || echo no' "$E_COMMENT")" yes
+# AN ID IN THE BODY ONLY: it may compete (a spurious competitor only causes a skip) but it is NOT ours.
+eq "a body-only id may compete"              "$(lib 'roster_entry_may_be_id "$1" "'"$ID5"'" && echo yes || echo no' "$E_BODYID")" yes
+eq "but a body-only id is never ours"        "$(lib 'roster_entry_is_id "$1" "'"$ID5"'" && echo yes || echo no' "$E_BODYID")" no
+eq "and a doubled id is never ours"          "$(lib 'roster_entry_is_id "$1" "aaaaaaaa-1111-2222-3333-444444444444" && echo yes || echo no' "$E_FOUR")" yes
+# THE TWO COPIES OF THE SHARED PARSE MUST NOT DRIFT. The hook cannot source the library — it runs before
+# anything sets a library path and must never fail a turn — so the awk program that reads `session-id` exists
+# twice. Two parsers of one line disagreeing is the defect this package produced twice over five review
+# rounds, once by stripping a trailing comment the other kept and once by anchoring a line the other did not,
+# and both times it cost a live session's record or its job. Two copies are acceptable only with a check that
+# compares them, so this extracts both programs and requires them to be identical, byte for byte.
+LIBPROG=$(sed -n '/^roster_id_in_frontmatter()/,/^}/p' "$ROOT/claude/lib/session-roster.sh" | sed -n '/awk /,/END { if (closed) print last }/p')
+HOOKPROG=$(sed -n '/^nns_id_in_frontmatter()/,/^}/p' "$HOOK" | sed -n '/awk /,/END { if (closed) print last }/p')
+if [ -n "$LIBPROG" ] && [ "$LIBPROG" = "$HOOKPROG" ]; then pass "the shared id parse is identical in both files"
+else fail "the shared id parse is identical in both files" "the library and the hook have drifted, or the extraction found nothing"; fi
+# AND NEITHER COPY MAY CARRY A LITERAL APOSTROPHE, which would close the single-quoted program early. This has
+# now happened three times in this package, and the third time was inside the very function written to stop
+# two parsers disagreeing.
+eq "no apostrophe in the library parse"      "$(printf '%s' "$LIBPROG" | tr -cd "'" | wc -c | tr -d ' ')" 2
+eq "no apostrophe in the hook parse"         "$(printf '%s' "$HOOKPROG" | tr -cd "'" | wc -c | tr -d ' ')" 2
 eq "a full id is accepted"         "$(lib 'roster_read "$1"; roster_id_is_full "$roster_id" && echo yes || echo no' "$E_FOUR")" yes
 eq "a short id is refused"         "$(lib 'roster_read "$1"; roster_id_is_full "$roster_id" && echo yes || echo no' "$E_SHORT")" no
 eq "junk in the id is refused"     "$(lib 'roster_id_is_full "vaultbridge" && echo yes || echo no')" no
@@ -452,6 +485,21 @@ has   "our own older entry is written, not the newer foreign one" "$(cat "$HNB/2
 hasnt "and the foreign entry is untouched"       "$(cat "$HNB/2026-09/Agent session 2026-09-29T2200.md")" "cwd:"
 rm -f "$HNB/2026-09/Agent session 2026-09-20T0200.md" "$HNB/2026-09/Agent session 2026-09-29T2200.md"
 
+# A BODY LINE MUST NOT MAKE ANOTHER SESSION'S ENTRY OURS. The ownership test grepped the whole file, so an
+# id-less entry belonging to someone else — with our id quoted in its body, in a pasted handoff — was tried
+# first, and the writer (which reads only the frontmatter, sees no id, and adopts an id-less entry by design)
+# wrote our facts over that session's record. Ownership is decided inside the frontmatter now.
+# THE BODY LINE MUST BE AT COLUMN ZERO or it proves nothing: the first version of this fixture indented it
+# behind "quoted from a handoff:", so the whole-file grep it was written to catch did not match it either and
+# the case passed against the broken code. The mutation run caught that — the case went GREEN with the guard
+# reverted, which is the one result a test must never give.
+printf -- '---\nsession: "[L0-CC] roster test"\nstatus: draft/running\n---\n\nfrom the handoff:\n\nsession-id: %s\n' "$SID" > "$HNB/2026-09/Agent session 2026-09-19T0100.md"
+printf -- '---\nsession: "[L0-CC] roster test"\nstatus: draft/running\n---\n\nbody\n' > "$HNB/2026-09/Agent session 2026-09-29T2400.md"
+run_hook
+hasnt "a body mention does not make an entry ours" "$(cat "$HNB/2026-09/Agent session 2026-09-19T0100.md")" "cwd:"
+has   "and the newest entry is written instead"    "$(cat "$HNB/2026-09/Agent session 2026-09-29T2400.md")" "cwd: \"$TMP/live\""
+rm -f "$HNB/2026-09/Agent session 2026-09-19T0100.md" "$HNB/2026-09/Agent session 2026-09-29T2400.md"
+
 echo
 echo "=== 7. the sweeper: all four keys, ended, and not alive — or it skips"
 SJOBS="$TMP/sjobs"; mkdir -p "$SJOBS"
@@ -532,6 +580,25 @@ mkjob 99999999 99999999-aaaa-bbbb-cccc-dddddddddddd "[L0-CC] unreadable newest"
 out=$(sweep)
 has  "an unreadable newest entry blocks the sweep" "$out" "SKIP  99999999"
 hasnt "and the older ended entry does not decide"  "$out" "WOULD REMOVE  99999999"
+
+# A NEWER ENTRY WHOSE ID CARRIES A TRAILING COMMENT MUST STILL COMPETE. The anchored raw match rejected the
+# ` # comment` that `roster_value` strips, so the newest running entry vanished from the comparison and the
+# older ended one decided — the round-four defect again, through a narrower door. That it was the same defect
+# twice is why the selection test is now deliberately loose and says so.
+entry "Agent session 2026-09-22T0100.md" 'session: "[L0-CC] commented newest"' 'session-id: bbbbbbbb-cccc-dddd-eeee-ffffffffffff' 'agent: lieutenant' 'cwd: /tmp/cn' 'status: archived/ended' >/dev/null
+entry "Agent session 2026-09-29T2000.md" 'session: "[L0-CC] commented newest"' 'session-id: bbbbbbbb-cccc-dddd-eeee-ffffffffffff # hand-edited' 'agent: lieutenant' 'cwd: /tmp/cn' 'status: draft/running' >/dev/null
+mkjob bbbbbbbb bbbbbbbb-cccc-dddd-eeee-ffffffffffff "[L0-CC] commented newest"
+out=$(sweep)
+has  "a commented id still competes for newest" "$out" "SKIP  bbbbbbbb"
+hasnt "and the older ended entry does not win"  "$out" "WOULD REMOVE  bbbbbbbb"
+
+# AND A SET THIS CANNOT ORDER IS NEVER SWEPT. An entry whose filename carries no stamp had no order at all and
+# was given the empty string, which loses to every real stamp — so an unstamped RUNNING entry silently lost to
+# a stamped ENDED one. "Newest wins" with no order is a guess, and this script deletes on the answer.
+entry "Agent session 2026-09-23T0100.md" 'session: "[L0-CC] no stamp"' 'session-id: cccccccc-dddd-eeee-ffff-000000000000' 'agent: lieutenant' 'cwd: /tmp/ns' 'status: archived/ended' >/dev/null
+entry "Agent session latest.md" 'session: "[L0-CC] no stamp"' 'session-id: cccccccc-dddd-eeee-ffff-000000000000' 'agent: lieutenant' 'cwd: /tmp/ns' 'status: draft/running' >/dev/null
+mkjob cccccccc cccccccc-dddd-eeee-ffff-000000000000 "[L0-CC] no stamp"
+has  "an undatable entry blocks the sweep"      "$(sweep)" "SKIP  cccccccc"
 
 # THE ARCHIVE ROOT IS READ IN PRODUCTION. An ended entry MOVES there, so a sweeper that reads only the
 # notebook skips exactly the population it exists for — which is what the first version did, with
