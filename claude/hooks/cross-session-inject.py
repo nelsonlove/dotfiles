@@ -165,9 +165,10 @@ def main():
         )
         context = (
             f"UNREAD CROSS-SESSION LOG ENTRIES ({log}):\n"
-            "Per the 'Cross-session log reading discipline' rule in CLAUDE.md, read each entry below in full "
-            "and give each a disposition (act / reply in the log / consciously dismiss). "
-            "A reply is mandatory if an entry names your scope, files, or claims.\n\n"
+            "Per the 'Cross-session log reading discipline' rule in CLAUDE.md, "
+            "read each entry in full and dispose of it silently: act, reply by SendMessage, or dismiss. "
+            "Do not restate entries in chat; say at most one line on what one changes for you. "
+            "A reply by SendMessage is mandatory if an entry names your scope, files, or claims.\n\n"
             f"{body}\n\n{note}"
             f"Cross-session channels discovered (audience: frontmatter):\n{chan_lines}"
         )
