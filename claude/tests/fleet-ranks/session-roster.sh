@@ -28,7 +28,7 @@ TMP=$(mktemp -d -t session-roster) || exit 1
 trap 'rm -rf "$TMP"' EXIT
 n=0; fails=0; skips=0
 # Every check outside section 1, whose own count depends on whether the real notebook is on this machine.
-SUITE_BASE=171
+SUITE_BASE=173
 SECTION1_CHECKS=0
 SECTION1_SKIPPED=0
 eq() { n=$((n + 1)); if [ "$2" = "$3" ]; then printf 'PASS  %-56s %s\n' "$1" "$2"; else fails=$((fails + 1)); printf 'FAIL  %-56s got %s, want %s\n' "$1" "$2" "$3"; fi; }
@@ -686,6 +686,16 @@ has "a fork-comment winner says it decides nothing" "$out" "does not state that 
 # old `.status // "none"` collapsed together with an absent key and a null. Asserting the label alone would
 # have passed for any of them.
 has "the listing status says there are no rows" "$out" "listing-status=no-rows"
+# AND EVERY STATUS VALUE STAYS DISTINGUISHABLE FROM EVERY OTHER, which is the whole reason that field is JSON.
+# `tostring` made a null and the STRING "null" identical, let an empty string vanish inside a comma-joined
+# list, and let an object drop its own commas into it. Nothing pinned any of that: the ninth reviewer reverted
+# the jq alone and the suite stayed green, because the mutant that vouched for it also deleted a different
+# line and was caught by THAT. A value that cannot be told from another value is not evidence.
+printf '[{"sessionId":"eeeeeeee-1111-2222-3333-444444444444","pid":999999,"status":null},{"sessionId":"eeeeeeee-1111-2222-3333-444444444444","pid":999999,"status":"null"},{"sessionId":"eeeeeeee-1111-2222-3333-444444444444","pid":999999,"status":""}]' > "$TMP/listing.json"
+has "a null status is not the string null"     "$(sweep)" 'listing-status=null | "null" | ""'
+printf '[{"sessionId":"eeeeeeee-1111-2222-3333-444444444444","pid":999999}]' > "$TMP/listing.json"
+has "an absent status says absent"             "$(sweep)" "listing-status=absent"
+printf '[]' > "$TMP/listing.json"
 # A JOB WITH NO ENTRY AT ALL says so, and claims no status for an entry it does not have.
 mkjob 41414141 41414141-1111-2222-3333-444444444444 "[L0-CC] no entry anywhere"
 out=$(sweep)

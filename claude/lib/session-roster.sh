@@ -247,11 +247,14 @@ roster_newest_entry_for_id() {  # $1 = full session id, $2… = the FOUR root ar
     if [ -z "$ros_stamp" ]; then
       roster_entry_ambiguous=1
       ros_cause="the filename ${ros_f##*/} carries no timestamp, so it cannot be placed in order"
-      case "$roster_order_reason" in *"${ros_f##*/} carries no timestamp"*) ;; *) roster_order_reason="${roster_order_reason:+$roster_order_reason; }$ros_cause" ;; esac
+      # THE WHOLE CAUSE, NOT A SUBSTRING OF IT. A filename that is a SUFFIX of another matched — `b.md` inside
+      # `ab.md` — so the second name was silently dropped from the reason. Matching the full sentence, with the
+      # separator that precedes it, cannot collide that way.
+      case "; $roster_order_reason" in *"; $ros_cause"*) ;; *) roster_order_reason="${roster_order_reason:+$roster_order_reason; }$ros_cause" ;; esac
     elif [ -n "$roster_entry" ] && [ "$ros_stamp" = "$ros_best_stamp" ]; then
       roster_entry_ambiguous=1
       ros_cause="two entries share the timestamp $ros_stamp, so neither is the newest"
-      case "$roster_order_reason" in *"share the timestamp $ros_stamp"*) ;; *) roster_order_reason="${roster_order_reason:+$roster_order_reason; }$ros_cause" ;; esac
+      case "; $roster_order_reason" in *"; $ros_cause"*) ;; *) roster_order_reason="${roster_order_reason:+$roster_order_reason; }$ros_cause" ;; esac
     fi
     if [ -z "$roster_entry" ] || [ "$ros_stamp" \> "$ros_best_stamp" ]; then
       roster_entry="$ros_f"

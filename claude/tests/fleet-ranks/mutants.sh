@@ -59,11 +59,29 @@ mutant() {  # mutant <name> <file-relative-to-root> <python-snippet>
   mkdir -p "$mu_tmp/claude"
   cp -R "$ROOT/claude/bin" "$ROOT/claude/lib" "$ROOT/claude/hooks" "$ROOT/claude/tests" "$mu_tmp/claude/" 2>/dev/null
 
+  # EVERY EDIT IS CHECKED, not just the mutant as a whole. `rep` and `cut` raise when their anchor matches
+  # nothing, so a multi-edit mutant whose second anchor has gone stale is reported STALE instead of passing on
+  # the strength of its first. The ninth reviewer named this: a mutant that edits two things can be caught by
+  # one of them and vouch for the other, which is the runner committing the defect it exists to find.
   if ! MU_PATH="$mu_tmp/$mu_file" python3 -c "
 import os, pathlib, sys
 p = pathlib.Path(os.environ['MU_PATH'])
 s = p.read_text()
 before = s
+
+def rep(old, new):
+    global s
+    if old not in s:
+        raise SystemExit('an anchor matched nothing: ' + repr(old[:60]))
+    s = s.replace(old, new)
+
+def cut(start_at, end_at):
+    global s
+    if start_at not in s or end_at not in s:
+        raise SystemExit('a cut anchor matched nothing: ' + repr(start_at[:60]))
+    a = s.index(start_at); b = s.index(end_at)
+    s = s[:a] + s[b:]
+
 $mu_code
 if s == before:
     sys.stderr.write('the mutant changed nothing — its anchor has moved\n')
@@ -89,11 +107,11 @@ p.write_text(s)
 
 # --- the hook: whose record it writes into ----------------------------------------------------------------
 mutant hook-foreign-id claude/hooks/notebook-name-sync.sh '
-s = s.replace("""  if [ -n "$rw_existing" ] && [ "$rw_existing" != "$sid" ]; then""",
+rep("""  if [ -n "$rw_existing" ] && [ "$rw_existing" != "$sid" ]; then""",
               """  if false; then""")
 '
 mutant hook-duplicate-keys claude/hooks/notebook-name-sync.sh '
-s = s.replace("""            END { exit (bad ? 1 : 0) }\x27 "$rw_entry" 2>/dev/null; then
+rep("""            END { exit (bad ? 1 : 0) }\x27 "$rw_entry" 2>/dev/null; then
     printf \x27notebook-name-sync: %s states session-id""",
               """            END { exit 0 }\x27 "$rw_entry" 2>/dev/null; then
     printf \x27notebook-name-sync: %s states session-id""")
@@ -102,48 +120,48 @@ mutant hook-backslash claude/hooks/notebook-name-sync.sh '
 bs = chr(92); dq = chr(34); sq = chr(39)
 old = "  case " + dq + "$rw_cwd" + dq + "   in *[" + bs + bs + "]*|*" + sq + dq + sq + "*|*[[:cntrl:]]*)"
 new = "  case " + dq + "$rw_cwd" + dq + "   in *" + sq + bs + bs + sq + "*|*" + sq + dq + sq + "*)"
-s = s.replace(old, new)
+rep(old, new)
 '
 
 mutant hook-ownership-whole-file claude/hooks/notebook-name-sync.sh '
-s = s.replace("""    if rc_fm_id "$rc_f" "$2"; then""",
+rep("""    if rc_fm_id "$rc_f" "$2"; then""",
               """    if grep -qE "^session-id[[:space:]]*:.*$2" "$rc_f" 2>/dev/null; then""")
 '
 mutant hook-candidate-order claude/hooks/notebook-name-sync.sh '
-s = s.replace("""  printf \x27%s\x27 "$rc_mine"\n  printf \x27%s\x27 "$rc_rest" | sort -r""",
+rep("""  printf \x27%s\x27 "$rc_mine"\n  printf \x27%s\x27 "$rc_rest" | sort -r""",
               """  printf \x27%s%s\x27 "$rc_mine" "$rc_rest\"""")
 '
 
 # --- the readers: which line of a record is the record --------------------------------------------------
 mutant reader-indented-key claude/lib/session-roster.sh '
-s = s.replace("""    | grep -E "^$2[[:space:]]*:" \\""", """    | grep -E "^[[:space:]]*$2[[:space:]]*:" \\""")
+rep("""    | grep -E "^$2[[:space:]]*:" \\""", """    | grep -E "^[[:space:]]*$2[[:space:]]*:" \\""")
 '
 mutant reader-unclosed-block claude/lib/session-roster.sh '
-s = s.replace("""END { if (!bad && closed) printf "%s", buf }""", """END { printf "%s", buf }""")
+rep("""END { if (!bad && closed) printf "%s", buf }""", """END { printf "%s", buf }""")
 '
 mutant reader-greedy-double-quote claude/lib/session-roster.sh '
-s = s.replace("""sed -E \x27s/^"([^"]*)".*$/\\1/\x27""", """sed -E \x27s/^"(.*)".*$/\\1/\x27""")
+rep("""sed -E \x27s/^"([^"]*)".*$/\\1/\x27""", """sed -E \x27s/^"(.*)".*$/\\1/\x27""")
 '
 mutant reader-greedy-single-quote claude/lib/session-roster.sh '
-s = s.replace("""s/^\x27([^\x27]*)\x27.*\\$/\\1/""", """s/^\x27(.*)\x27.*\\$/\\1/""")
+rep("""s/^\x27([^\x27]*)\x27.*\\$/\\1/""", """s/^\x27(.*)\x27.*\\$/\\1/""")
 '
 mutant status-indented-key claude/lib/session-status.sh '
-s = s.replace("""| grep -E "^$2[[:space:]]*:" \\""", """| grep -E "^[[:space:]]*$2[[:space:]]*:" \\""")
-s = s.replace("""| sed -E "s/^$2[[:space:]]*:[[:space:]]*//" \\""", """| sed -E "s/^[[:space:]]*$2[[:space:]]*:[[:space:]]*//" \\""")
+rep("""| grep -E "^$2[[:space:]]*:" \\""", """| grep -E "^[[:space:]]*$2[[:space:]]*:" \\""")
+rep("""| sed -E "s/^$2[[:space:]]*:[[:space:]]*//" \\""", """| sed -E "s/^[[:space:]]*$2[[:space:]]*:[[:space:]]*//" \\""")
 '
 mutant wake-index-indented-keys claude/bin/wake-session.sh '
 for k in ("session", "session-status", "status"):
-    s = s.replace("(match($0, \"^%s[ \\t]*:[ \\t]*\"))" % k, "(match($0, \"^[ \\t]*%s[ \\t]*:[ \\t]*\"))" % k)
-s = s.replace("(match($0, \"^\" key \"[ \\t]*:[ \\t]*\"))", "(match($0, \"^[ \\t]*\" key \"[ \\t]*:[ \\t]*\"))")
+    rep("(match($0, \"^%s[ \\t]*:[ \\t]*\"))" % k, "(match($0, \"^[ \\t]*%s[ \\t]*:[ \\t]*\"))" % k)
+rep("(match($0, \"^\" key \"[ \\t]*:[ \\t]*\"))", "(match($0, \"^[ \\t]*\" key \"[ \\t]*:[ \\t]*\"))")
 '
 
 # --- selection: which entry is the newest for an id -------------------------------------------------------
 mutant selection-parsed-id claude/lib/session-roster.sh '
-s = s.replace("""    roster_entry_may_be_id "$ros_f" "$ros_id" || continue""",
+rep("""    roster_entry_may_be_id "$ros_f" "$ros_id" || continue""",
               """    roster_read "$ros_f"; [ "$roster_id" = "$ros_id" ] || continue""")
 '
 mutant selection-anchored claude/lib/session-roster.sh '
-s = s.replace("""  grep -qE "^session-id[[:space:]]*:.*$2" "$1" 2>/dev/null""",
+rep("""  grep -qE "^session-id[[:space:]]*:.*$2" "$1" 2>/dev/null""",
               """  grep -qE "^session-id[[:space:]]*:[[:space:]]*[\\"\x27]?$2[\\"\x27]?[[:space:]]*$" "$1" 2>/dev/null""")
 '
 
@@ -153,39 +171,43 @@ s = s.replace("""  grep -qE "^session-id[[:space:]]*:.*$2" "$1" 2>/dev/null""",
 # reports "not caught" for a guard that is working. That is a property of a redundant pair, and the honest
 # test of a redundant pair is to remove all of it: with both gone the fork fixture becomes `WOULD REMOVE`.
 mutant sweep-both-safety-layers claude/bin/sweep-jobs.sh '
-s = s.replace("""  [ "${roster_entry_unreadable:-0}" = 0 ] || return 0\n""", "")
-s = s.replace("""  [ "${roster_entry_ambiguous:-0}" = 0 ] || return 0\n""", "")
-start = s.index("""      elif [ "${roster_entry_ambiguous:-0}" != 0 ]; then""")
-end = s.index("""      elif [ -n "$(roster_duplicate_key_in "$roster_entry")" ]; then""")
-s = s[:start] + s[end:]
-start = s.index("""      elif [ "${roster_entry_unreadable:-0}" != 0 ]; then""")
-end = s.index("""      elif [ -z "$roster_pick_state" ]; then""")
-s = s[:start] + s[end:]
+rep("""  [ "${roster_entry_unreadable:-0}" = 0 ] || return 0\n""", "")
+rep("""  [ "${roster_entry_ambiguous:-0}" = 0 ] || return 0\n""", "")
+cut("""      elif [ "${roster_entry_ambiguous:-0}" != 0 ]; then""",
+    """      elif [ -n "$(roster_duplicate_key_in "$roster_entry")" ]; then""")
+cut("""      elif [ "${roster_entry_unreadable:-0}" != 0 ]; then""",
+    """      elif [ -z "$roster_pick_state" ]; then""")
 '
 mutant sweep-listing-any-array claude/bin/sweep-jobs.sh '
-s = s.replace("""type == "array" and all(type == "object")""", """type == "array\"""")
+rep("""type == "array" and all(type == "object")""", """type == "array\"""")
 '
 mutant sweep-first-pid-only claude/bin/sweep-jobs.sh '
-s = s.replace("""    if kill -0 "$sia_pid" 2>/dev/null; then sia_found=0; break; fi""",
+rep("""    if kill -0 "$sia_pid" 2>/dev/null; then sia_found=0; break; fi""",
               """    if kill -0 "$sia_pid" 2>/dev/null; then sia_found=0; fi; break""")
 '
 mutant sweep-one-reason claude/bin/sweep-jobs.sh '
-s = s.replace("""reason="${roster_order_reason:-the entries for that id cannot be ordered}, so nothing was read\"""",
+rep("""reason="${roster_order_reason:-the entries for that id cannot be ordered}, so nothing was read\"""",
               """reason="two or more entries state that id, so nothing was read\"""")
 '
 mutant sweep-duplicate-as-missing claude/bin/sweep-jobs.sh '
-start = s.index("""      elif [ -n "$(roster_duplicate_key_in "$roster_entry")" ]; then""")
-end = s.index("""      elif [ "${roster_entry_unreadable:-0}" != 0 ]; then""")
-s = s[:start] + s[end:]
+cut("""      elif [ -n "$(roster_duplicate_key_in "$roster_entry")" ]; then""",
+    """      elif [ "${roster_entry_unreadable:-0}" != 0 ]; then""")
 '
 mutant sweep-newest-label claude/bin/sweep-jobs.sh '
-s = s.replace("""        evidence="$evidence entries-mentioning-id=${roster_entry_count:-0} first=${roster_entry:-none}\"""",
+rep("""        evidence="$evidence entries-mentioning-id=${roster_entry_count:-0} first=${roster_entry:-none}\"""",
               """        evidence="$evidence entries-mentioning-id=${roster_entry_count:-0} newest=${roster_entry:-none}\"""")
 '
-mutant sweep-listing-status-collapsed claude/bin/sweep-jobs.sh '
-s = s.replace("""if has("status") then (.status | @json) else "absent" end] | join(" | ")""",
+# TWO MUTANTS, NOT ONE. The combined version deleted the `no-rows` line as well as changing the jq, and the
+# single check it tripped was the no-rows one — so it was reported as caught while the @json expression it
+# named was pinned by nothing at all. Reverting only the jq left the whole suite green. A mutant that edits two
+# things can be caught by one of them and vouch for the other, which is the same "green for the wrong reason"
+# defect this runner exists to find, wearing the runner own clothes.
+mutant sweep-listing-status-jq claude/bin/sweep-jobs.sh '
+rep("""if has("status") then (.status | @json) else "absent" end] | join(" | ")""",
               """.status // "none"] | join(",")""")
-s = s.replace("""    [ "$ev_rows" != 0 ] || ev_stat="no-rows"\n""", "")
+'
+mutant sweep-listing-status-norows claude/bin/sweep-jobs.sh '
+rep("""    [ "$ev_rows" != 0 ] || ev_stat="no-rows"\n""", "")
 '
 
 printf '\n%s mutant(s): %s caught, %s NOT caught\n' "$ran" "$pass" "$fail"

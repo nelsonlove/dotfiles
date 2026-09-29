@@ -130,13 +130,19 @@ roster_state_for_id() {  # $1 = full id; sets `roster_pick_state` and `roster_pi
   # filename carries no stamp at all, leave "newest" undefined — and this script's whole authority to delete
   # rests on reading the newest entry. Undefined is not a reason to guess.
   [ "${roster_entry_ambiguous:-0}" = 0 ] || return 0
-  # DELIBERATELY REDUNDANT WITH THE REASON CHAIN BELOW, and neither copy is dead. The chain re-checks these two
-  # flags to choose the right WORDS; these two lines make the VERDICT safe whatever the chain later becomes.
-  # Measured, not assumed: removing either one alone changes no output at all, and removing BOTH turns the
-  # fork fixture into `WOULD REMOVE`, which is the thing this package exists to prevent. So a mutation run
-  # reports each one alone as "not caught" — that is the signature of a redundant pair, not a hole, and
-  # `claude/tests/fleet-ranks/mutants.sh` kills them together for exactly this reason. Do not delete one as
-  # dead code: the one you leave is then the only thing standing between a reordered chain and a deletion.
+  # A BACKSTOP, NOT A LIVE CHECK, and the difference matters enough to state exactly. The reason chain below
+  # re-checks these same two flags to choose its words, and it reaches them first, so WITH THE CHAIN AS
+  # WRITTEN these two lines never change an outcome: removing both of them leaves every fixture and every
+  # verdict identical. They earn their place only if the chain's flag branches are ever removed or reordered —
+  # with those gone AND these gone, the fork fixture becomes `WOULD REMOVE`, which is the outcome this whole
+  # package exists to prevent.
+  #
+  # An earlier version of this comment claimed that removing these two alone produced that `WOULD REMOVE`. It
+  # does not, and the ninth reviewer ran it rather than reading past it. A comment that overstates what it was
+  # measured to do is worse than no comment, because the next reader trusts it instead of re-measuring. What
+  # was actually measured, three ways: chain gone, still SKIP; these gone, still SKIP; both gone, WOULD REMOVE.
+  # `claude/tests/fleet-ranks/mutants.sh` therefore removes both together, and a single-layer mutant reporting
+  # "not caught" here is expected rather than a hole.
   #
   # AND THE WINNER MUST BE OURS. The loose selection test is justified by one sentence — "a false positive only
   # costs a skip, because the winner still has to pass the caller's four-key test" — and that sentence was
