@@ -151,7 +151,14 @@ if [ -r "$SESSION_STATUS_LIB" ] && bash -n "$SESSION_STATUS_LIB" 2>/dev/null && 
     # made this line an unbound-variable abort: rc=1 from a hook whose whole contract is that it never fails a
     # turn. Found by the review of the fix-forward, which added the broken-library cases and missed this shape.
     case "${sess_state:-}" in
-      running) in_step=1; roster_write "$hit"; break ;;
+      running)
+        in_step=1
+        # ON A TURN ONLY, never on a resume. The ruling is explicit and the reason is a race: a resume is the
+        # moment the roster keys are READ — by the post-rm path, to know what to resume as — so writing them
+        # in the same breath would have the wake reading values this hook is still deciding. The first
+        # version of this wrote on both, and the suite caught it.
+        [ "$event" != "UserPromptSubmit" ] || roster_write "$hit"
+        break ;;
       conflict)
         # Not renamed, and said out loud: an entry that disagrees with itself is a thing a human must fix, and
         # this hook is the only machinery that reads it every turn.

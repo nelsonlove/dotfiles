@@ -94,8 +94,10 @@ command -v jq >/dev/null 2>&1 || die "jq is required"
 
 # Every entry, read once, indexed by the FULL id it carries. A short or junk id never reaches this index, so
 # the sweep simply cannot see the 324 old entries — they are not refused, they are not candidates.
-roster_index=""
-while IFS= read -r entry; do
+# The loop's output IS the index — captured, not left on stdout. The first version ended with
+# `roster_index=$(cat)` after the loop, so the index printed itself into the run and every job was judged
+# against an empty string. The suite caught it on its first run.
+roster_index=$(while IFS= read -r entry; do
   [ -n "$entry" ] || continue
   roster_read "$entry"
   roster_id_is_full "$roster_id" || continue
@@ -103,9 +105,9 @@ while IFS= read -r entry; do
   session_status_of "$entry"
   printf '%s\t%s\t%s\n' "$roster_id" "${sess_state:-absent}" "$entry"
 done <<EOF
-$(notebook_entry_files_of "$NOTEBOOK_DIR" "$NOTEBOOK_DIR_SET" "$ARCHIVE_DIR" "$ARCHIVE_DIR_SET" "$AGENTS_DIR")
+$(notebook_entry_files_of "$NOTEBOOK_DIR" "$NOTEBOOK_DIR_SET" "$ARCHIVE_DIR" "$ARCHIVE_DIR_SET")
 EOF
-roster_index=$(cat)
+)
 
 # The live listing, so a job whose session is alive is never touched whatever its entry says.
 listing=$("$CLAUDE_BIN" agents --json --all 2>/dev/null || true)
