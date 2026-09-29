@@ -166,7 +166,7 @@ command -v claude >/dev/null || die "the claude CLI is required"
 # --- ranks and ships, from the one table ------------------------------------------------------
 # `_fleet-ranks.sh` beside this script holds the rank line and the ship codes: `rank_of_name`,
 # `rank_of_caller`, `rank_of_agent`, `word_of_rank`, `bare_code_of_rank`, `code_of_rank`, `KNOWN_SHIPS`,
-# `FLOATING_SHIP`, `ship_of_name`, `ship_is_known` and `ships_in_words`. Both this script and its sibling held byte-identical
+# `FLOATING_SHIP`, `ship_of_name`, `ship_is_known`, `ships_in_words`, and the admirals' and guarded ships with `ship_is_guarded` and `ship_refusal`. Both this script and its sibling held byte-identical
 # copies of most of those, and copies of `rank_of_name` that differed in the comment only — the rank line
 # is the one thing two fleet scripts must never disagree about, so it is one file now. Adding a ship code
 # is one line THERE, not here.
@@ -238,6 +238,11 @@ fi
 name_ship=$(ship_of_name "$name")
 [ -n "$name_ship" ] || die "--name '$name' must carry the coded form, rank and ship together, like \"$(code_of_rank "$to_rank" "$new_ship") <name>\""
 ship_is_known "$name_ship" || die "--name '$name' carries the ship code '$name_ship', which is not one of: $KNOWN_SHIPS"
+# THE ADMIRALS AND THE GUARDED SHIP (areas ruling, log 2026-09-29T03:35): `ship_refusal` in the table is the
+# one rule, checked on every ship the change touches. Here the NEW name's ship, before anything is looked
+# up; below, once the target is found, the ship it is on now. Both, because a change touches both ships:
+# promoting a DV session onto FL moves it out of DV, and a bare target named onto DV moves it in.
+r=$(ship_refusal "$by" "$by_rank" "$name_ship"); [ -z "$r" ] || die "$r"
 
 # --- the target session ----------------------------------------------------------------------
 listing=$(claude agents --json --all 2>/dev/null) || die "claude agents --json failed"
@@ -272,6 +277,7 @@ if [ "$ship_from_target" = 1 ]; then
   new_ship="$old_ship"
   ship_note="the ship comes from the target, because the rear admiral carries none"
 fi
+r=$(ship_refusal "$by" "$by_rank" "$old_ship"); [ -z "$r" ] || die "$r"
 # Reach is judged against the PROMOTER's ship, never against the new name's: a captain making one of
 # its own sessions float passes --ship FL, and that must not read as reaching onto another ship.
 caller_ship="$by_ship"

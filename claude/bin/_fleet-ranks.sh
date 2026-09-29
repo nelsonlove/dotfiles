@@ -137,6 +137,56 @@ code_of_rank() {  # $1 = rank, $2 = ship code
 KNOWN_SHIPS="CC OB HS MA PE PP HH FN ED WK HB DV FL"
 FLOATING_SHIP="FL"
 
+# --- the admirals and the guarded ship ------------------------------------------------------------------
+# Nelson's areas ruling (log 2026-09-29T03:35) put two sessions at A0, and `rank_of_name` cannot tell them
+# apart: both are the bare `[A0]` code. So an admiral is matched here by its FULL NAME, and each one reaches
+# only its own ships. Any other `[A0] …` name is refused, because a name that merely starts with the code is
+# not a session Nelson placed. The two lists together are KNOWN_SHIPS, each ship in exactly one of them
+# (the table test checks both properties); FL is on the rear admiral's side, where every floating session
+# has lived so far.
+REAR_ADMIRAL="[A0] rear admiral"
+AREAS_ADMIRAL="[A0] areas admiral"
+REAR_ADMIRAL_SHIPS="CC OB HS MA FL"
+AREAS_ADMIRAL_SHIPS="PE PP HH FN ED WK HB DV"
+# DV (80-89 Divorce) is guarded: its captain starts only when Nelson starts it. No script wakes or promotes
+# a session on DV or into DV, whoever the caller is, because the only way into DV is Nelson. This binds
+# honest callers of these scripts only: `--by` is self-declared, a SendMessage to a stopped session wakes it
+# with no script, and a bare `claude --bg --name "[C0-DV] …"` starts one with no script. The tripwire hook
+# `claude/hooks/dv-tripwire.sh` watches the bare command line; nothing watches SendMessage.
+GUARDED_SHIPS="DV"
+
+ship_is_guarded() {
+  [ -n "${1:-}" ] || return 1
+  case " $GUARDED_SHIPS " in *" $1 "*) return 0 ;; *) return 1 ;; esac
+}
+
+# ship_refusal <by> <by-rank> <ship>: the one sentence both scripts refuse with when <by> may not act on a
+# session of <ship> (empty for a bare-named session), and nothing when it may. It is the SHIP rule only:
+# the rank rule and the reporting line stay in each script. Called once per ship a change touches, so a
+# promotion checks both the target's ship and the new name's.
+ship_refusal() {
+  local by="$1" rank="$2" ship="$3" list
+  if ship_is_guarded "$ship"; then
+    printf 'refused: ship %s is guarded; no script wakes or promotes a session on it or into it, whoever asks, because only Nelson starts a session there' "$ship"
+    return 0
+  fi
+  [ "$rank" = -1 ] || return 0
+  case "$by" in
+    "$REAR_ADMIRAL") list="$REAR_ADMIRAL_SHIPS" ;;
+    "$AREAS_ADMIRAL") list="$AREAS_ADMIRAL_SHIPS" ;;
+    *) printf "refused: '%s' is not one of the two admirals ('%s', '%s'); an admiral is matched by its full name" "$by" "$REAR_ADMIRAL" "$AREAS_ADMIRAL"; return 0 ;;
+  esac
+  if [ -z "$ship" ]; then
+    # A bare-named session predates the ship codes, and every one of them is on the rear admiral's side.
+    [ "$by" = "$REAR_ADMIRAL" ] || printf 'refused: the session carries no ship code, and %s reaches only the area ships (%s)' "$by" "$AREAS_ADMIRAL_SHIPS"
+    return 0
+  fi
+  case " $list " in
+    *" $ship "*) ;;
+    *) printf '%s' "refused: $by does not reach ship $ship; it reaches $list, and the other admiral's ships are not its own" ;;
+  esac
+}
+
 # The real ships in words, for a refusal: "CC, OB, … or DV", read from KNOWN_SHIPS. FL is left out, because the sentences that
 # use this name it on its own ("FL for a floating session").
 ships_in_words() {
