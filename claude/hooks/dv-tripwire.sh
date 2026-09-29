@@ -51,8 +51,12 @@ def decode_ansi_c(text):
     return ANSI_C.sub(one, text)
 plain = decode_ansi_c(cmd)
 # The slow path also runs when a word holds glob characters near "cl": `/opt/homebrew/bin/claud*` has no whole word.
+def glob_is_claude(word):
+    base = os.path.basename(word).lower()
+    return any(ch in base for ch in "*?[") and fnmatch.fnmatchcase("claude", base)
+# The slow path also runs for any glob word that bash could expand to claude; the same test effective() uses (review 4 of #86).
 if not (WORD.search(cmd) or WORD.search(plain) or WORD.search(re.sub(r"[\\'\"]", "", plain))
-        or re.search(r"cl[^\s]*[*?\[]|[*?\[][^\s]*ude", plain, re.I)):
+        or any(glob_is_claude(w) for w in re.findall(r"[^\s;&|()<>`'\"]*[*?\[][^\s;&|()<>`'\"]*", plain))):
     sys.exit(0)   # both texts: removing the quotes of -S'claude …' glues the word to -S
 DV = re.compile(r"-dv\]", re.I)
 
@@ -134,7 +138,7 @@ def effective(c):
         return "", []
     prog = os.path.basename(c[i]).lower()
     # A glob that bash expands to claude (`/opt/homebrew/bin/claud*`, `cl[a]ude`) is claude (review 3 of #86).
-    if prog != "claude" and any(ch in prog for ch in "*?[") and fnmatch.fnmatchcase("claude", prog):
+    if prog != "claude" and glob_is_claude(prog):
         prog = "claude"
     if prog in WRAPPERS:
         for j in range(i + 1, len(c)):
@@ -146,7 +150,7 @@ def effective(c):
 def runs_shell(prog):
     return prog in SHELLS or prog == "eval"
 
-def substitutions(line, quotes=True):
+def sub_spans(line, quotes=True):
     # Every `$( … )` and backtick span the shell would run, found in the raw text so one inside DOUBLE quotes
     # is checked too (shlex keeps a quoted string as one word). Inside SINGLE quotes they are literal text and
     # are skipped, and so is an escaped `\$(` (review 3 of #73). Nested spans are found when each inner
@@ -182,16 +186,19 @@ def substitutions(line, quotes=True):
                     if c2 == "(": depth += 1
                     elif c2 == ")": depth -= 1
                 j += 1
-            out.append(line[i + 2:j - 1] if depth == 0 else line[i + 2:])
+            out.append((i, j, line[i + 2:j - 1] if depth == 0 else line[i + 2:]))
             i = j
         elif ch == "`":
             j = line.find("`", i + 1)
             if j < 0:
-                out.append(line[i + 1:]); break
-            out.append(line[i + 1:j]); i = j + 1
+                out.append((i, n, line[i + 1:])); break
+            out.append((i, j + 1, line[i + 1:j])); i = j + 1
         else:
             i += 1
     return out
+
+def substitutions(line, quotes=True):
+    return [inner for _, _, inner in sub_spans(line, quotes)]
 
 HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
 def line_feeds_shell(ln):
@@ -308,26 +315,13 @@ def check_segment(c, sep, here, prev, depth):
 def stand_in(line):
     # For TOKENIZING only: a $( ) or backtick span that holds the claude word stands in as the word itself, so
     # `"$(command -v claude)" --bg …` and `$(echo claude) --bg …` read as a claude call (review 3 of #86). The span's
-    # inside is still checked on its own by substitutions(). Single-quoted text is left alone.
-    out, i, n, sq = [], 0, len(line), False
-    while i < n:
-        ch = line[i]
-        if ch == "'" :
-            sq = not sq; out.append(ch); i += 1; continue
-        if not sq and line.startswith("$(", i):
-            depth, j = 1, i + 2
-            while j < n and depth:
-                if line[j] == "(": depth += 1
-                elif line[j] == ")": depth -= 1
-                j += 1
-            span = line[i:j]
-            out.append("claude" if WORD.search(span) else span); i = j; continue
-        if not sq and ch == "`":
-            j = line.find("`", i + 1)
-            j = n if j < 0 else j + 1
-            span = line[i:j]
-            out.append("claude" if WORD.search(span) else span); i = j; continue
-        out.append(ch); i += 1
+    # inside is still checked on its own by substitutions(). The spans come from sub_spans(), the same quote-aware
+    # scanner substitutions() uses, so there is one quote-tracking loop, not two that drift (review 4 of #86).
+    out, last = [], 0
+    for start, end, inner in sub_spans(line):
+        if WORD.search(inner):
+            out.append(line[last:start]); out.append("claude"); last = end
+    out.append(line[last:])
     return "".join(out)
 
 def check(line, depth=0):

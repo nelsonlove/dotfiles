@@ -108,6 +108,11 @@ case_ deny  '$(echo claude) --bg --name "[C0-DV] x" y'
 case_ deny  '`echo claude` --bg --name "[C0-DV] x" y'
 case_ deny  '/opt/homebrew/bin/claud* --bg --name "[C0-DV] x" y'
 case_ deny  '/opt/homebrew/bin/cl[a]ude --bg --name "[C0-DV] x" y'
+# Review 4 of #86: a glob with no "cl" or "ude" in it, and an apostrophe earlier on the line.
+case_ deny  '/opt/homebrew/bin/c*de --bg --name "[C0-DV] x" y'
+case_ deny  '/opt/homebrew/bin/c?a?d? --bg --name "[C0-DV] x" y'
+case_ deny  'echo "it'"'"'s"; "$(command -v claude)" --bg --name "[C0-DV] x" y'
+case_ deny  $'# it\'s\n$(echo claude) --bg --name "[C0-DV] x" y'
 echo
 echo "=== refused: a DV session reached through the id it resumes"
 case_ deny  "claude --resume $DVID"
@@ -159,6 +164,6 @@ PYX
 if [ "$reg" = ok ]; then printf 'PASS  the repo settings.json has one Bash PreToolUse entry for dv-tripwire.sh, timeout 1-10 s\n'; else fails=$((fails + 1)); printf 'FAIL  settings.json: %s\n' "$reg"; fi
 
 printf '\n%s checks, %s failed, %s known limits let through\n' "$n" "$fails" "$known"
-EXPECTED=83
+EXPECTED=87
 [ "$n" = "$EXPECTED" ] || { echo "FAIL  the check count is $n, expected $EXPECTED"; exit 1; }
 [ "$fails" = 0 ] || exit 1
