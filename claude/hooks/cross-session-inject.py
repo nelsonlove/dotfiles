@@ -29,8 +29,8 @@ HEADING = re.compile(r"^## (20\d\d-\d\d-\d\dT[0-9:x]+)", re.M)
 
 # PACKAGE 8 (Nelson, 2026-09-29T02:13: "B and clear out the old entries, it's a loooong file", a one-week trial): below captain, a session reads only the RULINGS; captains and admirals keep the whole delta.
 #
-# A RULING, by its heading: the kind marker after the author is "— ruling", at the end or before a colon ("— ruling: Nelson …"), or "ruling executed:". Measured on the real log 2026-09-29: 115 end in "— ruling", 1 has "— ruling:", 0 have "ruling executed:". The word "ruling" elsewhere is not the marker: a claim "— claim: for Nelson's … ruling" is a claim.
-RULING = re.compile(r"—\s*ruling\s*(?::|$)|\bruling executed\s*:", re.I)
+# A RULING, by its heading: the kind marker after the author is "— ruling" (em dash, en dash or hyphen, after a space), at the end, before a colon ("— ruling: Nelson …") or before a note in brackets ("- ruling (relayed)"); or "ruling executed:". Measured on the real log 2026-09-29: 115 end in "— ruling", 1 has "— ruling:", 0 have "ruling executed:", and no heading whose kind names a ruling is missed. The word "ruling" elsewhere is not the marker: a claim "— claim: for Nelson's … ruling" is a claim. The test's population case fails on any heading whose kind names a ruling and is not read as one, so a new form is caught there rather than dropped in silence.
+RULING = re.compile(r"(?:^|\s)[—–-]\s*ruling\s*(?::|\(|$)|\bruling executed\s*:", re.I)
 RULINGS_MAX_CHARS = 3000
 
 # THE RANK is read the way the fleet scripts read it, from the one table (claude/bin/_fleet-ranks.sh, sourced, never copied): the job state's `template` first, through rank_of_agent; then the session's name in `claude agents --json --all`, through rank_of_name. If neither gives a rank, the session gets the WHOLE delta: failing toward more reading is safe, and toward less is not.
@@ -192,7 +192,8 @@ def main():
 
     unread = [(s, e) for s, e in entries if norm(s) > norm(last)]
 
-    rank = session_rank(session_id)
+    # The rank is looked up only when there is something to show: it costs a bash and, for some sessions, a `claude agents` listing.
+    rank = session_rank(session_id) if unread else None
     if rank is not None and rank >= 1:
         # BELOW CAPTAIN: rulings only. THE STAMP: it advances past every ruling shown, and past the claims and releases around them, which are not meant to be read below captain; it never passes a ruling that was not shown. With rulings left over the cap, it stops just below the first of them, so that ruling (and anything tied with it) comes back next start.
         unread.sort(key=lambda pair: norm(pair[0]))
@@ -202,6 +203,9 @@ def main():
             if shown and used + len(e_) > RULINGS_MAX_CHARS:
                 break
             shown.append((s_, e_)); used += len(e_)
+        # A TIE ACROSS THE CAP: when the first ruling left out shares its stamp with the last one shown, the stamp could not move past either, and the same rulings would come back on every start. So the rest of that stamp's rulings are shown too, over the cap: a stamp group is shown whole.
+        while len(shown) < len(rulings) and norm(rulings[len(shown)][0]) == norm(shown[-1][0]):
+            shown.append(rulings[len(shown)])
         left = rulings[len(shown):]
         if left:
             floor = norm(left[0][0])
@@ -209,8 +213,7 @@ def main():
             new_state = max(below) if below else last
         else:
             new_state = max((norm(s_) for s_, _ in unread), default=last)
-            if norm(new_state) < norm(last):
-                new_state = last
+        chan_lines = "\n".join(f"- {c}" for c in channel_index()) or f"- {log}"
         if shown:
             note = (f"[{len(left)} more rulings not shown: read them in the file now; they will also come back at the next session start]\n\n" if left else "")
             context = (
@@ -220,9 +223,10 @@ def main():
                 "Read each ruling in full and give it a disposition without restating it in chat. Say at most one line on what it changes for you. "
                 "This is the 'Cross-session log reading discipline' rule in CLAUDE.md.\n\n"
                 + "\n\n".join(e_ for _, e_ in shown) + "\n\n" + note
+                + f"Cross-session channels discovered (audience: frontmatter):\n{chan_lines}"
             )
         else:
-            context = (f"Cross-session log: no new rulings since {last} ({log}). You are below captain, so claims and releases are not injected; grep the log once for a claim on a path before you edit it.")
+            context = (f"Cross-session log: no new rulings since {last} ({log}). You are below captain, so claims and releases are not injected; grep the log once for a claim on a path before you edit it.\n\nCross-session channels discovered (audience: frontmatter):\n{chan_lines}")
         emit(context)
         state_file.write_text(norm(new_state))
         return

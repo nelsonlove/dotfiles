@@ -25,7 +25,12 @@ heads = [e.split("\n", 1)[0] for _, e in entries]
 rul = [h for h in heads if hook.is_ruling(h)]
 claims = [h for h in heads if re.search(r"—\s*(claim|release)\b", h)]
 bad = [h for h in rul if re.search(r"—\s*(claim|release)\b", h)]
-print("entries=%d rulings=%d claims_or_releases=%d misread=%d" % (len(heads), len(rul), len(claims), len(bad)))
+# False negatives: a heading whose kind (the text after "· author — ") names a ruling, and is not a claim or release, must read as a ruling.
+def kind(h):
+    m = re.search(r"·.*?\s[—–-]\s*(.*)$", h); return m.group(1) if m else ""
+missed = [h for h in heads if re.search(r"\bruling\b", kind(h), re.I) and not re.match(r"(claim|release)\b", kind(h), re.I) and not hook.is_ruling(h)]
+for h in missed: print("      missed:", h[:120], file=sys.stderr)
+print("entries=%d rulings=%d claims_or_releases=%d misread=%d missed=%d" % (len(heads), len(rul), len(claims), len(bad), len(missed)))
 PY
 )
   case "$pop" in
@@ -34,10 +39,12 @@ PY
        entries=$(printf '%s' "$pop" | sed -E 's/.*entries=([0-9]+).*/\1/'); rulings=$(printf '%s' "$pop" | sed -E 's/.*rulings=([0-9]+).*/\1/'); misread=$(printf '%s' "$pop" | sed -E 's/.*misread=([0-9]+).*/\1/')
        if [ "$entries" -gt 50 ]; then pass "the population is real ($entries entries)"; else fail "the population is real" "only $entries entries"; fi
        if [ "$rulings" -gt 0 ]; then pass "real rulings are found ($rulings)"; else fail "real rulings are found" "none"; fi
-       if [ "$misread" = 0 ]; then pass "no claim or release reads as a ruling"; else fail "no claim or release reads as a ruling" "$misread misread"; fi ;;
+       if [ "$misread" = 0 ]; then pass "no claim or release reads as a ruling"; else fail "no claim or release reads as a ruling" "$misread misread"; fi
+       missed=$(printf '%s' "$pop" | sed -E 's/.*missed=([0-9]+).*/\1/')
+       if [ "$missed" = 0 ]; then pass "no heading whose kind is a ruling is missed"; else fail "no heading whose kind is a ruling is missed" "$missed missed"; fi ;;
   esac
 else
-  n=$((n + 1)); skips=$((skips + 1)); printf 'SKIP  the real-log population: no log at %s\n' "$REAL_LOG"
+  n=$((n + 4)); skips=$((skips + 4)); printf 'SKIP  the real-log population (4 checks): no log at %s\n' "$REAL_LOG"
 fi
 
 # --- fixtures -------------------------------------------------------------------------------------------------
@@ -132,7 +139,37 @@ if [ "$rounds" -gt 2 ]; then pass "the cap made it take more than one start"; el
 st=$(state_of 11111111)
 if [ "$st" = "${day}T01:49" ]; then pass "after the last ruling, the stamp moves past the trailing claims"; else fail "after the last ruling, the stamp moves past the trailing claims" "stamp $st"; fi
 
-EXPECTED=19
+echo
+echo "=== 4. ties, dash variants, and the channel list"
+# Four long rulings in ONE minute, over the cap together: the stamp must not stall on the tie (it would reshow the first forever).
+{ printf -- '---\naudience: fleet\n---\n\n'
+  for i in 1 2 3 4; do printf '## %sT02:00 · [A0] rear admiral — ruling\nT%s %s\n\n' "$day" "$i" "$(python3 -c 'print("t" * 900)')"; done
+  printf '## %sT02:05 · [A0] rear admiral — ruling\nT5 after the tie.\n\n' "$day"
+} > "$LOG"
+job 22222222 lieutenant
+seen=""; rounds=0
+while [ "$rounds" -lt 8 ]; do
+  out=$(inject 22222222); rounds=$((rounds + 1))
+  new=$(printf '%s' "$out" | grep -oE '^T[0-9]+' | tr '\n' ' ')
+  [ -n "$new" ] || break
+  seen="$seen$new"
+done
+all=$(printf '%s' "$seen" | tr ' ' '\n' | grep . | sort -u | tr '\n' ' ')
+if [ "$all" = "T1 T2 T3 T4 T5 " ]; then pass "rulings tied on one stamp over the cap are all shown, and the stamp moves on ($rounds starts)"; else fail "rulings tied on one stamp over the cap are all shown" "shown: $all in $rounds starts"; fi
+
+{ printf -- '---\naudience: fleet\n---\n\n'
+  printf '## %sT03:01 · [A0] rear admiral – ruling\nEN dash ruling.\n\n' "$day"
+  printf '## %sT03:02 · [A0] rear admiral - ruling (relayed)\nHYPHEN ruling.\n\n' "$day"
+  printf '## %sT03:03 · [L0-CC] a - claim: the pre-ruling file\nHYPHEN claim.\n\n' "$day"
+} > "$LOG"
+job 33333333 lieutenant
+out=$(inject 33333333)
+has   "a ruling marked with an en dash is shown" "$out" "EN dash ruling."
+has   "a ruling marked with a hyphen and a note is shown" "$out" "HYPHEN ruling."
+lacks "a hyphen claim is still a claim" "$out" "HYPHEN claim."
+has   "a lieutenant still gets the channel list" "$out" "Cross-session channels discovered"
+
+EXPECTED=25
 [ $((n)) = "$EXPECTED" ] || { fails=$((fails + 1)); echo "FAIL  the check count is $n, expected $EXPECTED"; }
 printf '\n%s checks (expected %s), %s failed, %s skipped\n' "$n" "$EXPECTED" "$fails" "$skips"
 [ "$fails" = 0 ] || exit 1
