@@ -9,24 +9,33 @@
 # The guards, in order. Each one records its reason on stdout (tickle keeps stdout per run):
 #   1. Fleet pause: `_lib/pause-gate.sh weekly-rollups`. 1 = paused, skip (exit 0). Anything else non-zero = failed (exit 2).
 #   2. Load: the 1-minute load average 10 or more = skip (exit 0).
-#   3. Live lieutenant: `claude agents --json` lists running sessions, busy or idle. A session named
-#      `[L0-OB] weekly rollups` that is busy is at work: dispatch nothing (exit 0). One that is only idle is a finished
-#      lieutenant nobody stopped; it still blocks a second one, but loudly: queue item "Weekly rollup not started
-#      <week>" and exit 5. A listing that fails is exit 2: a check we cannot make is never a pass. This guard runs
-#      before guard 4 so a lieutenant still writing last week's files never causes a false "missed" item.
-#   4. Previous week: both rollups for the week before the target must exist. If either is missing, ONE queue item
+#   3. No overwrite: if either rollup for the target week already exists, dispatch nothing (exit 0). This runs first
+#      of the vault checks, so a rerun after a good week is always a quiet skip.
+#   4. Live lieutenant: `claude agents --json` lists running sessions. A session named `[L0-OB] weekly rollups` that is
+#      busy, or idle but not `state: done` (waiting on a prompt, or mid-task), is at work: dispatch nothing (exit 0).
+#      One that is idle and `done` is a finished lieutenant nobody stopped; it still blocks a second one, but loudly:
+#      queue item "Weekly rollup not started <week>" and exit 5. A listing that fails is exit 2: a check we cannot make
+#      is never a pass. This runs before guard 5, so a lieutenant still writing last week's files never causes a false
+#      "missed" item.
+#   5. Previous week: both rollups for the week before the target must exist. If either is missing, ONE queue item
 #      "Weekly rollup missed <that week>" is filed for Nelson (never twice), and the run goes on.
-#   5. No overwrite: if either rollup for the target week already exists, dispatch nothing (exit 0).
 #   6. Brief markers: the brief is the text between the two marker lines of the standing brief note. Each marker must
 #      appear exactly once, on its own line, start before end, with non-blank text between. If not: dispatch nothing,
 #      file "Weekly rollup not started <week>", exit 3 (a FAILED run, loud).
 #   7. Substitution: the ONLY substitution is the literal `YYYY-Www`. `<date>`, `<n>`, `<reason>` pass through.
-#   8. Dispatch: `env -u ANTHROPIC_API_KEY claude --bg --agent lieutenant --name "[L0-OB] weekly rollups" -- <brief>`,
-#      from the dotfiles checkout (a trusted workspace; /tmp and $HOME are not). Then the dispatch is CONFIRMED by
-#      listing agents again. A failed or unconfirmed dispatch files "Weekly rollup not started <week>" and exits 4,
-#      never a quiet success. On success, a "not started" item for the week (from an earlier failed run) gets a
-#      Response line and `needs: nothing`, and one claim line naming the ruling is appended to the cross-session
-#      log; the lieutenant posts its own release when it ends (standing brief, "At the end").
+#   8. Dispatch: `env -u ANTHROPIC_API_KEY claude --bg --add-dir <vault> --agent lieutenant --name "[L0-OB] weekly
+#      rollups" -- <brief>`, from the dotfiles checkout (a trusted workspace; /tmp and $HOME are not), with the vault
+#      added so the lieutenant's writes there are inside its workspace. Then the dispatch is CONFIRMED by listing
+#      agents again. A failed or unconfirmed dispatch files "Weekly rollup not started <week>" and exits 4, never a
+#      quiet success. On success, a "not started" item for the week (from an earlier failed run) gets a line under
+#      `## Response` and `needs: nothing`, and one claim line naming the ruling is appended to the cross-session log;
+#      the lieutenant posts its own release when it ends (standing brief, "At the end").
+#
+# Guards 3-8 run under a lock (a directory under ~/.local/state/weekly-rollups), so two overlapping runs can never both
+# pass the live check and start two lieutenants. A lock whose holder is dead is taken over. --dry-run takes no lock.
+#
+# Queue items the job files carry `session: "tickle weekly-rollups"`, the job's own identity. A "not started" item the
+# job settled is reopened (`needs: ruling`, a Response line) if a later run for the same week fails again.
 #
 # THE API KEY. `env -u ANTHROPIC_API_KEY` keeps the key out of the CLI call, as the obsidian captain asked. It does NOT
 # reach the lieutenant: a `claude --bg` session takes its environment from the Claude daemon, not from this shell
@@ -53,8 +62,10 @@ set -u
 set -o pipefail
 
 wr_ok=0
+have_lock=0
 on_exit() {
   rc=$?
+  [ "$have_lock" = "1" ] && rmdir "$LOCK_DIR" 2>/dev/null
   [ "$wr_ok" = "1" ] && exit "$rc"
   [ "$rc" -eq 0 ] && exit 0
   echo "weekly-rollups: FAILED — unexpected exit $rc (rewritten to 2 so tickle records a failed run)" >&2
@@ -88,7 +99,7 @@ week=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --dry-run) dry=1 ;;
-    --week) shift; week="${1:-}" ;;
+    --week) shift; [ -n "${1:-}" ] || finish 2 "--week needs a value (YYYY-Www)"; week="$1" ;;
     --week=*) week="${1#--week=}" ;;
     *) finish 2 "usage: run.sh [--dry-run] [--week YYYY-Www] (unknown argument: $1)" ;;
   esac
@@ -101,6 +112,7 @@ VAULT="${WR_VAULT:-$HOME/obsidian}"
 CLAUDE="${WR_CLAUDE:-claude}"
 DISPATCH_CWD="${WR_DISPATCH_CWD:-$HOME/repos/system/dotfiles}"
 CLAUDE_JSON="${WR_CLAUDE_JSON:-$HOME/.claude.json}"
+LOCK_DIR="${WR_LOCK:-$HOME/.local/state/weekly-rollups/run.lock}"
 
 SYS="$VAULT/00-09 System"
 NB_DIR="$SYS/03 Agents/03.04 Records/Agent notebook/rollups"
@@ -135,12 +147,40 @@ say "target week $week (Monday $mon); previous week $prev"
 nb_file() { echo "$NB_DIR/Agent rollup for $1.md"; }
 xs_file() { echo "$XS_DIR/Cross-session rollup for $1.md"; }
 
+# respond <file> <needs> <line> — set `needs` and `modified` in the frontmatter, and put <line> at the end of the
+# `## Response` section (before the next `## ` heading, or at the end of the file). Only on this job's own items.
+respond() {
+  rf="$1"; rn="$2"; rl="$3"
+  grep -qxF '  by: "tickle weekly-rollups"' "$rf" || { say "not touching $rf: not written by this job"; return 0; }
+  st=$(date +%Y-%m-%dT%H:%M:%S%z | sed 's/\(..\)$/:\1/')
+  tmpf="$rf.tmp.$$"
+  if awk -v st="$st" -v nd="$rn" -v ln="- $st — $rl" '
+      BEGIN { fm = 0; inr = 0; done = 0 }
+      fm < 2 && /^---$/ { fm++; print; next }
+      fm == 1 && /^needs:/ { print "needs: " nd; next }
+      fm == 1 && /^modified:/ { print "modified: " st; next }
+      fm >= 2 && /^## / { if (inr && !done) { print ln; print ""; done = 1 }; inr = ($0 == "## Response") }
+      { print }
+      END { if (!done) print ln }' "$rf" > "$tmpf" && mv "$tmpf" "$rf"; then
+    say "queue item updated (needs: $rn): $rf"
+  else
+    say "WARNING: could not update $rf"
+  fi
+}
+
 # file_queue_item <missed|not started> <week> <why> — ONE item per kind and week, created, never overwritten.
 file_queue_item() {
   kind="$1"; qw="$2"; why="$3"
   title="Weekly rollup $kind $qw"
   qf="$QUEUE_DIR/$title.md"
-  if [ -e "$qf" ]; then say "queue item already exists, not filed again: $qf"; return 0; fi
+  if [ -e "$qf" ]; then
+    if [ "$kind" = "not started" ] && grep -qx 'needs: nothing' "$qf"; then
+      if [ "$dry" = "1" ]; then say "would reopen queue item: $qf"; else respond "$qf" ruling "Failed again: $why"; fi
+    else
+      say "queue item already exists, not filed again: $qf"
+    fi
+    return 0
+  fi
   stamp=$(date +%Y-%m-%dT%H:%M:%S%z | sed 's/\(..\)$/:\1/')
   uid=$(uuidgen | tr 'A-Z' 'a-z')
   body="---
@@ -149,7 +189,7 @@ title: $title
 description: \"The weekly rollups for $qw: $kind. The weekly-rollups tickle job found it; Nelson decides whether a lieutenant writes them now.\"
 status: draft/proposed
 needs: ruling
-session: \"[L0-MA] tickle\"
+session: \"tickle weekly-rollups\"
 generated:
   by: \"tickle weekly-rollups\"
   at: \"$stamp\"
@@ -188,13 +228,7 @@ Expected:
 settle_not_started() {
   nf="$QUEUE_DIR/Weekly rollup not started $1.md"
   [ -f "$nf" ] || return 0
-  grep -qxF '  by: "tickle weekly-rollups"' "$nf" || { say "not touching $nf: not written by this job"; return 0; }
-  st=$(date +%Y-%m-%dT%H:%M:%S%z | sed 's/\(..\)$/:\1/')
-  tmpf="$nf.tmp.$$"
-  awk -v st="$st" 'BEGIN{fm=0} /^---$/{fm++} fm==1 && /^needs:/{print "needs: nothing"; next} fm==1 && /^modified:/{print "modified: " st; next} {print}' "$nf" > "$tmpf" \
-    && printf -- '- %s — The weekly-rollups job started the lieutenant for %s after all.\n' "$st" "$1" >> "$tmpf" \
-    && mv "$tmpf" "$nf" || { say "WARNING: could not settle $nf"; return 0; }
-  say "settled queue item: $nf"
+  respond "$nf" nothing "The weekly-rollups job started the lieutenant for $1 after all."
 }
 
 # ---- 1. fleet pause ----
@@ -217,19 +251,40 @@ if awk -v l="$load" 'BEGIN{exit !(l >= 10)}'; then
 fi
 say "load: $load"
 
-# ---- 3. live lieutenant ----
+# ---- 3. no overwrite ----
+exists=""
+[ -e "$(nb_file "$week")" ] && exists="$exists $(nb_file "$week")"
+[ -e "$(xs_file "$week")" ] && exists="$exists $(xs_file "$week")"
+[ -z "$exists" ] || finish 0 "SKIPPED — $week already has a rollup, nothing overwritten, nothing dispatched:$exists"
+say "target week $week: no rollup yet"
+
+# ---- lock (guards 4-8) ----
+if [ "$dry" != "1" ]; then
+  mkdir -p "$(dirname "$LOCK_DIR")" || finish 2 "cannot create the lock's parent for $LOCK_DIR"
+  if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+    holder=$(cat "$LOCK_DIR.pid" 2>/dev/null)
+    if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then
+      finish 0 "SKIPPED — another weekly-rollups run (pid $holder) holds $LOCK_DIR"
+    fi
+    say "taking over a stale lock (holder ${holder:-unknown} is gone): $LOCK_DIR"
+  fi
+  echo $$ > "$LOCK_DIR.pid" || finish 2 "cannot record the lock holder in $LOCK_DIR.pid"
+  have_lock=1
+fi
+
+# ---- 4. live lieutenant ----
 command -v "$CLAUDE" >/dev/null 2>&1 || finish 2 "claude not found on PATH ($PATH)"
 agents=$("$CLAUDE" agents --json 2>/dev/null) || finish 2 "'claude agents --json' failed; cannot tell whether $LT_NAME is live"
-live=$(printf '%s' "$agents" | jq -r --arg n "$LT_NAME" '[.[] | select(.name == $n)] | length') || finish 2 "cannot parse 'claude agents --json'"
-busy=$(printf '%s' "$agents" | jq -r --arg n "$LT_NAME" '[.[] | select(.name == $n and .status == "busy")] | length') || finish 2 "cannot parse 'claude agents --json'"
-if [ "$busy" != "0" ]; then finish 0 "SKIPPED — $LT_NAME is live and busy; no second one started"; fi
-if [ "$live" != "0" ]; then
-  file_queue_item "not started" "$week" "A session named $LT_NAME is still listed by \`claude agents\` and idle ($live session(s)): a finished lieutenant nobody stopped. The job never starts a second one of that name. Stop it with \`claude stop\`, then run the job again."
-  finish 5 "$LT_NAME is listed but idle ($live session(s)); stop it, then rerun"
+counts=$(printf '%s' "$agents" | jq -r --arg n "$LT_NAME" '[.[] | select(.name == $n)] | "\(length) \([.[] | select(.status == "idle" and .state == "done")] | length)"') || finish 2 "cannot parse 'claude agents --json'"
+live=${counts% *}; finished=${counts#* }
+if [ "$live" -gt "$finished" ]; then finish 0 "SKIPPED — $LT_NAME is live and at work (busy, or idle and not done); no second one started"; fi
+if [ "$finished" != "0" ]; then
+  file_queue_item "not started" "$week" "A session named $LT_NAME is still listed by \`claude agents\`, idle and done ($finished session(s)): a finished lieutenant nobody stopped. The job never starts a second one of that name. Stop it with \`claude stop\`, then run the job again."
+  finish 5 "$LT_NAME is listed, idle and done ($finished session(s)); stop it, then rerun"
 fi
 say "live check: no $LT_NAME running"
 
-# ---- 4. previous week's rollups ----
+# ---- 5. previous week's rollups ----
 missing=""
 [ -e "$(nb_file "$prev")" ] || missing="$missing notebook"
 [ -e "$(xs_file "$prev")" ] || missing="$missing cross-session"
@@ -239,13 +294,6 @@ if [ -n "$missing" ]; then
 else
   say "previous week $prev: both rollups exist"
 fi
-
-# ---- 5. no overwrite ----
-exists=""
-[ -e "$(nb_file "$week")" ] && exists="$exists $(nb_file "$week")"
-[ -e "$(xs_file "$week")" ] && exists="$exists $(xs_file "$week")"
-[ -z "$exists" ] || finish 0 "SKIPPED — $week already has a rollup, nothing overwritten, nothing dispatched:$exists"
-say "target week $week: no rollup yet"
 
 # ---- 6. brief markers ----
 [ -r "$BRIEF_NOTE" ] || { file_queue_item "not started" "$week" "The standing brief note could not be read, so no lieutenant was started."; finish 3 "standing brief unreadable: $BRIEF_NOTE"; }
@@ -275,6 +323,7 @@ say "brief: $(printf '%s' "$raw" | grep -oF 'YYYY-Www' | wc -l | tr -d ' ') plac
 
 # ---- 8. dispatch ----
 [ -d "$DISPATCH_CWD" ] || finish 2 "dispatch directory missing: $DISPATCH_CWD"
+[ -d "$VAULT" ] || finish 2 "vault missing: $VAULT"
 trusted=$(jq -r --arg d "$DISPATCH_CWD" '.projects[$d].hasTrustDialogAccepted // false' "$CLAUDE_JSON" 2>/dev/null) || trusted="unknown"
 [ "$trusted" = "true" ] || finish 2 "dispatch directory is not a trusted workspace ($trusted): $DISPATCH_CWD — a background session there would stop at the trust prompt"
 
@@ -294,12 +343,12 @@ if [ "$dry" = "1" ]; then
     done
   fi
   say "would run, from $DISPATCH_CWD:"
-  printf '  cd %q && env -u ANTHROPIC_API_KEY %q --bg --agent lieutenant --name %q -- %q\n' "$DISPATCH_CWD" "$CLAUDE" "$LT_NAME" "$brief"
+  printf '  cd %q && env -u ANTHROPIC_API_KEY %q --bg --add-dir %q --agent lieutenant --name %q -- %q\n' "$DISPATCH_CWD" "$CLAUDE" "$VAULT" "$LT_NAME" "$brief"
   say "would append to $XLOG: $claim_line"
   finish 0 "DRY RUN complete — every guard passed; nothing dispatched"
 fi
 
-out=$(cd "$DISPATCH_CWD" && env -u ANTHROPIC_API_KEY "$CLAUDE" --bg --agent lieutenant --name "$LT_NAME" -- "$brief" 2>&1)
+out=$(cd "$DISPATCH_CWD" && env -u ANTHROPIC_API_KEY "$CLAUDE" --bg --add-dir "$VAULT" --agent lieutenant --name "$LT_NAME" -- "$brief" 2>&1)
 drc=$?
 say "dispatch output: $out"
 if [ "$drc" -ne 0 ]; then
@@ -311,7 +360,7 @@ tries="${WR_CONFIRM_TRIES:-10}"; nap="${WR_CONFIRM_SLEEP:-3}"; seen=0; i=0
 while [ "$i" -lt "$tries" ]; do
   n=$("$CLAUDE" agents --json 2>/dev/null | jq -r --arg n "$LT_NAME" '[.[] | select(.name == $n)] | length' 2>/dev/null) || n=0
   [ "${n:-0}" -ge 1 ] 2>/dev/null && { seen=1; break; }
-  i=$((i + 1)); sleep "$nap"
+  i=$((i + 1)); [ "$i" -lt "$tries" ] && sleep "$nap"
 done
 if [ "$seen" != "1" ]; then
   file_queue_item "not started" "$week" "\`claude --bg\` returned 0, but no session named $LT_NAME appeared in \`claude agents --json\`."

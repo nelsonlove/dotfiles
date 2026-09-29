@@ -11,12 +11,13 @@ status: disabled
 #
 # Every guard (pause, load, previous week, no overwrite, brief markers, placeholder, live lieutenant) is in run.sh,
 # so `tickle run weekly-rollups` by hand is guarded too. `run.sh --dry-run` goes through them all and dispatches
-# nothing. The trigger adds only the host: the job must run on ONE machine, or two daemons start two lieutenants.
+# nothing. The trigger adds only the host (on-host.sh, not gated.sh: run.sh checks the pause itself): the job must run
+# on ONE machine, or two daemons start two lieutenants.
 # The host is the Air today; the MacBook Pro cut-over re-gates it with the other jobs.
 triggers:
   - type: script
     schedule: "30 7 * * 1"
-    command: ["@config/scripts/_lib/gated.sh", "Nelsons-MacBook-Air", "weekly-rollups"]
+    command: ["@config/scripts/_lib/on-host.sh", "Nelsons-MacBook-Air"]
     timeout: 10s
 
 run:
