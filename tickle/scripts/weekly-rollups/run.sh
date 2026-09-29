@@ -17,8 +17,8 @@
 #      `done` is a finished lieutenant nobody stopped, and one at work for 24 hours or more is stuck; either still blocks
 #      a second one, but loudly: queue item "Weekly rollup not started <week>" and exit 5. A listing that fails or
 #      cannot be read is exit 2: a check we cannot make is never a pass. This runs before guard 5, so a lieutenant
-#      still writing last week's files never causes a false "missed" item. Then, if the cross-session log already
-#      names either target rollup in a line not written by this job (a hand dispatch claimed it), skip (exit 0).
+#      still writing last week's files never causes a false "missed" item. A hand dispatch by the obsidian captain is
+#      caught here too, because its lieutenant carries the same name.
 #   5. Previous week: both rollups for the week before the target must exist. If either is missing, ONE queue item
 #      "Weekly rollup missed <that week>" is filed for Nelson (never twice), and the run goes on.
 #   6. Brief markers: the brief is the text between the two marker lines of the standing brief note. Each marker must
@@ -26,20 +26,24 @@
 #      file "Weekly rollup not started <week>", exit 3 (a FAILED run, loud).
 #   7. Substitution: the ONLY substitution is the literal `YYYY-Www`. `<date>`, `<n>`, `<reason>` pass through.
 #   8. Dispatch: refused (queue item, exit 6) if a running Claude daemon holds ANTHROPIC_API_KEY, since a --bg session
-#      takes the daemon's environment and would bill the key. Otherwise `env -u ANTHROPIC_API_KEY claude --bg --add-dir <vault> --agent lieutenant --name "[L0-OB] weekly
-#      rollups" -- <brief>`, from the dotfiles checkout (a trusted workspace; /tmp and $HOME are not), with the vault
-#      added so the lieutenant's writes there are inside its workspace. Then the dispatch is CONFIRMED by listing
-#      agents again. A failed or unconfirmed dispatch files "Weekly rollup not started <week>" and exits 4, never a
-#      quiet success. On success, a "not started" item for the week (from an earlier failed run) gets a line under
-#      `## Response` and `needs: nothing`, and one claim line naming the ruling is appended to the cross-session log;
-#      the lieutenant posts its own release when it ends (standing brief, "At the end").
+#      takes the daemon's environment and would bill the key. Otherwise
+#      `env -u ANTHROPIC_API_KEY claude --bg --agent lieutenant --name "[L0-OB] weekly rollups" -- <brief>`, from the
+#      vault (a trusted workspace with no project config; /tmp and $HOME are not trusted). Then the dispatch is
+#      CONFIRMED by listing agents again. A failed or unconfirmed dispatch files "Weekly rollup not started <week>" and
+#      exits 4, never a quiet success. On success, a "not started" item for the week (from an earlier failed run) gets
+#      a line under `## Response` and `needs: nothing`, and one "claim and release in one entry" line naming the
+#      ruling is appended to the cross-session log (the job holds nothing once it exits; the lieutenant posts its own
+#      claim and release for the files).
+#
+# Every `claude` call the job makes (the listing too) runs with ANTHROPIC_API_KEY unset: `claude agents` starts a
+# Claude daemon when none is running, and that daemon would inherit the key.
 #
 # A real run holds a kernel lock (`/usr/bin/lockf` on ~/.local/state/weekly-rollups/run.lock) from start to end, so two
 # overlapping runs can never both pass the live check. The lock dies with the process; a second run skips (exit 0).
 # --dry-run takes no lock.
 #
-# Queue items the job files carry `session: "tickle weekly-rollups"`, the job's own identity. A "not started" item the
-# job settled is reopened (`needs: ruling`, a Response line) if a later run for the same week fails again.
+# Queue items the job files carry `session: "tickle weekly-rollups"`, the job's own identity. Every later failure for a
+# week with a "not started" item adds a Response line with the new cause; a settled one is reopened (`needs: ruling`).
 #
 # THE API KEY. `env -u ANTHROPIC_API_KEY` keeps the key out of the CLI call, as the obsidian captain asked. It does NOT
 # reach the lieutenant: a `claude --bg` session takes its environment from the Claude daemon, not from this shell
@@ -59,7 +63,9 @@
 #
 # Test seams (environment): WR_VAULT (vault root), WR_LOADAVG (a fake 1-minute load), WR_CLAUDE (the claude binary),
 # WR_DISPATCH_CWD (the dispatch directory), WR_CLAUDE_JSON (the file holding workspace trust), WR_CONFIRM_TRIES and
-# WR_CONFIRM_SLEEP (how long to wait for the dispatched session to appear), PAUSE_NOTE (passed to pause-gate.sh).
+# WR_CONFIRM_SLEEP (how long to wait for the dispatched session to appear), WR_LOCK (the lock file), PAUSE_NOTE (passed
+# to pause-gate.sh), and WR_TEST_DAEMON_KEY_PIDS (the pids guard 8 reports as holding the key, in place of the real
+# scan; set, even empty, it REPLACES the scan, so it is for the tests only).
 #
 # Written for /bin/bash 3.2 (macOS): no associative arrays, no mapfile, no ${var,,}.
 
@@ -104,7 +110,7 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --dry-run) dry=1 ;;
     --week) shift; [ -n "${1:-}" ] || finish 2 "--week needs a value (YYYY-Www)"; week="$1" ;;
-    --week=*) week="${1#--week=}" ;;
+    --week=*) week="${1#--week=}"; [ -n "$week" ] || finish 2 "--week= needs a value (YYYY-Www)" ;;
     *) finish 2 "usage: run.sh [--dry-run] [--week YYYY-Www] (unknown argument: $1)" ;;
   esac
   shift
@@ -114,7 +120,7 @@ here=$(cd "$(dirname "$0")" && pwd -P) || finish 2 "cannot resolve the script di
 PAUSE_GATE="$here/../_lib/pause-gate.sh"
 VAULT="${WR_VAULT:-$HOME/obsidian}"
 CLAUDE="${WR_CLAUDE:-claude}"
-DISPATCH_CWD="${WR_DISPATCH_CWD:-$HOME/repos/system/dotfiles}"
+DISPATCH_CWD="${WR_DISPATCH_CWD:-$VAULT}"
 CLAUDE_JSON="${WR_CLAUDE_JSON:-$HOME/.claude.json}"
 LOCK_FILE="${WR_LOCK:-$HOME/.local/state/weekly-rollups/run.lock}"
 
@@ -128,6 +134,9 @@ MARK_START="<!-- weekly-rollups brief: start -->"
 MARK_END="<!-- weekly-rollups brief: end -->"
 
 say() { echo "weekly-rollups: $*"; }
+iso_now() { date +%Y-%m-%dT%H:%M:%S%z | sed 's/\(..\)$/:\1/'; }
+# cl: every claude call, with the API key unset (see the header).
+cl() { env -u ANTHROPIC_API_KEY "$CLAUDE" "$@"; }
 
 # A real run re-runs itself under a kernel lock. lockf exits 75 (EX_TEMPFAIL) only when the lock is held; this script
 # never exits 75 itself.
@@ -169,8 +178,8 @@ uuid7() { /usr/bin/perl -MTime::HiRes=time -e 'my $ms=int(time*1000); my @r=map{
 respond() {
   rf="$1"; rn="$2"; rl="$3"
   is_ours "$rf" || { say "WARNING: not touching $rf: it does not carry generated.by tickle weekly-rollups"; return 0; }
-  st=$(date +%Y-%m-%dT%H:%M:%S%z | sed 's/\(..\)$/:\1/')
-  tmpf="$rf.tmp.$$"
+  st=$(iso_now)
+  tmpf=$(mktemp "${TMPDIR:-/tmp}/weekly-rollups-respond.XXXXXX") || { say "WARNING: could not update $rf (no temp file)"; return 0; }
   if awk -v st="$st" -v nd="$rn" -v ln="- $st — $rl" '
       BEGIN { fm = 0; inr = 0; done = 0 }
       fm < 2 && /^---$/ { fm++; print; next }
@@ -178,11 +187,12 @@ respond() {
       fm == 1 && /^modified:/ { print "modified: " st; next }
       fm >= 2 && /^## / { if (inr && !done) { print ln; print ""; done = 1 }; inr = ($0 == "## Response") }
       { print }
-      END { if (!done) print ln }' "$rf" > "$tmpf" && mv "$tmpf" "$rf"; then
+      END { if (!done) print ln }' "$rf" > "$tmpf" && cat "$tmpf" > "$rf"; then
     say "queue item updated (needs: $rn): $rf"
   else
     say "WARNING: could not update $rf"
   fi
+  /usr/bin/trash "$tmpf" 2>/dev/null || true
 }
 
 # file_queue_item <missed|not started> <week> <why> — ONE item per kind and week, created, never overwritten.
@@ -191,14 +201,14 @@ file_queue_item() {
   title="Weekly rollup $kind $qw"
   qf="$QUEUE_DIR/$title.md"
   if [ -e "$qf" ]; then
-    if [ "$kind" = "not started" ] && grep -Eq '^needs:[[:space:]]*"?nothing"?[[:space:]]*$' "$qf"; then
-      if [ "$dry" = "1" ]; then say "would reopen queue item: $qf"; else respond "$qf" ruling "Failed again: $why"; fi
+    if [ "$kind" = "not started" ]; then
+      if [ "$dry" = "1" ]; then say "would add the new cause to queue item: $qf"; else respond "$qf" ruling "Failed again: $why"; fi
     else
       say "queue item already exists, not filed again: $qf"
     fi
     return 0
   fi
-  stamp=$(date +%Y-%m-%dT%H:%M:%S%z | sed 's/\(..\)$/:\1/')
+  stamp=$(iso_now)
   uid=$(uuid7) || finish 2 "cannot make a uid"
   body="---
 type: Task/AgentTask
@@ -277,7 +287,7 @@ say "target week $week: no rollup yet"
 
 # ---- 4. live lieutenant ----
 command -v "$CLAUDE" >/dev/null 2>&1 || finish 2 "claude not found on PATH ($PATH)"
-agents=$("$CLAUDE" agents --json 2>/dev/null) || finish 2 "'claude agents --json' failed; cannot tell whether $LT_NAME is live"
+agents=$(cl agents --json 2>/dev/null) || finish 2 "'claude agents --json' failed; cannot tell whether $LT_NAME is live"
 now_ms=$(/usr/bin/perl -MTime::HiRes=time -e 'printf "%d", time*1000') || finish 2 "cannot read the clock"
 counts=$(printf '%s' "$agents" | jq -r --arg n "$LT_NAME" --argjson now "$now_ms" '
   [.[] | select((.name // "") | startswith($n))] as $m
@@ -296,10 +306,6 @@ if [ "$finished" != "0" ]; then
   finish 5 "$LT_NAME is listed, idle and done ($finished session(s)); stop it, then rerun"
 fi
 say "live check: no $LT_NAME running"
-if [ -f "$XLOG" ] && grep -F -e "Agent rollup for $week" -e "Cross-session rollup for $week" "$XLOG" | grep -vqF -- '— tickle weekly-rollups'; then
-  finish 0 "SKIPPED — the cross-session log already names a $week rollup in a line this job did not write (a hand dispatch?); nothing dispatched"
-fi
-say "log check: no claim on the $week rollups"
 
 # ---- 5. previous week's rollups ----
 missing=""
@@ -335,7 +341,6 @@ say "brief: lines $((ls_ + 1))-$((le_ - 1)) of the standing brief"
 
 # ---- 7. substitution: YYYY-Www only ----
 brief=$(printf '%s' "$raw" | awk -v w="$week" '{ gsub(/YYYY-Www/, w); print }') || finish 2 "substitution failed"
-printf '%s' "$brief" | grep -qF 'YYYY-Www' && finish 2 "placeholder left after substitution"
 say "brief: $(printf '%s' "$raw" | grep -oF 'YYYY-Www' | wc -l | tr -d ' ') placeholders set to $week"
 
 # ---- 8. dispatch ----
@@ -344,23 +349,23 @@ say "brief: $(printf '%s' "$raw" | grep -oF 'YYYY-Www' | wc -l | tr -d ' ') plac
 trusted=$(jq -r --arg d "$DISPATCH_CWD" '.projects[$d].hasTrustDialogAccepted // false' "$CLAUDE_JSON" 2>/dev/null) || trusted="unknown"
 [ "$trusted" = "true" ] || finish 2 "dispatch directory is not a trusted workspace ($trusted): $DISPATCH_CWD — a background session there would stop at the trust prompt"
 
-claim_line="Dispatched \`$LT_NAME\` for $week, for $RULING: it writes \`Agent rollup for $week.md\` and \`Cross-session rollup for $week.md\` and runs the spec Steps sweep; the lieutenant posts the release. — tickle weekly-rollups"
+claim_line="Claim and release in one entry: dispatched \`$LT_NAME\` for $week, for $RULING. The job holds nothing now; the lieutenant claims and releases \`Agent rollup for $week.md\` and \`Cross-session rollup for $week.md\` itself. — tickle weekly-rollups"
 
 # daemon_key_pids: running Claude daemons whose environment holds ANTHROPIC_API_KEY.
 daemon_key_pids() {
-  for dp in $(ps -axo pid=,command= | awk '$0 ~ /claude daemon run/ && $0 !~ /awk/ {print $1}'); do
+  for dp in $(ps -axo pid=,command= | awk '$2 ~ /(^|\/)claude$/ && $3 == "daemon" && $4 == "run" {print $1}'); do
     ps eww -o command= -p "$dp" 2>/dev/null | tr ' ' '\n' | grep -q '^ANTHROPIC_API_KEY=' && echo "$dp"
   done
   return 0
 }
-if [ -n "${WR_DAEMON_KEY_PIDS+set}" ]; then keyed="$WR_DAEMON_KEY_PIDS"; else keyed=$(daemon_key_pids | tr '\n' ' '); fi
+if [ -n "${WR_TEST_DAEMON_KEY_PIDS+set}" ]; then keyed="$WR_TEST_DAEMON_KEY_PIDS"; else keyed=$(daemon_key_pids | tr '\n' ' '); fi
 keyed=$(printf '%s' "$keyed" | sed 's/ *$//')
 
-cmd=(env -u ANTHROPIC_API_KEY "$CLAUDE" --bg --add-dir "$VAULT" --agent lieutenant --name "$LT_NAME" -- "$brief")
+cmd=(env -u ANTHROPIC_API_KEY "$CLAUDE" --bg --agent lieutenant --name "$LT_NAME" -- "$brief")
 
 if [ "$dry" = "1" ]; then
   say "environment: claude = $(command -v "$CLAUDE"); PATH = $PATH"
-  auth=$(env -u ANTHROPIC_API_KEY "$CLAUDE" auth status 2>/dev/null | jq -r '"\(.loggedIn) \(.authMethod)"' 2>/dev/null) || auth="unknown"
+  auth=$(cl auth status 2>/dev/null | jq -r '"\(.loggedIn) \(.authMethod)"' 2>/dev/null) || auth="unknown"
   say "environment: auth (API key unset) = $auth; dispatch directory trusted = $trusted"
   if [ -n "$keyed" ]; then
     say "environment: Claude daemon pid(s) $keyed hold ANTHROPIC_API_KEY — a real run REFUSES to dispatch (exit 6) until they do not"
@@ -388,7 +393,7 @@ fi
 
 tries="${WR_CONFIRM_TRIES:-10}"; nap="${WR_CONFIRM_SLEEP:-3}"; seen=0; i=0
 while [ "$i" -lt "$tries" ]; do
-  n=$("$CLAUDE" agents --json 2>/dev/null | jq -r --arg n "$LT_NAME" '[.[] | select((.name // "") | startswith($n))] | length' 2>/dev/null) || n=0
+  n=$(cl agents --json 2>/dev/null | jq -r --arg n "$LT_NAME" '[.[] | select((.name // "") | startswith($n))] | length' 2>/dev/null) || n=0
   [ "${n:-0}" -ge 1 ] 2>/dev/null && { seen=1; break; }
   i=$((i + 1)); [ "$i" -lt "$tries" ] && sleep "$nap"
 done
@@ -399,5 +404,5 @@ fi
 settle_not_started "$week"
 
 stamp=$(date +%Y-%m-%dT%H:%M)
-printf '\n## %s · tickle weekly-rollups — claim\n%s\n' "$stamp" "$claim_line" >> "$XLOG" || finish 2 "dispatched, but the claim line could not be appended to $XLOG"
+printf '\n## %s · tickle weekly-rollups — claim and release\n%s\n' "$stamp" "$claim_line" >> "$XLOG" || finish 2 "dispatched, but the claim line could not be appended to $XLOG"
 finish 0 "dispatched $LT_NAME for $week"

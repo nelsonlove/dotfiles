@@ -43,11 +43,11 @@ new_case() {
 #!/bin/bash
 S=$(dirname "$0")
 printf '%s\n' "$*" >> "$S/calls"
+[ -n "${ANTHROPIC_API_KEY:-}" ] && echo "KEY_LEAKED on: $1" >> "$S/calls"
 case "$1" in
   agents) rc=$(cat "$S/agents_rc"); [ "$rc" = 0 ] && cat "$S/agents.json"; exit "$rc" ;;
   auth) echo '{"loggedIn":true,"authMethod":"claude.ai"}'; exit 0 ;;
   --bg)
-    [ -n "${ANTHROPIC_API_KEY:-}" ] && echo KEY_LEAKED >> "$S/calls"
     pwd > "$S/bg_cwd"
     shift; while [ "$#" -gt 1 ]; do shift; done; printf '%s' "$1" > "$S/bg_prompt"
     if [ "$(cat "$S/bg_registers")" = 1 ]; then echo '[{"name":"[L0-OB] weekly rollups","pid":1,"status":"busy","state":"working"}]' > "$S/agents.json"; fi
@@ -63,7 +63,7 @@ go() {
   OUT=$(env -i HOME="$C" USER=nelson LOGNAME=nelson PATH=/usr/bin:/bin:/usr/sbin:/sbin TMPDIR=/tmp \
         ANTHROPIC_API_KEY=sk-test-should-be-unset \
         WR_VAULT="$V" WR_CLAUDE="$S/claude" WR_DISPATCH_CWD="$C/dotfiles" WR_CLAUDE_JSON="$C/claude.json" \
-        WR_LOADAVG="${LOAD:-1.00}" WR_LOCK="$C/lock/run.lock" WR_DAEMON_KEY_PIDS="${KEYED:-}" WR_CONFIRM_TRIES=2 WR_CONFIRM_SLEEP=0 PAUSE_NOTE="$C/Pause.md" \
+        WR_LOADAVG="${LOAD:-1.00}" WR_LOCK="$C/lock/run.lock" WR_TEST_DAEMON_KEY_PIDS="${KEYED:-}" WR_CONFIRM_TRIES=2 WR_CONFIRM_SLEEP=0 PAUSE_NOTE="$C/Pause.md" \
         /bin/bash "$RUN" "$@" 2>&1)
   RC=$?
 }
@@ -88,11 +88,10 @@ check "subst: <reason> untouched" grep -qF '— no object: <reason>' "$S/bg_prom
 check "subst: <n> untouched" grep -qF 'Report `<n> spec notes read`' "$S/bg_prompt"
 check "subst: --- body line kept" grep -qx -- '---' "$S/bg_prompt"
 check "subst: markers not in brief" bash -c "! grep -qF 'weekly-rollups brief:' '$S/bg_prompt'"
-check "CLI call: API key unset" bash -c "! grep -qF KEY_LEAKED '$S/calls'"
-check "dispatch: add-dir, agent, name, --" grep -qF -- "--bg --add-dir $V --agent lieutenant --name [L0-OB] weekly rollups -- " "$S/calls"
-check "claim: log check passed" out_has "log check: no claim"
+check "every claude call: API key unset" bash -c "! grep -qF KEY_LEAKED '$S/calls'"
+check "dispatch: agent, name, --" grep -qF -- "--bg --agent lieutenant --name [L0-OB] weekly rollups -- " "$S/calls"
 check "dispatch: from trusted cwd" [ "$(cat "$S/bg_cwd")" = "$C/dotfiles" ]
-check "claim: one line in log" [ "$(grep -c 'tickle weekly-rollups — claim' "$XLOG")" = 1 ]
+check "claim: one claim-and-release entry" [ "$(grep -c 'tickle weekly-rollups — claim and release' "$XLOG")" = 1 ]
 check "claim: names the ruling" grep -qF 'alright go for it' "$XLOG"
 check "happy: no queue item" [ "$(queue_count)" = 0 ]
 
@@ -176,8 +175,9 @@ new_case; echo "[{\"name\":\"[L0-OB] weekly rollups\",\"pid\":42,\"status\":\"id
 check "stuck: exit 5" [ "$RC" = 5 ]; check "stuck: no dispatch" not_dispatched; check "stuck: queue item" grep -qF '24 hours' "$Q/Weekly rollup not started 2026-W40.md"
 new_case; echo '' > "$S/agents.json"; go --week 2026-W40
 check "empty listing: exit 2" [ "$RC" = 2 ]; check "empty listing: no dispatch" not_dispatched; check "empty listing: no item" [ "$(queue_count)" = 0 ]
-new_case; printf '\n## 2026-10-05T07:00 · [C0-OB] obsidian — claim\nDispatched by hand: Agent rollup for 2026-W40.md. — [C0-OB] obsidian\n' >> "$XLOG"; go --week 2026-W40
-check "log claim: exit 0" [ "$RC" = 0 ]; check "log claim: no dispatch" not_dispatched
+new_case; echo 1 > "$S/bg_rc"; go --week 2026-W40; echo 2 > "$S/bg_rc"; echo '[]' > "$S/agents.json"; go --week 2026-W40
+check "repeat failure: new cause recorded" grep -qF 'Failed again: `claude --bg` exited 2' "$Q/Weekly rollup not started 2026-W40.md"
+check "repeat failure: still one item" [ "$(queue_count)" = 1 ]
 new_case; KEYED=4242 go --week 2026-W40
 check "daemon key: exit 6" [ "$RC" = 6 ]; check "daemon key: no dispatch" not_dispatched; check "daemon key: queue item" grep -qF 'ANTHROPIC_API_KEY' "$Q/Weekly rollup not started 2026-W40.md"
 new_case; KEYED=4242 go --dry-run --week 2026-W40
@@ -233,6 +233,8 @@ new_case; go --dry-run --week 2025-W53
 check "no W53 in 2025: exit 2" [ "$RC" = 2 ]
 new_case; go --week 26-W4
 check "bad week: exit 2" [ "$RC" = 2 ]
+new_case; go --week=
+check "empty --week=: exit 2" [ "$RC" = 2 ]; check "empty --week=: no dispatch" not_dispatched
 new_case; go --week
 check "empty --week: exit 2" [ "$RC" = 2 ]; check "empty --week: no dispatch" not_dispatched
 new_case; go --bogus
