@@ -126,7 +126,7 @@ def effective(c):
 def runs_shell(prog):
     return prog in SHELLS or prog == "eval"
 
-def substitutions(line):
+def substitutions(line, quotes=True):
     # Every `$( … )` and backtick span the shell would run, found in the raw text so one inside DOUBLE quotes
     # is checked too (shlex keeps a quoted string as one word). Inside SINGLE quotes they are literal text and
     # are skipped, and so is an escaped `\$(` (review 3 of #73). Nested spans are found when each inner
@@ -136,9 +136,16 @@ def substitutions(line):
         ch = line[i]
         if ch == "\\" and not sq:
             i += 2; continue
-        if ch == "'" and not dq:
+        if not quotes:
+            pass  # a heredoc body: quotes are plain text there, only `$( )` and backticks count (review 4)
+        elif ch == "#" and not sq and not dq and (i == 0 or line[i - 1] in " \t\n;&|("):
+            # an unquoted `#` at the start of a word begins a comment to the end of the line (review 4)
+            j = line.find("\n", i)
+            i = n if j < 0 else j
+            continue
+        elif ch == "'" and not dq:
             sq = not sq; i += 1; continue
-        if ch == '"' and not sq:
+        elif ch == '"' and not sq:
             dq = not dq; i += 1; continue
         if sq:
             i += 1; continue
@@ -278,7 +285,7 @@ def check(line, depth=0):
     # still scanned, because the shell expands it.
     line, unquoted = strip_text_heredocs(line)
     for body in unquoted:
-        for sub in substitutions(body):
+        for sub in substitutions(body, quotes=False):
             check(sub, depth + 1)
     for sub in substitutions(line):
         check(sub, depth + 1)
