@@ -92,27 +92,88 @@ eq "coded 9 CC"   "$(code_of_rank 9 CC)"    "[??-CC]"
 eq "coded 0 CC"   "$(code_of_rank 0 CC)"    "[C0-CC]"
 eq "coded 2 OB"   "$(code_of_rank 2 OB)"    "[C2-OB]"
 eq "coded 3 FL"   "$(code_of_rank 3 FL)"    "[L0-FL]"
+eq "coded 0 MA"   "$(code_of_rank 0 MA)"    "[C0-MA]"
 
 echo
 echo "=== the ships"
-eq "KNOWN_SHIPS"          "$KNOWN_SHIPS"               "CC OB HS FL"
+# MA, the macOS ship (captain `[C0-MA] macos`), on Nelson's "A, MA" of 2026-09-29; the eight area ships
+# PE PP HH FN ED WK HB DV on the areas ruling of the same day (log 2026-09-29T03:35). DV joined only with its
+# guard; the guard itself is tested in admirals-and-dv.sh.
+eq "KNOWN_SHIPS"          "$KNOWN_SHIPS"               "CC OB HS MA PE PP HH FN ED WK HB DV FL"
 eq "FLOATING_SHIP"        "$FLOATING_SHIP"             "FL"
 eq "FL is in the list"    "$(ship_is_known FL && echo yes)" yes
 eq "CC is known"          "$(ship_is_known CC && echo yes)" yes
 eq "OB is known"          "$(ship_is_known OB && echo yes)" yes
 eq "HS is known"          "$(ship_is_known HS && echo yes)" yes
+for s in MA PE PP HH FN ED WK HB; do eq "$s is known" "$(ship_is_known "$s" && echo yes)" yes; done
+eq "DV is known, with its guard" "$(ship_is_known DV && echo yes)" yes
 eq "XX is not"            "$(ship_is_known XX || echo no)"  no
 eq "an empty code is not" "$(ship_is_known '' || echo no)"  no
+eq "two codes in one value are not" "$(ship_is_known 'CC OB' || echo no)" no
+eq "a padded code is not"  "$(ship_is_known ' CC' || echo no)" no
 eq "ship of [L0-CC]"      "$(ship_of_name '[L0-CC] dotfiles')" CC
 eq "ship of [C0-HS]"      "$(ship_of_name '[C0-HS] orange')"   HS
+eq "ship of [C0-MA]"      "$(ship_of_name '[C0-MA] macos')"    MA
+eq "ship of [C0-DV]"      "$(ship_of_name '[C0-DV] divorce')"  DV   # read, not accepted
+eq "ships in words"       "$(ships_in_words)"          "CC, OB, HS, MA, PE, PP, HH, FN, ED, WK or HB"
+eq "ships in words under a strict-mode IFS" "$(IFS=$'\n\t'; ships_in_words)" "CC, OB, HS, MA, PE, PP, HH, FN, ED, WK or HB"
 eq "ship of [L0-FL]"      "$(ship_of_name '[L0-FL] dotfiles')" FL
 eq "ship of a bare name"  "$(ship_of_name '[L0] dotfiles')"    ""
 eq "ship of [A0]"         "$(ship_of_name '[A0] rear admiral')" ""
 
 echo
+echo "=== promote-session.sh speaks the table: MA passes the ship gate, and both refusals name every ship"
+# Added 2026-09-29 on review of #72: the refusal sentences once typed the ship list by hand, and no case
+# read their text, so a ship missing from them would have shipped with every check green.
+# NOTHING HERE READS THE MACHINE OR THE FLEET. A first version ran promote-session.sh as it stood, and a
+# second review showed it went red under an empty HOME (no ~/.claude/agents/lieutenant.md) and queried the
+# live `claude agents` listing. So HOME is a temp dir holding a stub rank definition, and `claude` is a stub
+# on PATH that prints one fixture row; the all-zero id is no real session, --dry-run is set, and --jobs-dir
+# and --log point into the temp dir. The one real dependency is `jq`, which the script itself needs; without
+# it these cases are counted as skipped, and the skip is in the summary line.
+PTMP=$(mktemp -d "${TMPDIR:-/tmp}/table-agrees.XXXXXX") || exit 1
+trap '/usr/bin/trash "$PTMP" 2>/dev/null || true' EXIT   # trash, never rm (CLAUDE.md); a dir it cannot trash stays in the temp dir
+ZERO=00000000-0000-0000-0000-000000000000
+mkdir -p "$PTMP/home/.claude/agents" "$PTMP/stubbin" "$PTMP/cwd"
+: > "$PTMP/home/.claude/agents/lieutenant-commander.md"
+# The Pause note is a fixture too, set to not paused, so the gate never reads the fleet's own note and a
+# change to how it treats a missing note cannot turn a ship case red (review 3 of #72).
+printf -- '---\npaused: false\n---\n' > "$PTMP/pause.md"
+# The fixture rows: a lieutenant, never a rank above one (tests/README.md section 4). The bare-named one
+# has no ship, so the rear admiral's path has none to take from it.
+row() { printf '[{"id":"zz000000","sessionId":"%s","name":"%s","cwd":"%s"}]\n' "$ZERO" "$1" "$PTMP/cwd" > "$PTMP/listing.json"; }
+printf '#!/bin/sh\ncat "%s"\n' "$PTMP/listing.json" > "$PTMP/stubbin/claude"; chmod +x "$PTMP/stubbin/claude"
+pr() { HOME="$PTMP/home" PATH="$PTMP/stubbin:$PATH" bash "$BIN/promote-session.sh" --session $ZERO --to lieutenant-commander --why x --jobs-dir "$PTMP" --log "$PTMP/log.md" --pause-note "$PTMP/pause.md" --dry-run "$@" 2>&1; }
+# Passing means the dry run reaches its end and names the new ship; any refusal stops it earlier.
+reached() { case "$2" in *"ship $1 ("*"dry run: nothing touched"*) echo past-the-ship-gates ;; *) printf '%s' "$2" ;; esac; }
+skipped=0
+if command -v jq >/dev/null 2>&1; then
+  row "[L0] ship words target"
+  out=$(pr --name "[C2] x" --by "[C0] ship words test")
+  eq "no ship on --by: the refusal names every ship" "$out" "promote-session: --by has no ship code; pass --ship CC, OB, HS, MA, PE, PP, HH, FN, ED, WK or HB (FL for a floating session)"
+  out=$(pr --name "[C2-CC] x" --by "[A0] rear admiral")
+  eq "no ship on the target: the refusal names every ship" "$out" "promote-session: refused: \`[L0] ship words target\` carries no ship code and [A0] rear admiral has none either, so the new name's ship cannot be read from anywhere; pass --ship CC, OB, HS, MA, PE, PP, HH, FN, ED, WK or HB (FL for a floating session)"
+  out=$(pr --name "[C2-MA] x" --by "[C0] ship words test" --ship MA)
+  eq "--ship MA and a [C2-MA] name pass the ship gates" "$(reached MA "$out")" past-the-ship-gates
+  out=$(pr --name "[C2-DV] x" --by "[C0] ship words test" --ship DV)
+  eq "--ship DV is refused as guarded" "$out" "promote-session: refused: ship DV is guarded; no script wakes or promotes a session on it or into it, whoever asks, because only Nelson starts a session there"
+  # A target already coded DV is refused whatever --ship says: round 6 of the review of #72 moved a
+  # `[L0-DV]` session onto CC with `--ship CC` while DV was unknown; here DV is known and guarded.
+  row "[L0-DV] ship words target"
+  out=$(pr --name "[C2-CC] x" --by "[A0] rear admiral" --ship CC)
+  eq "a DV-coded target is refused even with --ship" "$out" "promote-session: refused: ship DV is guarded; no script wakes or promotes a session on it or into it, whoever asks, because only Nelson starts a session there"
+  # The common path: a coded MA caller, no --ship, on an MA target (the ship comes from the caller).
+  row "[L0-MA] ship words target"
+  out=$(pr --name "[C2-MA] x" --by "[C0-MA] macos")
+  eq "[C0-MA] on an MA target, no --ship, passes" "$(reached MA "$out")" past-the-ship-gates
+else
+  skipped=6; printf 'SKIP  the six promote-session cases: jq is not installed, and the script needs it\n'
+fi
+
+echo
 echo "=== the negative: neither consumer may still define a shared name"
 for f in wake-session.sh promote-session.sh; do
-  for fn in rank_of_name rank_of_caller rank_of_agent word_of_rank bare_code_of_rank code_of_rank ship_of_name ship_is_known; do
+  for fn in rank_of_name rank_of_caller rank_of_agent word_of_rank bare_code_of_rank code_of_rank ship_of_name ship_is_known ships_in_words; do
     # `grep -c` PRINTS 0 and EXITS 1 when it finds nothing, so a `|| echo 0` fallback appends a second
     # zero and the value becomes two lines. Learned here, at the cost of twenty false failures.
     # `^name()` WITHOUT requiring the brace: a copy written with `{` on the next line slipped past the
@@ -128,5 +189,17 @@ for f in wake-session.sh promote-session.sh; do
   if [ "$c" -ge 1 ]; then eq "$f sources the table" yes yes; else eq "$f sources the table" no yes; fi
 done
 
-printf '\n%s checks, %s failed\n' "$n" "$fails"
+# The count is asserted, not only printed (tests/README.md rule 1): 84 before the MA cases, 92 after
+# the review of #72 (three MA table cases, `ships_in_words`, two promote-session cases, and the two new
+# negative checks), 93 with the rear admiral's refusal, 102 with the eight area ships (one
+# known-check each, and the ship of a [C0-DV] name), 103 with the [C0-MA] common-path case, 104 with ships_in_words under a strict-mode IFS, and 105
+# with DV held out (the DV known-check became a not-known check, and one promote case refuses --ship DV), 108 with
+# a DV-coded target refused under --ship and two values with a space refused as ships (review 6), and still
+# 108 once DV joined with its guard (those checks now say known, and refused as guarded). DV is known but
+# never offered: `ships_in_words` leaves the guarded ship out of the words (review 2 of #73).
+# Change EXPECTED only in the commit that adds or removes a check, and say which.
+# The count is part of the summary line, so a run that lost checks can never print a green summary.
+EXPECTED=108
+[ $((n + skipped)) = "$EXPECTED" ] || { fails=$((fails + 1)); echo "FAIL  the check count is $((n + skipped)) ($n run, $skipped skipped), expected $EXPECTED: a line was lost or added without updating EXPECTED"; }
+printf '\n%s checks (expected %s), %s skipped, %s failed\n' "$n" "$EXPECTED" "$skipped" "$fails"
 [ "$fails" = 0 ] || exit 1

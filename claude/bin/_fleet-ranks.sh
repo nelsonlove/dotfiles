@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # _fleet-ranks.sh — the fleet's rank line and ship codes, in one place.
 #
-# NOT EXECUTABLE ON ITS OWN. It is sourced, and it defines functions and two constants and does nothing
+# NOT EXECUTABLE ON ITS OWN. It is sourced, and it defines functions and constants and does nothing
 # else: no `set`, no output, no side effect, so a caller's own `set -euo pipefail` and traps are untouched.
 # The leading underscore says the same thing — it is a library beside the scripts, not a command.
 #
@@ -19,8 +19,10 @@
 # ranks below its own, and that the accept verbs are his alone. The numbers here are the whole of the
 # machine-readable part of that rule, which is why they live in one file with one header.
 #
-# ADDING A SHIP CODE IS ONE LINE HERE: `KNOWN_SHIPS` below. Nothing else needs touching, because both
-# consumers ask `ship_is_known` rather than carrying their own list. Adding or renaming a RANK is two
+# ADDING A SHIP CODE IS TWO WORDS HERE: the code in `KNOWN_SHIPS` below, and the same code in the ship list
+# of the admiral who holds it (`REAR_ADMIRAL_SHIPS` or `AREAS_ADMIRAL_SHIPS`); a guarded ship also goes in
+# `GUARDED_SHIPS`. Nothing outside this file needs touching, because both consumers ask this table rather
+# than carrying their own list, and `admirals-and-dv.sh` fails if a ship is in no admiral's list or in two. Adding or renaming a RANK is two
 # lines — `rank_of_name` and `word_of_rank` — and it is a ruling, not a patch, because it changes who may
 # reach whom.
 #
@@ -123,14 +125,99 @@ code_of_rank() {  # $1 = rank, $2 = ship code
 
 # --- the ships -------------------------------------------------------------------------------------
 # CC is the Claude Code ship, OB the obsidian ship, HS the home server (captain `[C0-HS] orange`), all
-# three ruled 2026-09-26. FL is not a ship but the marker of a floating session shared across captains,
-# and it is listed beside them because it is what such a name carries.
+# three ruled 2026-09-26; MA is the macOS ship (captain `[C0-MA] macos`), ruled 2026-09-29 on Nelson's
+# "A, MA". The areas ruling of the same day (log 2026-09-29T03:35) added eight area ships, one per life area:
+# PE 10-19 Personal, PP 20-29 People, HH 30-39 Household, FN 40-49 Financial, ED 50-59 Education & research,
+# WK 60-69 Work, HB 70-79 Hobbies & media, and DV 80-89 Divorce. DV is guarded (its captain starts only
+# when Nelson starts it), so it joined this list only in the same change as its guard, `ship_refusal` below;
+# a known DV code with no guard would let any honest caller promote a session onto it. The same ruling puts
+# the area ships under a second admiral, `[A0] areas admiral`; the two are told apart by full name below.
+#
+# FL is not a ship but the marker of a floating session shared across captains, and it is listed
+# beside them because it is what such a name carries.
 #
 # ADD A SHIP HERE AND NOWHERE ELSE. `FLOATING_SHIP` sits directly below on purpose: `FL` appears both in
 # the list and as the floating marker, and the survey in `docs/fleet-machinery/` flags that separating the
-# two is how they drift apart.
-KNOWN_SHIPS="CC OB HS FL"
+# two is how they drift apart. A refusal that names the ships builds the words with `ships_in_words`, so
+# no sentence types the list out by hand (it did until 2026-09-29, and adding MA had to edit it).
+KNOWN_SHIPS="CC OB HS MA PE PP HH FN ED WK HB DV FL"
 FLOATING_SHIP="FL"
+
+# --- the admirals and the guarded ship ------------------------------------------------------------------
+# Nelson's areas ruling (log 2026-09-29T03:35) put two sessions at A0, and `rank_of_name` cannot tell them
+# apart: both are the bare `[A0]` code. So an admiral is matched here by its FULL NAME, and each one reaches
+# only its own ships. Any other `[A0] …` name is refused, because a name that merely starts with the code is
+# not a session Nelson placed. The two lists together are KNOWN_SHIPS, each ship in exactly one of them
+# (the table test checks both properties); FL is on the rear admiral's side, where every floating session
+# has lived so far.
+REAR_ADMIRAL="[A0] rear admiral"
+AREAS_ADMIRAL="[A0] areas admiral"
+REAR_ADMIRAL_SHIPS="CC OB HS MA FL"
+AREAS_ADMIRAL_SHIPS="PE PP HH FN ED WK HB DV"
+# DV (80-89 Divorce) is guarded: its captain starts only when Nelson starts it. No script may wake or promote
+# a session on DV or into DV, whoever the caller is, because the only way into DV is Nelson. promote-session.sh
+# enforces it now; wake-session.sh does not yet (it checks no ship at all), and its edit follows PR #71. This binds
+# honest callers of these scripts only: `--by` is self-declared, a SendMessage to a stopped session wakes it
+# with no script, and a bare `claude --bg --name "[C0-DV] …"` starts one with no script. The tripwire hook
+# `claude/hooks/dv-tripwire.sh` watches the bare command line; nothing watches SendMessage.
+GUARDED_SHIPS="DV"
+
+# A ship list without the guarded ships, for a sentence that tells a caller what it can reach: a refusal
+# never offers a ship every caller is refused (review 2 of #73).
+unguarded() {
+  local IFS=' ' c out=""
+  for c in $1; do ship_is_guarded "$c" || out="${out:+$out }$c"; done
+  printf '%s' "$out"
+}
+
+ship_is_guarded() {
+  [ -n "${1:-}" ] || return 1
+  case " $GUARDED_SHIPS " in *" $1 "*) return 0 ;; *) return 1 ;; esac
+}
+
+# ship_refusal <by> <by-rank> <ship>: the one sentence both scripts refuse with when <by> may not act on a
+# session of <ship> (empty for a bare-named session), and nothing when it may. It is the SHIP rule only:
+# the rank rule and the reporting line stay in each script. Called once per ship a change touches, so a
+# promotion checks both the target's ship and the new name's.
+ship_refusal() {
+  local by="$1" rank="$2" ship="$3" list
+  if ship_is_guarded "$ship"; then
+    printf 'refused: ship %s is guarded; no script wakes or promotes a session on it or into it, whoever asks, because only Nelson starts a session there' "$ship"
+    return 0
+  fi
+  [ "$rank" = -1 ] || return 0
+  case "$by" in
+    "$REAR_ADMIRAL") list="$REAR_ADMIRAL_SHIPS" ;;
+    "$AREAS_ADMIRAL") list="$AREAS_ADMIRAL_SHIPS" ;;
+    *) printf "refused: '%s' is not one of the two admirals ('%s', '%s'); an admiral is matched by its full name" "$by" "$REAR_ADMIRAL" "$AREAS_ADMIRAL"; return 0 ;;
+  esac
+  if [ -z "$ship" ]; then
+    # A bare-named session predates the ship codes, and every one of them is on the rear admiral's side.
+    [ "$by" = "$REAR_ADMIRAL" ] || printf 'refused: the session carries no ship code, and %s reaches only the area ships (%s)' "$by" "$(unguarded "$list")"
+    return 0
+  fi
+  case " $list " in
+    *" $ship "*) ;;
+    *) printf '%s' "refused: $by does not reach ship $ship; it reaches $(unguarded "$list"), and the other admiral's ships are not its own" ;;
+  esac
+}
+
+# The real ships in words, for a refusal: "CC, OB, … or HB", read from KNOWN_SHIPS without the guarded ships,
+# which are never offered. FL is left out, because the sentences that
+# use this name it on its own ("FL for a floating session").
+ships_in_words() {
+  # IFS is set here, because this file is sourced: a caller in strict mode (IFS=$'\n\t') would otherwise
+  # see the whole list as one word, and the sentence would lose its commas and name FL twice (review 4 of #72).
+  local IFS=' ' out="" last="" c
+  for c in $KNOWN_SHIPS; do
+    [ "$c" = "$FLOATING_SHIP" ] && continue
+    # A guarded ship is known but never offered: every caller is refused it (review 2 of #73).
+    ship_is_guarded "$c" && continue
+    if [ -n "$last" ]; then out="${out:+$out, }$last"; fi
+    last="$c"
+  done
+  if [ -n "$out" ]; then printf '%s or %s' "$out" "$last"; else printf '%s' "$last"; fi
+}
 
 # The ship a name declares — `CC` in `[L0-CC] dotfiles` — and empty for a bare `[L0] dotfiles`, which is
 # never guessed at: a wrong ship code files a session under the wrong captain, and only Nelson renames it.
@@ -139,5 +226,7 @@ ship_of_name() {
 }
 
 ship_is_known() {
+  # One code, no spaces: the list is matched space-padded, so 'CC OB' would otherwise match (review 6 of #72).
+  case "$1" in ""|*[[:space:]]*) return 1 ;; esac
   case " $KNOWN_SHIPS " in *" $1 "*) return 0 ;; *) return 1 ;; esac
 }
