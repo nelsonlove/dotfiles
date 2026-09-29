@@ -235,7 +235,7 @@ new_case; echo noid > "$S/bg_registers"; go --week 2026-W40
 check "no id: exit 4" [ "$RC" = 4 ]; check "no id: queue item" grep -qF 'backgrounded <id>' "$Q/Weekly rollup not started 2026-W40.md"
 
 # 10f. Guard 3 settles an open "not started" item once the week's rollups exist.
-new_case; echo 1 > "$S/bg_rc"; go --week 2026-W40; : > "$NB/Agent rollup for 2026-W40.md"; go --week 2026-W40
+new_case; echo 1 > "$S/bg_rc"; go --week 2026-W40; : > "$NB/Agent rollup for 2026-W40.md"; : > "$XS/Cross-session rollup for 2026-W40.md"; go --week 2026-W40
 check "exists: settles item" grep -qx 'needs: nothing' "$Q/Weekly rollup not started 2026-W40.md"
 check "exists: says why" grep -qF 'The rollups for 2026-W40 now exist.' "$Q/Weekly rollup not started 2026-W40.md"
 
@@ -274,6 +274,30 @@ check "dated item settled" grep -qx 'needs: nothing' "$Q/Weekly rollup not start
 # 10l. Guard 3 still reports a missing previous week before it skips.
 new_case; : > "$NB/Agent rollup for 2026-W40.md"; /usr/bin/trash "$XS/Cross-session rollup for 2026-W39.md"; go --week 2026-W40
 check "guard 3: exit 0" [ "$RC" = 0 ]; check "guard 3: missed filed" [ -f "$Q/Weekly rollup missed 2026-W39.md" ]
+
+# 10m. Half-written week: skip, no settle, item filed.
+new_case; echo 1 > "$S/bg_rc"; go --week 2026-W40; : > "$NB/Agent rollup for 2026-W40.md"; echo '[]' > "$S/agents.json"; go --week 2026-W40
+check "half: exit 0" [ "$RC" = 0 ]; check "half: not settled" grep -qx 'needs: ruling' "$Q/Weekly rollup not started 2026-W40.md"
+check "half: cause recorded" grep -qF 'Only one of the two rollups' "$Q/Weekly rollup not started 2026-W40.md"
+
+# 10n. A "missed" item is settled once that week is complete.
+new_case; /usr/bin/trash "$XS/Cross-session rollup for 2026-W39.md"; go --week 2026-W40
+: > "$XS/Cross-session rollup for 2026-W39.md"; echo '[]' > "$S/agents.json"; /usr/bin/trash "$S/bg_prompt"; go --week 2026-W41
+new_case; /usr/bin/trash "$XS/Cross-session rollup for 2026-W39.md"; go --week 2026-W40
+: > "$XS/Cross-session rollup for 2026-W39.md"; : > "$NB/Agent rollup for 2026-W40.md"; : > "$XS/Cross-session rollup for 2026-W40.md"; go --week 2026-W40
+check "missed settled by a later run" grep -qx 'needs: nothing' "$Q/Weekly rollup missed 2026-W39.md"
+
+# 10o. An open dated item takes the next failure; no second dated item.
+new_case; echo 1 > "$S/bg_rc"; go --week 2026-W40
+sed -i '' 's|^status: draft/proposed$|status: archived/done|' "$Q/Weekly rollup not started 2026-W40.md"
+echo '[]' > "$S/agents.json"; go --week 2026-W40; echo '[]' > "$S/agents.json"; echo 3 > "$S/bg_rc"; go --week 2026-W40
+dated_count() { n=0; for f in "$Q/Weekly rollup not started 2026-W40 (again "*").md"; do [ -f "$f" ] && n=$((n + 1)); done; echo "$n"; }
+check "dated: one item open" [ "$(dated_count)" = 1 ]
+check "dated: took the new cause" grep -qF 'exited 3' "$Q/Weekly rollup not started 2026-W40 (again $(date +%Y-%m-%d)).md"
+
+# 10p. A daemon whose environment cannot be read counts as holding the key.
+new_case; KEYED='4242?' go --week 2026-W40
+check "unreadable daemon: exit 6" [ "$RC" = 6 ]; check "unreadable daemon: no dispatch" not_dispatched
 
 # 11. Week arithmetic and bad input.
 new_case; go --dry-run --week 2027-W01

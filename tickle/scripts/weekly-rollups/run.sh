@@ -186,6 +186,14 @@ open_not_started() {
   done
   return 0
 }
+# open_items <week>: every open item this job filed for the week, "missed" included.
+open_items() {
+  open_not_started "$1"
+  f="$QUEUE_DIR/Weekly rollup missed $1.md"; [ -f "$f" ] && ! is_closed "$f" && printf '%s\n' "$f"
+  return 0
+}
+# complete <week>: both rollups exist.
+complete() { [ -e "$(nb_file "$1")" ] && [ -e "$(xs_file "$1")" ]; }
 
 # respond <file> <needs> <line> — set `needs` and `modified` in the frontmatter, and put <line> at the end of the
 # `## Response` section (before the next `## ` heading, or at the end of the file). Only on this job's own open items:
@@ -197,7 +205,7 @@ respond() {
   is_ours "$rf" || { say "WARNING: not touching $rf: it does not carry generated.by tickle weekly-rollups"; return 0; }
   is_closed "$rf" && return 1
   st=$(iso_now)
-  m0=$(stat -f %m "$rf") || { say "WARNING: could not update $rf (cannot stat it)"; return 0; }
+  m0=$(stat -f %Fm "$rf") || { say "WARNING: could not update $rf (cannot stat it)"; return 0; }
   tmpf=$(mktemp "$(dirname "$rf")/.weekly-rollups-respond.XXXXXX") || { say "WARNING: could not update $rf (no temp file)"; return 0; }
   WR_LN="- $st — $(printf '%s' "$rl" | tr '\n\r' '  ')" \
   awk -v st="$st" -v nd="$rn" '
@@ -209,7 +217,7 @@ respond() {
       fm >= 2 && /^## / { if (inr && !done) { print ln; print ""; done = 1 }; inr = ($0 == "## Response") }
       { print }
       END { if (!done) print ln }' "$rf" > "$tmpf"
-  if [ "$?" -eq 0 ] && chmod "$(stat -f %Lp "$rf")" "$tmpf" && [ "$(stat -f %m "$rf")" = "$m0" ] && mv "$tmpf" "$rf"; then
+  if [ "$?" -eq 0 ] && chmod "$(stat -f %Lp "$rf")" "$tmpf" && [ "$(stat -f %Fm "$rf")" = "$m0" ] && mv "$tmpf" "$rf"; then
     say "queue item updated (needs: $rn): $rf"
   else
     say "WARNING: could not update $rf (it changed while being rewritten, or the write failed); left as it was"
@@ -229,14 +237,20 @@ file_queue_item() {
     say "not filing \"missed $qw\": an open \"not started $qw\" item already asks about that week"
     return 0
   fi
+  if [ "$kind" = "not started" ] && [ -z "$suffix" ]; then
+    open1=$(open_not_started "$qw" | head -1)
+    if [ -n "$open1" ]; then
+      if [ "$dry" = "1" ]; then say "would add the new cause to queue item: $open1"; else respond "$open1" ruling "Failed again: $why"; fi
+      return 0
+    fi
+    if [ -e "$qf" ]; then   # the base item exists and is closed: file a dated one
+      file_queue_item "$kind" "$qw" "$why" " (again $(date +%Y-%m-%d))"
+      return 0
+    fi
+  fi
   if [ -e "$qf" ]; then
     if [ "$kind" = "not started" ]; then
-      if is_closed "$qf"; then
-        if [ -n "$suffix" ]; then say "queue item $qf is closed too; not filed again today"; return 0; fi
-        file_queue_item "$kind" "$qw" "$why" " (again $(date +%Y-%m-%d))"
-        return 0
-      fi
-      if [ "$dry" = "1" ]; then say "would add the new cause to queue item: $qf"; else respond "$qf" ruling "Failed again: $why"; fi
+      say "queue item $qf exists and is closed; not filed again today"
     else
       say "queue item already exists, not filed again: $qf"
     fi
@@ -287,7 +301,8 @@ Expected:
 
 # settle_not_started <week> — after a confirmed dispatch, close out this job's own "not started" item for the week.
 settle_not_started() {
-  open_not_started "$1" | while IFS= read -r nf; do
+  if [ -n "${2:-}" ]; then list=open_items; else list=open_not_started; fi
+  "$list" "$1" | while IFS= read -r nf; do
     respond "$nf" nothing "${2:-The weekly-rollups job started the lieutenant for $1 after all.}" || true
   done
 }
@@ -331,7 +346,11 @@ exists=""
 [ -e "$(nb_file "$week")" ] && exists="$exists $(nb_file "$week")"
 [ -e "$(xs_file "$week")" ] && exists="$exists $(xs_file "$week")"
 if [ -n "$exists" ]; then
-  [ "$dry" = "1" ] || settle_not_started "$week" "The rollups for $week now exist."
+  if complete "$week"; then
+    [ "$dry" = "1" ] || settle_not_started "$week" "The rollups for $week now exist."
+  else
+    file_queue_item "not started" "$week" "Only one of the two rollups for $week exists:$exists. The job overwrites nothing and starts no lieutenant, so the other one needs writing by hand or by a lieutenant Nelson starts."
+  fi
   check_previous
   finish 0 "SKIPPED — $week already has a rollup, nothing overwritten, nothing dispatched:$exists"
 fi
@@ -398,9 +417,13 @@ trusted=$(jq -r --arg d "$DISPATCH_CWD" '.projects[$d].hasTrustDialogAccepted //
 claim_line="Claim and release in one entry: dispatched \`$LT_NAME\` for $week, for $RULING. The job holds nothing now; the lieutenant claims and releases \`Agent rollup for $week.md\` and \`Cross-session rollup for $week.md\` itself. — tickle weekly-rollups"
 
 # daemon_key_pids: running Claude daemons whose environment holds ANTHROPIC_API_KEY.
+# A daemon whose environment `ps eww` cannot show (no HOME= in it) is reported as "<pid>?", which guard 8 treats as
+# holding the key: a check we cannot make is never a pass.
 daemon_key_pids() {
   for dp in $(ps -axo pid=,command= | awk '$2 ~ /(^|\/)claude$/ && $3 == "daemon" && $4 == "run" {print $1}'); do
-    ps eww -o command= -p "$dp" 2>/dev/null | tr ' ' '\n' | grep -q '^ANTHROPIC_API_KEY=' && echo "$dp"
+    env_words=$(ps eww -o command= -p "$dp" 2>/dev/null | tr ' ' '\n')
+    if ! printf '%s\n' "$env_words" | grep -q '^HOME='; then echo "$dp?"; continue; fi
+    printf '%s\n' "$env_words" | grep -q '^ANTHROPIC_API_KEY=' && echo "$dp"
   done
   return 0
 }
@@ -425,7 +448,7 @@ if [ "$dry" = "1" ]; then
 fi
 
 if [ -n "$keyed" ]; then
-  file_queue_item "not started" "$week" "The running Claude daemon (pid $keyed) holds ANTHROPIC_API_KEY, and a \`claude --bg\` session takes the daemon's environment, so the lieutenant would bill the API key. The job refused to dispatch."
+  file_queue_item "not started" "$week" "The running Claude daemon (pid $keyed; a ? means its environment could not be read) holds ANTHROPIC_API_KEY or may, and a \`claude --bg\` session takes the daemon's environment, so the lieutenant would bill the API key. The job refused to dispatch."
   finish 6 "Claude daemon pid(s) $keyed hold ANTHROPIC_API_KEY; refusing to dispatch"
 fi
 
