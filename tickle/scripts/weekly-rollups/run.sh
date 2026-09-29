@@ -1,73 +1,33 @@
 #!/bin/bash
 # weekly-rollups — each Monday, start ONE `[L0-OB] weekly rollups YYYY-Www` lieutenant for the ISO week just ended.
 #
-# Ruled by Nelson on 2026-09-29 ("how will we know if the tickle job works?", then "alright go for it"; cross-session log
-# 2026-09-29T02:56), given to the tickle lieutenant at 03:21. Until Nelson says credits are back, the job ships with
-# `status: disabled` and the obsidian captain dispatches the lieutenant by hand ("we'll have to have agents handle those
-# jobs until i can add credits"). This script is the whole job; the tickle trigger only picks the host and the time.
+# Ruled by Nelson on 2026-09-29 ("how will we know if the tickle job works?", then "alright go for it"; cross-session log 2026-09-29T02:56), given to the tickle lieutenant at 03:21. Until Nelson says credits are back, the job ships with `status: disabled` and the obsidian captain dispatches the lieutenant by hand ("we'll have to have agents handle those jobs until i can add credits"). This script is the whole job; the tickle trigger only picks the host and the time.
 #
 # The guards, in order. Each one records its reason on stdout (tickle keeps stdout per run):
 #   1. Fleet pause: `_lib/pause-gate.sh weekly-rollups`. 1 = paused, skip (exit 0). Anything else non-zero = failed (exit 2).
 #   2. Load: the 1-minute load average 10 or more = skip (exit 0).
-#   3. No overwrite: if either rollup for the target week already exists, dispatch nothing (exit 0). This runs first
-#      of the vault checks, so a rerun after a good week is always a quiet skip.
-#   4. Live lieutenant: `claude agents --json` lists running sessions. The lieutenant is named for its week (the
-#      captain's call, 2026-09-29), so only a session for the SAME week blocks: one whose name starts with
-#      `[L0-OB] weekly rollups YYYY-Www` (a /rename that adds to the name still counts) that is busy, or idle but not
-#      `state: done`, and started less than 24 hours ago, is at work: dispatch nothing (exit 0). One that is idle and
-#      `done` is a finished lieutenant nobody stopped, and one at work for 24 hours or more is stuck; either still blocks
-#      a second one, but loudly: queue item "Weekly rollup not started <week>" and exit 5. A listing that fails or
-#      cannot be read is exit 2: a check we cannot make is never a pass. This runs before guard 5, so a lieutenant
-#      still writing last week's files never causes a false "missed" item. A hand dispatch by the obsidian captain is
-#      caught here too, if its lieutenant carries the same name.
-#   5. Previous week: both rollups for the week before the target must exist. If either is missing, ONE queue item
-#      "Weekly rollup missed <that week>" is filed for Nelson (never twice), and the run goes on.
-#   6. Brief markers: the brief is the text between the two marker lines of the standing brief note. Each marker must
-#      appear exactly once, on its own line, start before end, with non-blank text between. If not: dispatch nothing,
-#      file "Weekly rollup not started <week>", exit 3 (a FAILED run, loud).
+#   3. No overwrite: if either rollup for the target week already exists, dispatch nothing (exit 0). This runs first of the vault checks, so a rerun after a good week is always a quiet skip.
+#   4. Live lieutenant: `claude agents --json` lists running sessions. The lieutenant is named for its week (the captain's call, 2026-09-29), so only a session for the SAME week blocks: one whose name starts with `[L0-OB] weekly rollups YYYY-Www` (a /rename that adds to the name still counts) that is busy, or idle but not `state: done`, and started less than 24 hours ago, is at work: dispatch nothing (exit 0). One that is idle and `done` is a finished lieutenant nobody stopped, and one at work for 24 hours or more is stuck; either still blocks a second one, but loudly: queue item "Weekly rollup not started <week>" and exit 5. A listing that fails or cannot be read is exit 2: a check we cannot make is never a pass. This runs before guard 5, so a lieutenant still writing last week's files never causes a false "missed" item. A hand dispatch by the obsidian captain is caught here too, if its lieutenant carries the same name.
+#   5. Previous week: both rollups for the week before the target must exist. If either is missing, ONE queue item "Weekly rollup missed <that week>" is filed for Nelson (never twice), and the run goes on.
+#   6. Brief markers: the brief is the text between the two marker lines of the standing brief note. Each marker must appear exactly once, on its own line, start before end, with non-blank text between. If not: dispatch nothing, file "Weekly rollup not started <week>", exit 3 (a FAILED run, loud).
 #   7. Substitution: the ONLY substitution is the literal `YYYY-Www`. `<date>`, `<n>`, `<reason>` pass through.
-#   8. Dispatch: refused (queue item, exit 6) if a running Claude daemon holds ANTHROPIC_API_KEY, since a --bg session
-#      takes the daemon's environment and carries the key (stricter than needed; see guard 8). Otherwise
-#      `env -u ANTHROPIC_API_KEY claude --bg --agent lieutenant --name "[L0-OB] weekly rollups YYYY-Www" -- <brief>`, from the
-#      vault (a trusted workspace with no project config; /tmp and $HOME are not trusted). Then the dispatch is
-#      CONFIRMED by listing agents again. A failed or unconfirmed dispatch files "Weekly rollup not started <week>" and
-#      exits 4, never a quiet success. On success, a "not started" item for the week (from an earlier failed run) gets
-#      a line under `## Response` and `needs: nothing`. The job writes nothing to the cross-session log (the captain's
-#      call, 2026-09-29): the lieutenant claims and releases its files itself.
+#   8. Dispatch: refused (queue item, exit 6) if a running Claude daemon holds ANTHROPIC_API_KEY, since a --bg session takes the daemon's environment and carries the key (stricter than needed; see guard 8). Otherwise `env -u ANTHROPIC_API_KEY claude --bg --agent lieutenant --name "[L0-OB] weekly rollups YYYY-Www" -- <brief>`, from the vault (a trusted workspace with no project config; /tmp and $HOME are not trusted). Then the dispatch is CONFIRMED by listing agents again. A failed or unconfirmed dispatch files "Weekly rollup not started <week>" and exits 4, never a quiet success. On success, a "not started" item for the week (from an earlier failed run) gets a line under `## Response` and `needs: nothing`. The job writes nothing to the cross-session log (the captain's call, 2026-09-29): the lieutenant claims and releases its files itself.
 #
-# Every `claude` call the job makes (the listing too) runs with ANTHROPIC_API_KEY unset: `claude agents` starts a
-# Claude daemon when none is running, and that daemon would inherit the key.
+# Every `claude` call the job makes (the listing too) runs with ANTHROPIC_API_KEY unset: `claude agents` starts a Claude daemon when none is running, and that daemon would inherit the key.
 #
-# A real run holds a kernel lock (`/usr/bin/lockf` on ~/.local/state/weekly-rollups/run.lock) from start to end, so two
-# overlapping runs can never both pass the live check. The lock dies with the process; a second run skips (exit 0).
-# --dry-run takes no lock.
+# A real run holds a kernel lock (`/usr/bin/lockf` on ~/.local/state/weekly-rollups/run.lock) from start to end, so two overlapping runs can never both pass the live check. The lock dies with the process; a second run skips (exit 0). --dry-run takes no lock.
 #
-# Queue items the job files carry `session: "tickle weekly-rollups"`, the job's own identity. Every later failure for a
-# week with a "not started" item adds a Response line with the new cause; a settled one is reopened (`needs: ruling`).
+# Queue items the job files carry `session: "tickle weekly-rollups"`, the job's own identity. Every later failure for a week with a "not started" item adds a Response line with the new cause; a settled one is reopened (`needs: ruling`).
 #
-# THE API KEY. `env -u ANTHROPIC_API_KEY` keeps the key out of the CLI call, as the obsidian captain asked. It does NOT
-# reach the lieutenant: a `claude --bg` session takes its environment from the Claude daemon, not from this shell
-# (CLAUDE.md, measured 2026-09-29). Guard 8 refuses to dispatch while a running Claude daemon holds the key, and
-# --dry-run reports it. That refusal is stricter than needed: --bg sessions carrying the key were measured running on the
-# Max plan; `claude -p` is what bills the key.
+# THE API KEY. `env -u ANTHROPIC_API_KEY` keeps the key out of the CLI call, as the obsidian captain asked. It does NOT reach the lieutenant: a `claude --bg` session takes its environment from the Claude daemon, not from this shell (CLAUDE.md, measured 2026-09-29). Guard 8 refuses to dispatch while a running Claude daemon holds the key, and --dry-run reports it. That refusal is stricter than needed: --bg sessions carrying the key were measured running on the Max plan; `claude -p` is what bills the key.
 #
-# --dry-run goes through every guard, prints what it would write and the exact dispatch command, and writes and
-# dispatches NOTHING. It also reports what the dispatch depends on in THIS environment (which `claude`, its auth
-# method, whether the dispatch directory is trusted, whether the Claude daemon holds the API key), so running it under
-# launchd's environment proves that a scheduled run would find everything it needs.
+# --dry-run goes through every guard, prints what it would write and the exact dispatch command, and writes and dispatches NOTHING. It also reports what the dispatch depends on in THIS environment (which `claude`, its auth method, whether the dispatch directory is trusted, whether the Claude daemon holds the API key), so running it under launchd's environment proves that a scheduled run would find everything it needs.
 #
-# Exit codes: 0 = done or deliberately skipped (reason on stdout); 2 = a check failed or bad usage; 3 = the brief is
-# broken; 4 = the dispatch failed; 5 = a finished or stuck lieutenant of the same name blocks the dispatch; 6 = the
-# Claude daemon holds the API key. Every unexpected exit becomes 2 through the EXIT trap, as in pause-gate.sh.
+# Exit codes: 0 = done or deliberately skipped (reason on stdout); 2 = a check failed or bad usage; 3 = the brief is broken; 4 = the dispatch failed; 5 = a finished or stuck lieutenant of the same name blocks the dispatch; 6 = the Claude daemon holds the API key. Every unexpected exit becomes 2 through the EXIT trap, as in pause-gate.sh.
 #
-# The queue item road: written straight to disk, created with noclobber so a second run never overwrites or duplicates
-# it. Not through vault-mcp: a scheduled shell job has no MCP client, and a create-only write needs no `if_rev`.
+# The queue item road: written straight to disk, created with noclobber so a second run never overwrites or duplicates it. Not through vault-mcp: a scheduled shell job has no MCP client, and a create-only write needs no `if_rev`.
 #
-# Test seams (environment): WR_VAULT (vault root), WR_LOADAVG (a fake 1-minute load), WR_CLAUDE (the claude binary),
-# WR_DISPATCH_CWD (the dispatch directory), WR_CLAUDE_JSON (the file holding workspace trust), WR_CONFIRM_TRIES and
-# WR_CONFIRM_SLEEP (how long to wait for the dispatched session to appear), WR_LOCK (the lock file), PAUSE_NOTE (passed
-# to pause-gate.sh), and WR_TEST_DAEMON_KEY_PIDS (the pids guard 8 reports as holding the key, in place of the real
-# scan; set, even empty, it REPLACES the scan, so it is for the tests only).
+# Test seams (environment): WR_VAULT (vault root), WR_LOADAVG (a fake 1-minute load), WR_CLAUDE (the claude binary), WR_DISPATCH_CWD (the dispatch directory), WR_CLAUDE_JSON (the file holding workspace trust), WR_CONFIRM_TRIES and WR_CONFIRM_SLEEP (how long to wait for the dispatched session to appear), WR_LOCK (the lock file), PAUSE_NOTE (passed to pause-gate.sh), and WR_TEST_DAEMON_KEY_PIDS (the pids guard 8 reports as holding the key, in place of the real scan; set, even empty, it REPLACES the scan, so it is for the tests only).
 #
 # Written for /bin/bash 3.2 (macOS): no associative arrays, no mapfile, no ${var,,}.
 
@@ -135,13 +95,10 @@ MARK_END="<!-- weekly-rollups brief: end -->"
 
 say() { echo "weekly-rollups: $*"; }
 iso_now() { date +%Y-%m-%dT%H:%M:%S%z | sed 's/\(..\)$/:\1/'; }
-# cl: every claude call, with the API key unset (see the header).
-# Each call is killed after WR_CLAUDE_TIMEOUT seconds (default 60) through perl's alarm, so a wedged daemon can never
-# hang the run past tickle's timeout while the lock is held.
+# cl: every claude call, with the API key unset (see the header). Each call is killed after WR_CLAUDE_TIMEOUT seconds (default 60) through perl's alarm, so a wedged daemon can never hang the run past tickle's timeout while the lock is held.
 cl() { env -u ANTHROPIC_API_KEY /usr/bin/perl -e 'alarm shift; exec @ARGV or exit 127' "${WR_CLAUDE_TIMEOUT:-60}" "$CLAUDE" "$@"; }
 
-# A real run re-runs itself under a kernel lock. lockf exits 75 (EX_TEMPFAIL) only when the lock is held; this script
-# never exits 75 itself.
+# A real run re-runs itself under a kernel lock. lockf exits 75 (EX_TEMPFAIL) only when the lock is held; this script never exits 75 itself.
 if [ "$dry" != "1" ] && [ -z "${WR_LOCKED:-}" ]; then
   mkdir -p "$(dirname "$LOCK_FILE")" || finish 2 "cannot create the lock's folder for $LOCK_FILE"
   WR_LOCKED=1 /usr/bin/lockf -k -s -t 0 "$LOCK_FILE" /bin/bash "$0" ${orig_args[@]+"${orig_args[@]}"}
@@ -181,8 +138,7 @@ is_ours() { grep -Eq '^[[:space:]]+by:[[:space:]]*"?tickle weekly-rollups"?[[:sp
 uuid7() { /usr/bin/perl -MTime::HiRes=time -e 'my $ms=int(time*1000); my @r=map{int rand 256}1..10; printf "%08x-%04x-7%03x-%04x-%04x%08x\n", $ms>>16, $ms&0xffff, ($r[0]<<4|$r[1]>>4)&0xfff, 0x8000|(($r[2]<<8|$r[3])&0x3fff), $r[4]<<8|$r[5], ($r[6]<<24|$r[7]<<16|$r[8]<<8|$r[9])'; }
 
 is_closed() { grep -Eq '^status:[[:space:]]*"?archived("|/|[[:space:]]*$)' "$1"; }
-# open_not_started <week>: every open "not started" item for the week, the dated "(again …)" ones too, one per line.
-# Items are found anywhere under the queue folder: open items are sometimes swept into dated subfolders.
+# open_not_started <week>: every open "not started" item for the week, the dated "(again …)" ones too, one per line. Items are found anywhere under the queue folder: open items are sometimes swept into dated subfolders.
 open_not_started() {
   find "$QUEUE_DIR" -type f \( -name "Weekly rollup not started $1.md" -o -name "Weekly rollup not started $1 (again *).md" \) 2>/dev/null \
     | while IFS= read -r f; do is_closed "$f" || printf '%s\n' "$f"; done
@@ -194,8 +150,7 @@ asking_not_started() {
     grep -Eq '^needs:[[:space:]]*"?nothing"?[[:space:]]*$' "$f" || printf '%s\n' "$f"
   done
 }
-# filed_anywhere <title>: the item exists in the queue folder or anywhere below it (closed items are swept into
-# `Open items/Archive/…`), so a closed item that was moved is never filed again as if new.
+# filed_anywhere <title>: the item exists in the queue folder or anywhere below it (closed items are swept into `Open items/Archive/…`), so a closed item that was moved is never filed again as if new.
 filed_anywhere() { [ -n "$(find "$QUEUE_DIR" -name "$1.md" -print -quit 2>/dev/null)" ]; }
 # open_items <week>: every open item this job filed for the week, "missed" included.
 open_items() {
@@ -206,11 +161,7 @@ open_items() {
 # complete <week>: both rollups exist.
 complete() { [ -e "$(nb_file "$1")" ] && [ -e "$(xs_file "$1")" ]; }
 
-# respond <file> <needs> <line> — set `needs` and `modified` in the frontmatter, and put <line> at the end of the
-# `## Response` section (before the next `## ` heading, or at the end of the file). Only on this job's own open items:
-# returns 1, changing nothing, if the item is closed (`status: archived/…`; closing is Nelson's click). The new text is
-# written to a hidden temp file in the same folder and moved over the note, so the swap is atomic; if the note changed
-# while it was being rewritten (someone typing in it), the rewrite is dropped rather than written over their edit.
+# respond <file> <needs> <line> — set `needs` and `modified` in the frontmatter, and put <line> at the end of the `## Response` section (before the next `## ` heading, or at the end of the file). Only on this job's own open items: returns 1, changing nothing, if the item is closed (`status: archived/…`; closing is Nelson's click). The new text is written to a hidden temp file in the same folder and moved over the note, so the swap is atomic; if the note changed while it was being rewritten (someone typing in it), the rewrite is dropped rather than written over their edit.
 respond() {
   rf="$1"; rn="$2"; rl="$3"
   is_ours "$rf" || { say "not touching $rf: it does not carry generated.by tickle weekly-rollups"; return 2; }
@@ -237,9 +188,7 @@ respond() {
   return 0
 }
 
-# file_queue_item <missed|not started> <week> <why> [<title suffix>] — ONE item per kind and week, created, never
-# overwritten. A repeat failure adds its cause to an open "not started" item; if that item is closed, a new one is filed
-# with the date in its title. "missed" is not filed while an open "not started" item for that week already asks.
+# file_queue_item <missed|not started> <week> <why> [<title suffix>] — ONE item per kind and week, created, never overwritten. A repeat failure adds its cause to an open "not started" item; if that item is closed, a new one is filed with the date in its title. "missed" is not filed while an open "not started" item for that week already asks.
 file_queue_item() {
   kind="$1"; qw="$2"; suffix="${4:-}"
   why=$(printf '%s' "$3" | sed -E $'s/\x1b\\[[0-9;?]*[A-Za-z]//g' | tr '\n\r' '  ')
@@ -314,8 +263,7 @@ Expected:
   say "filed queue item ($(wc -c < "$qf" | tr -d ' ') bytes): $qf"
 }
 
-# settle <week> <scope: started|complete> — "started": after a confirmed dispatch, settle the week's "not started" items.
-# "complete": both rollups exist, so settle every item this job filed for the week, "missed" included.
+# settle <week> <scope: started|complete> — "started": after a confirmed dispatch, settle the week's "not started" items. "complete": both rollups exist, so settle every item this job filed for the week, "missed" included.
 settle() {
   case "$2" in
     started) list=open_not_started; msg="The weekly-rollups job started the lieutenant for $1 after all." ;;
@@ -333,9 +281,7 @@ check_previous() {
   [ -e "$(xs_file "$prev")" ] || missing="$missing cross-session"
   if [ -n "$missing" ]; then
     say "previous week $prev missing:$missing"
-    # Last week's lieutenant, with guard 4's filter: only one at work (busy, or idle and not done) and younger than 24 h
-    # holds the "missed" item back. One that is finished, or at work for 24 h or more (stuck), does not: the item is
-    # filed and says so. This is where a scheduled run sees last week's stuck lieutenant.
+    # Last week's lieutenant, with guard 4's filter: only one at work (busy, or idle and not done) and younger than 24 h holds the "missed" item back. One that is finished, or at work for 24 h or more (stuck), does not: the item is filed and says so. This is where a scheduled run sees last week's stuck lieutenant.
     prev_work=0; prev_other=0
     if [ -n "${agents:-}" ]; then
       pc=$(printf '%s' "$agents" | jq -r --arg n "$LT_BASE $prev" --argjson now "${now_ms:-0}" '
@@ -451,9 +397,7 @@ trusted=$(jq -r --arg d "$DISPATCH_CWD" '.projects[$d].hasTrustDialogAccepted //
 [ "$trusted" = "true" ] || finish 2 "dispatch directory is not a trusted workspace ($trusted): $DISPATCH_CWD — a background session there would stop at the trust prompt"
 
 
-# daemon_key_pids: running Claude daemons whose environment holds ANTHROPIC_API_KEY.
-# A daemon whose environment `ps eww` cannot show (no HOME= in it) is reported as "<pid>?", which guard 8 treats as
-# holding the key: a check we cannot make is never a pass.
+# daemon_key_pids: running Claude daemons whose environment holds ANTHROPIC_API_KEY. A daemon whose environment `ps eww` cannot show (no HOME= in it) is reported as "<pid>?", which guard 8 treats as holding the key: a check we cannot make is never a pass.
 daemon_key_pids() {
   for dp in $(ps -axo pid=,command= | awk '$2 ~ /(^|\/)claude$/ && $3 == "daemon" && $4 == "run" {print $1}'); do
     env_words=$(ps eww -o command= -p "$dp" 2>/dev/null | tr ' ' '\n')
@@ -486,9 +430,7 @@ if [ "$dry" = "1" ]; then
   finish 0 "DRY RUN complete — every guard passed; nothing dispatched"
 fi
 
-# STRICTER THAN NEEDED, on purpose while the job ships disabled: the claude code ship measured (2026-09-29) that --bg
-# sessions carrying the key ran on the Max plan all night with no credit errors; it is `claude -p` that bills the key.
-# Do not read this refusal as proof that --bg bills the API.
+# STRICTER THAN NEEDED, on purpose while the job ships disabled: the claude code ship measured (2026-09-29) that --bg sessions carrying the key ran on the Max plan all night with no credit errors; it is `claude -p` that bills the key. Do not read this refusal as proof that --bg bills the API.
 if [ -n "$keyed" ]; then
   file_queue_item "not started" "$week" "The running Claude daemon (pid $keyed; a ? means its environment could not be read) holds ANTHROPIC_API_KEY or may, and a \`claude --bg\` session takes the daemon's environment, so the lieutenant would carry the key. The job refuses to dispatch while that is so (a deliberate, stricter-than-needed check while the job ships disabled)."
   finish 6 "Claude daemon pid(s) $keyed hold ANTHROPIC_API_KEY; refusing to dispatch"
@@ -502,9 +444,7 @@ if [ "$drc" -ne 0 ]; then
   finish 4 "claude --bg exited $drc"
 fi
 
-# COPIED from claude/bin/promote-session.sh (its `backgrounded` parse), the source to keep in step with, until the claude
-# code ship's shared helper in claude/lib/ lands (the captain's call, 2026-09-29). The id `claude --bg` prints; the confirm matches that id, not a
-# name, so a hand dispatch of the same name at the same moment can never confirm this one.
+# COPIED from claude/bin/promote-session.sh (its `backgrounded` parse), the source to keep in step with, until the claude code ship's shared helper in claude/lib/ lands (the captain's call, 2026-09-29). The id `claude --bg` prints; the confirm matches that id, not a name, so a hand dispatch of the same name at the same moment can never confirm this one.
 new_id=$(printf '%s' "$out" | tr -d '\r' | sed -E $'s/\x1b\\[[0-9;?]*[A-Za-z]//g' | awk '/^backgrounded/ {print $3; exit}') || true
 if [ -z "$new_id" ]; then
   file_queue_item "not started" "$week" "\`claude --bg\` exited 0 but printed no \`backgrounded <id>\` line, so the job cannot confirm a lieutenant started. Output: $out"

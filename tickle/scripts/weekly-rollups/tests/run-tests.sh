@@ -1,9 +1,7 @@
 #!/bin/bash
 # Tests for weekly-rollups/run.sh. Run: bash tickle/scripts/weekly-rollups/tests/run-tests.sh
 #
-# Every case runs against a throwaway vault under /tmp and a stub `claude` that records its calls and never reaches
-# the real CLI, the real fleet or the API. No live session id and no real vault path is used. Each case runs under
-# `env -i` with launchd's PATH, so nothing leaks in from the session that runs the tests.
+# Every case runs against a throwaway vault under /tmp and a stub `claude` that records its calls and never reaches the real CLI, the real fleet or the API. No live session id and no real vault path is used. Each case runs under `env -i` with launchd's PATH, so nothing leaks in from the session that runs the tests.
 set -u
 
 here=$(cd "$(dirname "$0")" && pwd -P)
