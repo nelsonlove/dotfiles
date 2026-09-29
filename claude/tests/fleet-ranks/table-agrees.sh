@@ -62,7 +62,8 @@ eq "nor is a bare human:"                      "$(rank_of_caller 'human:')"     
 eq "nor is a name that merely contains it"     "$(rank_of_caller 'x human:nelson')" 9
 
 echo
-echo "=== rank_of_agent: the definition names, and no A0 definition"
+echo "=== rank_of_agent: the definition names, admiral included since 2026-09-29"
+eq "admiral"                        "$(rank_of_agent admiral)"                          -1
 eq "captain"                        "$(rank_of_agent captain)"                          0
 eq "commander"                      "$(rank_of_agent commander)"                        1
 eq "lieutenant-commander"           "$(rank_of_agent lieutenant-commander)"             2
@@ -76,7 +77,6 @@ echo "=== the words and the codes"
 # A0 is a rank since 2026-09-29 (Nelson: "i mean we may as well make it a new rank"): its word is "admiral",
 # and 03.18/admiral.md defines it. The session NAMES `[A0] rear admiral` and `[A0] areas admiral` do not change.
 eq "word -1" "$(word_of_rank -1)" "admiral"
-eq "the admiral definition is rank -1" "$(rank_of_agent admiral)" -1
 eq "word 0"  "$(word_of_rank 0)"  captain
 eq "word 1"  "$(word_of_rank 1)"  commander
 eq "word 2"  "$(word_of_rank 2)"  "lieutenant commander"
@@ -88,8 +88,8 @@ eq "bare code 3"  "$(bare_code_of_rank 3)"  "[L0]"
 eq "bare code 9"  "$(bare_code_of_rank 9)"  "[??]"
 # -1 FIRST, because it is the input the first version of this file got wrong and this test did not cover:
 # `code_of_rank` was rewritten with its own hardcoded table instead of deriving from `bare_code_of_rank`,
-# which turned `[A0-CC]` into `[??-CC]`. Unreachable today — `--to` only ever yields 1, 2 or 3 — and
-# therefore exactly what a test has to hold, since nothing else catches the day it is reachable.
+# which turned `[A0-CC]` into `[??-CC]`. `--to admiral` maps to -1 since 2026-09-29, and promote-session refuses
+# it outright, so the input stays unreached; this test holds it all the same.
 eq "coded -1 CC"  "$(code_of_rank -1 CC)"   "[A0-CC]"
 eq "coded 9 CC"   "$(code_of_rank 9 CC)"    "[??-CC]"
 eq "coded 0 CC"   "$(code_of_rank 0 CC)"    "[C0-CC]"
@@ -167,12 +167,22 @@ if command -v jq >/dev/null 2>&1; then
   eq "a DV-coded target is refused even with --ship" "$out" "promote-session: refused: ship DV is guarded; no script wakes or promotes a session on it or into it, whoever asks, because only Nelson starts a session there"
   out=$(pr --name "[A0] x" --by "[C1] ship words test")
   eq "an [A0] name is refused with the rank word" "$out" "promote-session: refused: --name '[A0] x' would make an admiral, and only Nelson makes one; A0 is never a --name"
+  # --to admiral is refused outright, like --to captain: only Nelson makes one (review 1 of #80).
+  : > "$PTMP/home/.claude/agents/admiral.md"
+  out=$(pr --name "[A0] x" --by "[A0] rear admiral" --to admiral)
+  eq "--to admiral is refused outright" "$out" "promote-session: refused: only Nelson makes an admiral"
+  # A target whose definition says admiral but whose name is not an [A0] name is not given the admiral rank.
+  mkdir -p "$PTMP/zz000000"; printf '{"template":"admiral"}\n' > "$PTMP/zz000000/state.json"
+  row "[L0-CC] ship words target"
+  out=$(pr --name "[C2-CC] x" --by "[C0-CC] ship words test")
+  eq "an admiral definition on a non-A0 name is refused" "$out" "promote-session: refused: \`[L0-CC] ship words target\` runs the admiral definition but its name is not an [A0] name; only Nelson makes an admiral, so its rank cannot be read"
+  /usr/bin/trash "$PTMP/zz000000" 2>/dev/null || mv "$PTMP/zz000000" "$PTMP/gone.zz"
   # The common path: a coded MA caller, no --ship, on an MA target (the ship comes from the caller).
   row "[L0-MA] ship words target"
   out=$(pr --name "[C2-MA] x" --by "[C0-MA] macos")
   eq "[C0-MA] on an MA target, no --ship, passes" "$(reached MA "$out")" past-the-ship-gates
 else
-  skipped=7; printf 'SKIP  the seven promote-session cases: jq is not installed, and the script needs it\n'
+  skipped=9; printf 'SKIP  the nine promote-session cases: jq is not installed, and the script needs it\n'
 fi
 
 echo
@@ -205,7 +215,7 @@ done
 # never offered: `ships_in_words` leaves the guarded ship out of the words (review 2 of #73).
 # Change EXPECTED only in the commit that adds or removes a check, and say which.
 # The count is part of the summary line, so a run that lost checks can never print a green summary.
-EXPECTED=110
+EXPECTED=112
 [ $((n + skipped)) = "$EXPECTED" ] || { fails=$((fails + 1)); echo "FAIL  the check count is $((n + skipped)) ($n run, $skipped skipped), expected $EXPECTED: a line was lost or added without updating EXPECTED"; }
 printf '\n%s checks (expected %s), %s skipped, %s failed\n' "$n" "$EXPECTED" "$skipped" "$fails"
 [ "$fails" = 0 ] || exit 1

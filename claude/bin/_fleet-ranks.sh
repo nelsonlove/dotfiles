@@ -22,9 +22,10 @@
 # ADDING A SHIP CODE IS TWO WORDS HERE: the code in `KNOWN_SHIPS` below, and the same code in the ship list
 # of the admiral who holds it (`REAR_ADMIRAL_SHIPS` or `AREAS_ADMIRAL_SHIPS`); a guarded ship also goes in
 # `GUARDED_SHIPS`. Nothing outside this file needs touching, because both consumers ask this table rather
-# than carrying their own list, and `admirals-and-dv.sh` fails if a ship is in no admiral's list or in two. Adding or renaming a RANK is two
-# lines — `rank_of_name` and `word_of_rank` — and it is a ruling, not a patch, because it changes who may
-# reach whom.
+# than carrying their own list, and `admirals-and-dv.sh` fails if a ship is in no admiral's list or in two. Adding or renaming a RANK is three
+# arms — `rank_of_name`, `word_of_rank` and `rank_of_agent` (the definition's name) — plus any refusal that
+# names the rank, and it is a ruling, not a patch, because it changes who may reach whom. (The admiral rank,
+# 2026-09-29, needed all three.)
 #
 # Works under /bin/bash 3.2 (macOS). Needs nothing but the shell.
 
@@ -114,8 +115,8 @@ bare_code_of_rank() {
 # than carrying its own copy of the codes: the first version of this file hardcoded them a second time,
 # which put the rank codes twice inside the one file whose purpose is to hold them once, made the header's
 # "adding a rank is two lines" false (it was four), and silently changed `code_of_rank -1` from `[A0-CC]`
-# to `[??-CC]`. That input is unreachable today — `--to` only ever yields 1, 2 or 3 — but the construction
-# test did not cover it either, so nothing would have caught the day it became reachable. Found by the
+# to `[??-CC]`. That input is unreached: `--to admiral` maps to -1 since 2026-09-29, but promote-session
+# refuses it outright, and no other `--to` yields -1. The construction test did not cover it either, so nothing would have caught the day it became reachable. Found by the
 # review of #61.
 code_of_rank() {  # $1 = rank, $2 = ship code
   # `local`, because this file is SOURCED: an unqualified assignment here is a global, and would clobber a

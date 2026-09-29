@@ -19,7 +19,7 @@
 #       [--log <path>] [--pause-note <path>] [--dry-run]
 #
 #   --to     one of: commander, lieutenant-commander, lieutenant-commander-repository,
-#            lieutenant, lieutenant-repository. Never captain: only Nelson makes captains.
+#            lieutenant, lieutenant-repository. Never captain or admiral: only Nelson makes those.
 #   --name   the new display name, in the coded form: the rank code and the ship code together,
 #            e.g. "[C2-CC] dotfiles". The rank code must match --to, and the ship code must be the
 #            promoter's own (see --ship and the FL rule below).
@@ -192,6 +192,9 @@ bash -n "$FLEET_RANKS" 2>/dev/null || die "the rank table at $FLEET_RANKS does n
 command -v rank_of_name >/dev/null 2>&1 || die "the rank table at $FLEET_RANKS parsed but defined no rank line; refusing"
 
 [ "$to" != "captain" ] || die "refused: only Nelson makes captains"
+# `rank_of_agent admiral` is -1 since 2026-09-29, so --to admiral is refused here, outright, the way --to captain
+# is, and not by accident further down (review 1 of #80).
+[ "$to" != "admiral" ] || die "refused: only Nelson makes an admiral"
 [ -f "$AGENTS_DIR/$to.md" ] || die "no agent definition at $AGENTS_DIR/$to.md"
 to_rank=$(rank_of_agent "$to");   [ "$to_rank" != 9 ] || die "--to must be a fleet rank, got '$to'"
 by_rank=$(rank_of_caller "$by"); [ "$by_rank" != 9 ] || die "--by must start with a rank code, bare or ship-coded ([C0], [C1], [C2], [L0], [C1-CC], [C2-OB] …), or the bare [A0], which carries no ship code; got '$by'"
@@ -260,6 +263,11 @@ old_pid=$(printf '%s' "$row" | jq -r '.pid // empty')
 
 old_agent=$(jq -r '.template // "bg"' "$JOBS_DIR/$old_id/state.json" 2>/dev/null || echo bg)
 old_rank=$(rank_of_agent "$old_agent")
+# An admiral is matched by its FULL NAME (the table's rule). A session that runs the admiral definition under a
+# name that is not an [A0] name was not made by Nelson, so its rank cannot be read (review 1 of #80).
+if [ "$old_rank" = -1 ] && [ "$(rank_of_name "$old_name")" != -1 ]; then
+  die "refused: \`$old_name\` runs the admiral definition but its name is not an [A0] name; only Nelson makes an admiral, so its rank cannot be read"
+fi
 [ "$old_rank" != 9 ] && [ "$old_agent" != bg ] || old_rank=$(rank_of_name "$old_name")
 [ "$old_rank" != 9 ] || die "cannot tell the target's current rank from its agent ('$old_agent') or its name ('$old_name')"
 [ "$old_rank" -gt "$by_rank" ] || die "refused: $old_name ($(word_of_rank "$old_rank")) is not below $by; a rank changes only ranks below its own"
