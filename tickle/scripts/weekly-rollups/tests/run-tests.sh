@@ -45,7 +45,7 @@ S=$(dirname "$0")
 printf '%s\n' "$*" >> "$S/calls"
 [ -n "${ANTHROPIC_API_KEY:-}" ] && echo "KEY_LEAKED on: $1" >> "$S/calls"
 case "$1" in
-  agents) rc=$(cat "$S/agents_rc"); [ "$rc" = 0 ] && cat "$S/agents.json"; exit "$rc" ;;
+  agents) [ -f "$S/hang" ] && sleep 5; rc=$(cat "$S/agents_rc"); [ "$rc" = 0 ] && cat "$S/agents.json"; exit "$rc" ;;
   auth) echo '{"loggedIn":true,"authMethod":"claude.ai"}'; exit 0 ;;
   --bg)
     pwd > "$S/bg_cwd"
@@ -67,7 +67,7 @@ go() {
   OUT=$(env -i HOME="$C" USER=nelson LOGNAME=nelson PATH=/usr/bin:/bin:/usr/sbin:/sbin TMPDIR=/tmp \
         ANTHROPIC_API_KEY=sk-test-should-be-unset \
         WR_VAULT="$V" WR_CLAUDE="$S/claude" WR_DISPATCH_CWD="$C/dotfiles" WR_CLAUDE_JSON="$C/claude.json" \
-        WR_LOADAVG="${LOAD:-1.00}" WR_LOCK="${LOCKPATH:-$C/lock/run.lock}" WR_TEST_DAEMON_KEY_PIDS="${KEYED:-}" WR_CONFIRM_TRIES=2 WR_CONFIRM_SLEEP=0 PAUSE_NOTE="$C/Pause.md" \
+        WR_LOADAVG="${LOAD:-1.00}" WR_LOCK="${LOCKPATH:-$C/lock/run.lock}" WR_TEST_DAEMON_KEY_PIDS="${KEYED:-}" WR_CLAUDE_TIMEOUT="${WR_CLAUDE_TIMEOUT:-60}" WR_CONFIRM_TRIES=2 WR_CONFIRM_SLEEP=0 PAUSE_NOTE="$C/Pause.md" \
         /bin/bash "$RUN" "$@" 2>&1)
   RC=$?
 }
@@ -278,7 +278,7 @@ check "guard 3: exit 0" [ "$RC" = 0 ]; check "guard 3: missed filed" [ -f "$Q/We
 # 10m. Half-written week: skip, no settle, item filed.
 new_case; echo 1 > "$S/bg_rc"; go --week 2026-W40; : > "$NB/Agent rollup for 2026-W40.md"; echo '[]' > "$S/agents.json"; go --week 2026-W40
 check "half: exit 0" [ "$RC" = 0 ]; check "half: not settled" grep -qx 'needs: ruling' "$Q/Weekly rollup not started 2026-W40.md"
-check "half: cause recorded" grep -qF 'Only one of the two rollups' "$Q/Weekly rollup not started 2026-W40.md"
+check "half: said so" out_has "only one of the two 2026-W40 rollups exists"
 
 # 10n. A "missed" item is settled once that week is complete.
 new_case; /usr/bin/trash "$XS/Cross-session rollup for 2026-W39.md"; go --week 2026-W40
@@ -298,6 +298,25 @@ check "dated: took the new cause" grep -qF 'exited 3' "$Q/Weekly rollup not star
 # 10p. A daemon whose environment cannot be read counts as holding the key.
 new_case; KEYED='4242?' go --week 2026-W40
 check "unreadable daemon: exit 6" [ "$RC" = 6 ]; check "unreadable daemon: no dispatch" not_dispatched
+
+# 10q. A settled "not started" item does not stop a "missed" item.
+new_case; /usr/bin/trash "$NB/Agent rollup for 2026-W39.md" "$XS/Cross-session rollup for 2026-W39.md"
+echo 1 > "$S/bg_rc"; go --week 2026-W39; echo 0 > "$S/bg_rc"; echo '[]' > "$S/agents.json"; go --week 2026-W39
+check "settled W39 item" grep -qx 'needs: nothing' "$Q/Weekly rollup not started 2026-W39.md"
+echo '[]' > "$S/agents.json"; go --week 2026-W40
+check "missed filed despite settled item" [ -f "$Q/Weekly rollup missed 2026-W39.md" ]
+
+# 10r. A closed item moved into Archive is not filed again as new.
+new_case; /usr/bin/trash "$XS/Cross-session rollup for 2026-W39.md"; go --week 2026-W40
+mkdir -p "$Q/Archive/Done (2026-10-06)"; sed -i '' 's|^status: draft/proposed$|status: archived/done|' "$Q/Weekly rollup missed 2026-W39.md"
+mv "$Q/Weekly rollup missed 2026-W39.md" "$Q/Archive/Done (2026-10-06)/"; echo '[]' > "$S/agents.json"; go --week 2026-W40
+check "archived: not refiled" [ ! -e "$Q/Weekly rollup missed 2026-W39.md" ]
+
+# 10s. The lock file is kept (lockf -k); a hung claude call is cut off and the run fails loudly.
+new_case; go --week 2026-W40
+check "lock file kept" [ -f "$C/lock/run.lock" ]
+new_case; : > "$S/hang"; WR_CLAUDE_TIMEOUT=1 go --week 2026-W40
+check "hang: exit 2" [ "$RC" = 2 ]; check "hang: no dispatch" not_dispatched
 
 # 11. Week arithmetic and bad input.
 new_case; go --dry-run --week 2027-W01

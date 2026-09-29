@@ -137,13 +137,15 @@ MARK_END="<!-- weekly-rollups brief: end -->"
 say() { echo "weekly-rollups: $*"; }
 iso_now() { date +%Y-%m-%dT%H:%M:%S%z | sed 's/\(..\)$/:\1/'; }
 # cl: every claude call, with the API key unset (see the header).
-cl() { env -u ANTHROPIC_API_KEY "$CLAUDE" "$@"; }
+# Each call is killed after WR_CLAUDE_TIMEOUT seconds (default 60) through perl's alarm, so a wedged daemon can never
+# hang the run past tickle's timeout while the lock is held.
+cl() { env -u ANTHROPIC_API_KEY /usr/bin/perl -e 'alarm shift; exec @ARGV or exit 127' "${WR_CLAUDE_TIMEOUT:-60}" "$CLAUDE" "$@"; }
 
 # A real run re-runs itself under a kernel lock. lockf exits 75 (EX_TEMPFAIL) only when the lock is held; this script
 # never exits 75 itself.
 if [ "$dry" != "1" ] && [ -z "${WR_LOCKED:-}" ]; then
   mkdir -p "$(dirname "$LOCK_FILE")" || finish 2 "cannot create the lock's folder for $LOCK_FILE"
-  WR_LOCKED=1 /usr/bin/lockf -s -t 0 "$LOCK_FILE" /bin/bash "$0" ${orig_args[@]+"${orig_args[@]}"}
+  WR_LOCKED=1 /usr/bin/lockf -k -s -t 0 "$LOCK_FILE" /bin/bash "$0" ${orig_args[@]+"${orig_args[@]}"}
   lrc=$?
   case "$lrc" in
     0|2|3|4|5|6) wr_ok=1; exit "$lrc" ;;
@@ -186,6 +188,15 @@ open_not_started() {
   done
   return 0
 }
+# asking_not_started <week>: the open "not started" items that still ask (needs is not nothing).
+asking_not_started() {
+  open_not_started "$1" | while IFS= read -r f; do
+    grep -Eq '^needs:[[:space:]]*"?nothing"?[[:space:]]*$' "$f" || printf '%s\n' "$f"
+  done
+}
+# filed_anywhere <title>: the item exists in the queue folder or anywhere below it (closed items are swept into
+# `Open items/Archive/…`), so a closed item that was moved is never filed again as if new.
+filed_anywhere() { [ -n "$(find "$QUEUE_DIR" -name "$1.md" -print -quit 2>/dev/null)" ]; }
 # open_items <week>: every open item this job filed for the week, "missed" included.
 open_items() {
   open_not_started "$1"
@@ -233,7 +244,7 @@ file_queue_item() {
   kind="$1"; qw="$2"; why="$3"; suffix="${4:-}"
   title="Weekly rollup $kind $qw$suffix"
   qf="$QUEUE_DIR/$title.md"
-  if [ "$kind" = missed ] && [ -n "$(open_not_started "$qw")" ]; then
+  if [ "$kind" = missed ] && [ -n "$(asking_not_started "$qw")" ]; then
     say "not filing \"missed $qw\": an open \"not started $qw\" item already asks about that week"
     return 0
   fi
@@ -243,14 +254,14 @@ file_queue_item() {
       if [ "$dry" = "1" ]; then say "would add the new cause to queue item: $open1"; else respond "$open1" ruling "Failed again: $why"; fi
       return 0
     fi
-    if [ -e "$qf" ]; then   # the base item exists and is closed: file a dated one
+    if filed_anywhere "$title"; then   # the base item exists (here or archived) and is closed: file a dated one
       file_queue_item "$kind" "$qw" "$why" " (again $(date +%Y-%m-%d))"
       return 0
     fi
   fi
-  if [ -e "$qf" ]; then
+  if filed_anywhere "$title"; then
     if [ "$kind" = "not started" ]; then
-      say "queue item $qf exists and is closed; not filed again today"
+      say "queue item $title exists and is closed; not filed again today"
     else
       say "queue item already exists, not filed again: $qf"
     fi
@@ -299,12 +310,15 @@ Expected:
   say "filed queue item ($(wc -c < "$qf" | tr -d ' ') bytes): $qf"
 }
 
-# settle_not_started <week> — after a confirmed dispatch, close out this job's own "not started" item for the week.
-settle_not_started() {
-  if [ -n "${2:-}" ]; then list=open_items; else list=open_not_started; fi
-  "$list" "$1" | while IFS= read -r nf; do
-    respond "$nf" nothing "${2:-The weekly-rollups job started the lieutenant for $1 after all.}" || true
-  done
+# settle <week> <scope: started|complete> — "started": after a confirmed dispatch, settle the week's "not started" items.
+# "complete": both rollups exist, so settle every item this job filed for the week, "missed" included.
+settle() {
+  case "$2" in
+    started) list=open_not_started; msg="The weekly-rollups job started the lieutenant for $1 after all." ;;
+    complete) list=open_items; msg="The rollups for $1 now exist." ;;
+    *) finish 2 "settle: unknown scope '$2'" ;;
+  esac
+  "$list" "$1" | while IFS= read -r nf; do respond "$nf" nothing "$msg" || true; done
 }
 
 # check_previous — guard 5, also run by guard 3 before it skips, so a missing previous week is never passed over.
@@ -317,7 +331,7 @@ check_previous() {
     file_queue_item missed "$prev" "Missing at the run for $week:$missing."
   else
     say "previous week $prev: both rollups exist"
-    [ "$dry" = "1" ] || settle_not_started "$prev" "The rollups for $prev now exist."
+    [ "$dry" = "1" ] || settle "$prev" complete
   fi
 }
 
@@ -347,9 +361,9 @@ exists=""
 [ -e "$(xs_file "$week")" ] && exists="$exists $(xs_file "$week")"
 if [ -n "$exists" ]; then
   if complete "$week"; then
-    [ "$dry" = "1" ] || settle_not_started "$week" "The rollups for $week now exist."
+    [ "$dry" = "1" ] || settle "$week" complete
   else
-    file_queue_item "not started" "$week" "Only one of the two rollups for $week exists:$exists. The job overwrites nothing and starts no lieutenant, so the other one needs writing by hand or by a lieutenant Nelson starts."
+    say "only one of the two $week rollups exists (a lieutenant may still be writing); nothing settled, nothing filed — next week's guard 5 reports the week if it stays half-written"
   fi
   check_previous
   finish 0 "SKIPPED — $week already has a rollup, nothing overwritten, nothing dispatched:$exists"
@@ -430,7 +444,7 @@ daemon_key_pids() {
 if [ -n "${WR_TEST_DAEMON_KEY_PIDS+set}" ]; then keyed="$WR_TEST_DAEMON_KEY_PIDS"; else keyed=$(daemon_key_pids | tr '\n' ' '); fi
 keyed=$(printf '%s' "$keyed" | sed 's/ *$//')
 
-cmd=(env -u ANTHROPIC_API_KEY "$CLAUDE" --bg --agent lieutenant --name "$LT_NAME" -- "$brief")
+cmd=(env -u ANTHROPIC_API_KEY /usr/bin/perl -e 'alarm shift; exec @ARGV or exit 127' "${WR_CLAUDE_TIMEOUT:-60}" "$CLAUDE" --bg --agent lieutenant --name "$LT_NAME" -- "$brief")
 
 if [ "$dry" = "1" ]; then
   say "environment: claude = $(command -v "$CLAUDE"); PATH = $PATH"
@@ -477,7 +491,7 @@ if [ "$seen" != "1" ]; then
   file_queue_item "not started" "$week" "\`claude --bg\` returned 0, but its session $new_id did not appear in \`claude agents --json\`."
   finish 4 "claude --bg returned 0 but session $new_id did not appear in 'claude agents --json'"
 fi
-settle_not_started "$week"
+settle "$week" started
 
 stamp=$(date +%Y-%m-%dT%H:%M)
 printf '\n## %s · tickle weekly-rollups — claim and release\n%s\n' "$stamp" "$claim_line" >> "$XLOG" || finish 2 "dispatched, but the claim line could not be appended to $XLOG"
