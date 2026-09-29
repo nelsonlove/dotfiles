@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # wake-session.sh reads the reporting line from TWO roots: the agent notebook, where running entries live, and
-# the agents archive (`03 Agents/03.09*`), where an ended entry moves (ruled 2026-09-29). A stopped session's
+# the archive's notebook (`03 Agents/03.09 Archive/Agent notebook`), where an ended entry moves (ruled
+# 2026-09-29; narrowed to that one folder, one YYYY-MM level down, on Nelson's "narrow it"). A stopped session's
 # own entry is usually an ended one, so a wake that read only the notebook would refuse every stopped session
 # after the move. This suite proves the index finds an entry in either root, follows a line that crosses them,
 # lets the newest entry win whichever root it sits in, and takes only files named `Agent session *.md`.
@@ -59,11 +60,13 @@ if [ "$listed" != "$TARGET" ]; then
 fi
 
 printf -- '=== 1. the real population, read only\n'
-real_nb="$HOME/obsidian/00-09 System/03 Agents/03.04 Records/Agent notebook"
-real_entries=$( { find "$real_nb" -type f -name 'Agent session *.md' 2>/dev/null
-                  for d in "$HOME/obsidian/00-09 System/03 Agents"/03.09*; do [ -d "$d" ] && find "$d" -type f -name 'Agent session *.md'; done; } | wc -l | tr -d ' ')
-archive_entries=$(for d in "$HOME/obsidian/00-09 System/03 Agents"/03.09*; do [ -d "$d" ] && find "$d" -type f -name 'Agent session *.md'; done | wc -l | tr -d ' ')
-printf 'COUNT entries named "Agent session *.md": %s in both roots, %s of them in the archive (the archive may not exist yet; it moves under you)\n' "$real_entries" "$archive_entries"
+AG="$HOME/obsidian/00-09 System/03 Agents"
+exact() { for m in "$1"/[0-9][0-9][0-9][0-9]-[0-9][0-9]; do [ -d "$m" ] && find "$m" -mindepth 1 -maxdepth 1 -type f -name 'Agent session *.md'; done; }
+nb_entries=$(exact "$AG/03.04 Records/Agent notebook" | wc -l | tr -d ' ')
+archive_entries=$(exact "$AG/03.09 Archive/Agent notebook" | wc -l | tr -d ' ')
+real_entries=$((nb_entries + archive_entries))
+all_named=$( { find "$AG/03.04 Records" -type f -name 'Agent session *.md'; for d in "$AG"/03.09*; do [ -d "$d" ] && find "$d" -type f -name 'Agent session *.md'; done; } 2>/dev/null | wc -l | tr -d ' ')
+printf 'COUNT entries at <root>/YYYY-MM/: %s in the notebook, %s in the archive; %s files so named anywhere under 03.04 Records and 03.09*, so %s the lookup does not read\n' "$nb_entries" "$archive_entries" "$all_named" "$((all_named - real_entries))"
 if [ "$real_entries" -gt 0 ]; then pass "the real population is real: entries exist to index"; else fail "the real population is real" "no entries found; the rest of this suite would prove nothing about the live notebook"; fi
 # The survey reads the real listing and the real roots, resumes nothing without --resume-stopped, and is a
 # dry run besides. It must complete — an index that died on some real file would show here and nowhere else.
@@ -87,7 +90,7 @@ allowed "an entry only in the archive is found, and the line is followed through
   "$W" --session "$LT" --by "$HOP" --why "two roots test" --notebook-dir "$NB" --archive-dir "$AR" --jobs-dir "$JOBS" --log "$LOG" --dry-run
 # THE ONE-DIFFERENCE PAIR: the same files, the archive root not given. It must refuse on the missing record,
 # and it must be THAT rail — if it refused on another, the pair would prove nothing about the second root.
-refused_because "without the archive root the same wake refuses on the missing record" "no notebook entry for" -- \
+refused_because "without the archive root the same wake refuses on the missing record" "no notebook entry for '$TARGET'" -- \
   "$W" --session "$LT" --by "$HOP" --why "two roots test" --notebook-dir "$NB" --jobs-dir "$JOBS" --log "$LOG" --dry-run
 
 printf -- '=== 3. a line that crosses the roots\n'
@@ -119,7 +122,7 @@ refused_because "a newer entry in the notebook outranks an older one in the arch
 printf -- '=== 5. only "Agent session *.md" is taken from the archive\n'
 NB="$TMP/c5/notebook"; AR="$TMP/c5/archive"; mkdir -p "$NB"
 mk "$AR/2026-09" "Rollup W39" "$TARGET" archived/ended "$HOP"
-refused_because "a non-entry note carrying the session key is not an entry" "no notebook entry for" -- \
+refused_because "a non-entry note carrying the session key is not an entry" "no notebook entry for '$TARGET'" -- \
   "$W" --session "$LT" --by "$HOP" --why "two roots test" --notebook-dir "$NB" --archive-dir "$AR" --jobs-dir "$JOBS" --log "$LOG" --dry-run
 
 printf -- '=== 6. the DEFAULT archive root is exactly `03.09 Archive/Agent notebook`, one YYYY-MM level down\n'
@@ -134,10 +137,10 @@ A6 a "Agent notebook/2026-09"
 allowed "an entry in 03.09 Archive/Agent notebook/YYYY-MM is read by default" -- \
   "$W" --session "$LT" --by "$HOP" --why "two roots test" --agents-dir "$A" --jobs-dir "$JOBS" --log "$LOG" --dry-run
 A6 b "Old records/2026-09"
-refused_because "an entry elsewhere under 03.09 Archive is NOT read" "no notebook entry for" -- \
+refused_because "an entry elsewhere under 03.09 Archive is NOT read" "no notebook entry for '$TARGET'" -- \
   "$W" --session "$LT" --by "$HOP" --why "two roots test" --agents-dir "$A" --jobs-dir "$JOBS" --log "$LOG" --dry-run
 A6 c "Agent notebook/stray/2026-09"
-refused_because "an entry deeper than YYYY-MM under the archive root is NOT read" "no notebook entry for" -- \
+refused_because "an entry deeper than YYYY-MM under the archive root is NOT read" "no notebook entry for '$TARGET'" -- \
   "$W" --session "$LT" --by "$HOP" --why "two roots test" --agents-dir "$A" --jobs-dir "$JOBS" --log "$LOG" --dry-run
 
 printf -- '=== nothing reached a real log\n'
