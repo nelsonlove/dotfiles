@@ -97,30 +97,24 @@ eq "coded 0 MA"   "$(code_of_rank 0 MA)"    "[C0-MA]"
 echo
 echo "=== the ships"
 # MA, the macOS ship (captain `[C0-MA] macos`), on Nelson's "A, MA" of 2026-09-29; the eight area ships
-# PE PP HH FN ED WK HB DV on the areas ruling of the same day (log 2026-09-29T03:35).
-eq "KNOWN_SHIPS"          "$KNOWN_SHIPS"               "CC OB HS MA PE PP HH FN ED WK HB DV FL"
+# PE PP HH FN ED WK HB on the areas ruling of the same day (log 2026-09-29T03:35). DV is NOT known yet: it
+# joins KNOWN_SHIPS with its guard, and until then every script must refuse it (review 5 of #72).
+eq "KNOWN_SHIPS"          "$KNOWN_SHIPS"               "CC OB HS MA PE PP HH FN ED WK HB FL"
 eq "FLOATING_SHIP"        "$FLOATING_SHIP"             "FL"
 eq "FL is in the list"    "$(ship_is_known FL && echo yes)" yes
 eq "CC is known"          "$(ship_is_known CC && echo yes)" yes
 eq "OB is known"          "$(ship_is_known OB && echo yes)" yes
 eq "HS is known"          "$(ship_is_known HS && echo yes)" yes
-eq "MA is known"          "$(ship_is_known MA && echo yes)" yes
-eq "PE is known"          "$(ship_is_known PE && echo yes)" yes
-eq "PP is known"          "$(ship_is_known PP && echo yes)" yes
-eq "HH is known"          "$(ship_is_known HH && echo yes)" yes
-eq "FN is known"          "$(ship_is_known FN && echo yes)" yes
-eq "ED is known"          "$(ship_is_known ED && echo yes)" yes
-eq "WK is known"          "$(ship_is_known WK && echo yes)" yes
-eq "HB is known"          "$(ship_is_known HB && echo yes)" yes
-eq "DV is known"          "$(ship_is_known DV && echo yes)" yes
+for s in MA PE PP HH FN ED WK HB; do eq "$s is known" "$(ship_is_known "$s" && echo yes)" yes; done
+eq "DV is not known until its guard lands" "$(ship_is_known DV || echo no)" no
 eq "XX is not"            "$(ship_is_known XX || echo no)"  no
 eq "an empty code is not" "$(ship_is_known '' || echo no)"  no
 eq "ship of [L0-CC]"      "$(ship_of_name '[L0-CC] dotfiles')" CC
 eq "ship of [C0-HS]"      "$(ship_of_name '[C0-HS] orange')"   HS
 eq "ship of [C0-MA]"      "$(ship_of_name '[C0-MA] macos')"    MA
-eq "ship of [C0-DV]"      "$(ship_of_name '[C0-DV] divorce')"  DV
-eq "ships in words"       "$(ships_in_words)"          "CC, OB, HS, MA, PE, PP, HH, FN, ED, WK, HB or DV"
-eq "ships in words under a strict-mode IFS" "$(IFS=$'\n\t'; ships_in_words)" "CC, OB, HS, MA, PE, PP, HH, FN, ED, WK, HB or DV"
+eq "ship of [C0-DV]"      "$(ship_of_name '[C0-DV] divorce')"  DV   # read, not accepted
+eq "ships in words"       "$(ships_in_words)"          "CC, OB, HS, MA, PE, PP, HH, FN, ED, WK or HB"
+eq "ships in words under a strict-mode IFS" "$(IFS=$'\n\t'; ships_in_words)" "CC, OB, HS, MA, PE, PP, HH, FN, ED, WK or HB"
 eq "ship of [L0-FL]"      "$(ship_of_name '[L0-FL] dotfiles')" FL
 eq "ship of a bare name"  "$(ship_of_name '[L0] dotfiles')"    ""
 eq "ship of [A0]"         "$(ship_of_name '[A0] rear admiral')" ""
@@ -154,17 +148,19 @@ skipped=0
 if command -v jq >/dev/null 2>&1; then
   row "[L0] ship words target"
   out=$(pr --name "[C2] x" --by "[C0] ship words test")
-  eq "no ship on --by: the refusal names every ship" "$out" "promote-session: --by has no ship code; pass --ship CC, OB, HS, MA, PE, PP, HH, FN, ED, WK, HB or DV (FL for a floating session)"
+  eq "no ship on --by: the refusal names every ship" "$out" "promote-session: --by has no ship code; pass --ship CC, OB, HS, MA, PE, PP, HH, FN, ED, WK or HB (FL for a floating session)"
   out=$(pr --name "[C2-CC] x" --by "[A0] rear admiral")
-  eq "no ship on the target: the refusal names every ship" "$out" "promote-session: refused: \`[L0] ship words target\` carries no ship code and [A0] rear admiral has none either, so the new name's ship cannot be read from anywhere; pass --ship CC, OB, HS, MA, PE, PP, HH, FN, ED, WK, HB or DV (FL for a floating session)"
+  eq "no ship on the target: the refusal names every ship" "$out" "promote-session: refused: \`[L0] ship words target\` carries no ship code and [A0] rear admiral has none either, so the new name's ship cannot be read from anywhere; pass --ship CC, OB, HS, MA, PE, PP, HH, FN, ED, WK or HB (FL for a floating session)"
   out=$(pr --name "[C2-MA] x" --by "[C0] ship words test" --ship MA)
   eq "--ship MA and a [C2-MA] name pass the ship gates" "$(reached MA "$out")" past-the-ship-gates
+  out=$(pr --name "[C2-DV] x" --by "[C0] ship words test" --ship DV)
+  eq "--ship DV is refused as unknown" "$out" "promote-session: --ship must be one of: CC OB HS MA PE PP HH FN ED WK HB FL; got 'DV'"
   # The common path: a coded MA caller, no --ship, on an MA target (the ship comes from the caller).
   row "[L0-MA] ship words target"
   out=$(pr --name "[C2-MA] x" --by "[C0-MA] macos")
   eq "[C0-MA] on an MA target, no --ship, passes" "$(reached MA "$out")" past-the-ship-gates
 else
-  skipped=4; printf 'SKIP  the four promote-session cases: jq is not installed, and the script needs it\n'
+  skipped=5; printf 'SKIP  the five promote-session cases: jq is not installed, and the script needs it\n'
 fi
 
 echo
@@ -189,10 +185,11 @@ done
 # The count is asserted, not only printed (tests/README.md rule 1): 84 before the MA cases, 92 after
 # the review of #72 (three MA table cases, `ships_in_words`, two promote-session cases, and the two new
 # negative checks), 93 with the rear admiral's refusal, 102 with the eight area ships (one
-# known-check each, and the ship of a [C0-DV] name), 103 with the [C0-MA] common-path case, and 104 with ships_in_words under a strict-mode IFS.
+# known-check each, and the ship of a [C0-DV] name), 103 with the [C0-MA] common-path case, 104 with ships_in_words under a strict-mode IFS, and 105
+# with DV held out (the DV known-check became a not-known check, and one promote case refuses --ship DV).
 # Change EXPECTED only in the commit that adds or removes a check, and say which.
 # The count is part of the summary line, so a run that lost checks can never print a green summary.
-EXPECTED=104
+EXPECTED=105
 [ $((n + skipped)) = "$EXPECTED" ] || { fails=$((fails + 1)); echo "FAIL  the check count is $((n + skipped)) ($n run, $skipped skipped), expected $EXPECTED: a line was lost or added without updating EXPECTED"; }
 printf '\n%s checks (expected %s), %s skipped, %s failed\n' "$n" "$EXPECTED" "$skipped" "$fails"
 [ "$fails" = 0 ] || exit 1

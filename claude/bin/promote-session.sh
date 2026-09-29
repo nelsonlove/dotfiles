@@ -228,8 +228,8 @@ elif [ -n "$ship" ]; then
   fi
   new_ship="$ship"
 else
-  # The captain's wording, corrected by him on 2026-09-26 once HS existed: the sentence is byte-exact,
-  # and its list of codes is `ships_in_words`, read from KNOWN_SHIPS.
+  # The captain's wording, corrected by him on 2026-09-26 once HS existed. The words around the list are
+  # his; the list itself is `ships_in_words`, read from KNOWN_SHIPS, so it grows with the table.
   [ -n "$by_ship" ] || die "--by has no ship code; pass --ship $(ships_in_words) (FL for a floating session)"
   ship_is_known "$by_ship" || die "--by carries the ship code '$by_ship', which is not one of: $KNOWN_SHIPS; pass --ship to say which ship"
   new_ship="$by_ship"
