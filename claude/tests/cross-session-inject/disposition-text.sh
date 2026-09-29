@@ -29,7 +29,7 @@ CTX=$(printf '%s' "$out" | python3 -c 'import json,sys; print(json.load(sys.stdi
 
 check "the fixture entry was injected (the test reads what it thinks it reads)" yes "A fixture entry."
 check "the new text is there, word for word" yes "read each entry in full and dispose of it silently: act, reply by SendMessage, or dismiss. Do not restate entries in chat; say at most one line on what one changes for you."
-check "a reply by SendMessage stays mandatory for your scope" yes "A reply by SendMessage is mandatory if an entry names your scope, files, or claims."
+check "a reply by SendMessage stays mandatory for your scope" yes "A reply by SendMessage is mandatory if an entry names your scope, files, or claims"
 # Any sentence that sends a reply (or an append) to the log, not only the old phrase (review 1 of #76).
 n=$((n + 1))
 if printf '%s\n' "$CTX" | grep -qiE '(repl(y|ies)|append)[^.]*[^A-Za-z-]log([^A-Za-z]|$)'; then
