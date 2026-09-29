@@ -16,8 +16,9 @@
 #
 # WHAT IT DOES
 #   * It starts AT THE END of the log and never replays the entries already there. With --state <file> it saves
-#     where it is, and a later run on the same file resumes from there (a gap over 16 KB prints one notice line
-#     instead of the entries).
+#     where it is (the start of any entry still pending), and a later run on the same file resumes from there. A
+#     gap over 16 KB, or a state file that no longer fits the log, prints one notice line instead.
+#   * One tick's growth over 16 KB or with more than 10 entries is not read as appends: one notice line.
 #   * An entry starts at a stamped heading, `## YYYY-...`; a plain `## x` line in a body is part of the body.
 #     An entry is printed only when it is complete: at the next stamped heading, or after 3 seconds with no new
 #     bytes. Text that arrives after an entry was printed, with no heading of its own, is dropped.
@@ -82,11 +83,23 @@ emit() {  # print one entry as one line, trailing blank lines trimmed; exit if n
 is_entry() { case "$1" in $HEAD_GLOB*) return 0 ;; *) return 1 ;; esac; }
 
 inode=""; offset=0; mtime=""; fp=0
-save_state() { [ -n "$state" ] && [ -n "$inode" ] && [ "$settle" = 0 ] && { mkdir -p "$(dirname "$state")" 2>/dev/null; printf '%s %s %s\n' "$inode" "$offset" "$fp" > "$state.tmp" && mv -f "$state.tmp" "$state"; }; return 0; }
+# The saved place is the START of any entry still pending, not the end of what was read, so an entry read but
+# not yet printed when a run ends is read again by the next run (review 2 of #77). buf is always a suffix of
+# the bytes read, and LC_ALL=C makes ${#buf} a byte count.
+save_state() {
+  [ -n "$state" ] && [ -n "$inode" ] && [ "$settle" = 0 ] || return 0
+  local so=$(( offset - ${#buf} )) sfp=$fp
+  [ "$so" = "$offset" ] || sfp=$(fingerprint "$log" "$so")
+  mkdir -p "$(dirname "$state")" 2>/dev/null
+  printf '%s %s %s\n' "$inode" "$so" "$sfp" > "$state.tmp" && mv -f "$state.tmp" "$state"
+  return 0
+}
+notice() { printf 'xlog-follow: %s; read the log from your last-read stamp: %s\n' "$1" "$log" || exit 0; }
 settle=0        # >0 while waiting for a cut or rewrite to finish: polls with no change still needed
 buf=""          # the entry being collected: empty, or text that starts with a stamped heading
 last_new=$SECONDS
-RESUME_MAX=16384   # a resume gap bigger than this prints one notice instead of every entry
+RESUME_MAX=16384   # a resume gap, or one tick's growth, bigger than this prints one notice instead of the entries
+MAX_HEADS=10       # more stamped headings than this in one tick's growth is a notice too
 
 read -r inode size mtime <<< "$(fstat "$log")"
 offset=${size:-0}; fp=$(fingerprint "$log" "$offset")
@@ -96,10 +109,14 @@ if [ -n "$state" ] && [ -f "$state" ]; then
   read -r s_inode s_offset s_fp < "$state"
   if [ "$s_inode" = "$inode" ] && [ "${s_offset:-x}" -le "$offset" ] 2>/dev/null && [ "$(fingerprint "$log" "$s_offset")" = "$s_fp" ]; then
     if [ $(( offset - s_offset )) -gt "$RESUME_MAX" ]; then
-      printf 'xlog-follow: %s bytes of new entries arrived since the last run, too many to print here; read the log from your last-read stamp: %s\n' "$(( offset - s_offset ))" "$log" || exit 0
+      notice "$(( offset - s_offset )) bytes of new entries arrived since the last run, too many to print here"
     else
       offset=$s_offset; fp=$s_fp   # the loop reads the gap on its first tick
     fi
+  else
+    # The log was replaced, cut or rewritten since the last run: what came in between cannot be told apart from
+    # what was there, so say so rather than start at the end in silence (review 2 of #77).
+    notice "the log changed since the last run (rewritten or replaced), so entries that came in between cannot be printed"
   fi
 fi
 save_state
@@ -141,7 +158,20 @@ while :; do
     # Read the new bytes with a sentinel, IN THIS SHELL: a `$( )` around a helper would strip the chunk's
     # trailing newlines and glue the next chunk to it (review 1 of #77).
     chunk=$(tail -c +"$(( offset + 1 ))" "$log" 2>/dev/null | head -c "$(( n_size - offset ))"; printf x)
-    buf="$buf${chunk%x}"
+    chunk=${chunk%x}
+    # One tick's growth that is too big to be appends (a rewrite that stalled past the settling window, or a
+    # paste of old entries) prints one notice, never a replay (review 2 of #77).
+    heads=0; rest_c="$NL$chunk"
+    while case "$rest_c" in *"$NL"$HEAD_GLOB*) true ;; *) false ;; esac; do
+      heads=$(( heads + 1 )); rest_c="${rest_c#*"$NL"$HEAD_GLOB}"; [ "$heads" -le "$MAX_HEADS" ] || break
+    done
+    if [ $(( n_size - offset )) -gt "$RESUME_MAX" ] || [ "$heads" -gt "$MAX_HEADS" ]; then
+      if is_entry "$buf"; then emit "$buf"; fi
+      notice "$(( n_size - offset )) bytes with more than $MAX_HEADS entries arrived at once, too many to be appends"
+      buf=""; offset=$n_size; fp=$(fingerprint "$log" "$offset"); last_new=$SECONDS; save_state
+      continue
+    fi
+    buf="$buf$chunk"
     offset=$n_size; fp=$(fingerprint "$log" "$offset"); last_new=$SECONDS; save_state
 
     # Anything before the first stamped heading belongs to no entry we print (the gap between entries, or the

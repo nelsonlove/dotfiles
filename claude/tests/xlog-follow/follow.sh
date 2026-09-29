@@ -167,6 +167,30 @@ eq "a big gap gives one notice line" "$(lines)" 1
 case "$(head -1 "$OUT")" in *"read the log"*) r=notice ;; *) r="$(head -1 "$OUT")" ;; esac
 eq "and the line says to read the log" "$r" notice
 stop
+# 9i. Review 2 of #77: an entry still pending when the run ends is printed by the next run, not lost.
+seed; ST2="$T/state2"; start --state "$ST2"
+printf '\n## 2026-09-29T06:08 · [L0-CC] test — claim\nPending at the end.\n' >> "$LOG"; sleep 1.3
+stop
+start --state "$ST2"; waitfor 1
+eq "a pending entry at the end of a run is printed by the next" "$(lines)|$(head -1 "$OUT")" "1|## 2026-09-29T06:08 · [L0-CC] test — claim ⏎ Pending at the end."
+stop
+# 9j. A state file that no longer fits the log (rewritten between runs) prints one notice, not silence.
+seed; ST3="$T/state3"; start --state "$ST3"; stop
+printf -- '---\naudience: fleet\n---\n\n# Cleared\n\n## 2026-09-29T06:09 · [L0-CC] test — claim\nAfter a clear-out.\n' > "$LOG"
+start --state "$ST3"; waitfor 1
+case "$(head -1 "$OUT")" in *"read the log"*) r=notice ;; *) r="$(head -1 "$OUT")" ;; esac
+eq "an unusable state file gives one notice" "$(lines)|$r" "1|notice"
+stop
+# 9k. A rewrite that stalls longer than the settling window, then writes many entries at once: one notice line,
+# never a replay (review 2 of #77 replayed 29 old entries this way).
+seed; for i in $(seq 1 60); do entry "2026-09-28T0$((i % 10)):00" "Filler $i $(printf '%0100d' 0)."; done
+cp "$LOG" "$T/full2"; start
+: > "$LOG"; head -c 1000 "$T/full2" >> "$LOG"; sleep 4.5
+tail -c +1001 "$T/full2" >> "$LOG"; waitfor 1; sleep 3
+case "$(head -1 "$OUT")" in *"read the log"*) r=notice ;; *) r="$(head -1 "$OUT")" ;; esac
+eq "a stalled rewrite gives at most one notice line" "$(lines)|$r" "1|notice"
+stop
+
 # 9h. GNU stat: with a GNU `stat` first on PATH, it still follows (tested with gstat where it exists).
 if command -v gstat >/dev/null 2>&1; then
   mkdir -p "$T/gnu"; ln -sf "$(command -v gstat)" "$T/gnu/stat"
@@ -190,7 +214,7 @@ if kill -0 "$HP" 2>/dev/null; then eq "a closed pipe ends it" alive gone; killal
 left=$(pgrep -f "xlog-follow.sh --log $LOG" | wc -l | tr -d ' ')
 eq "no follower is left running" "$left" 0
 
-EXPECTED=31
+EXPECTED=34
 printf '\n%s checks (expected %s), %s failed\n' "$n" "$EXPECTED" "$fails"
 [ "$n" = "$EXPECTED" ] || { echo "FAIL  the check count is $n, expected $EXPECTED"; exit 1; }
 [ "$fails" = 0 ] || exit 1
