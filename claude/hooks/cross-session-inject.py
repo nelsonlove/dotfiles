@@ -165,11 +165,11 @@ def main():
         )
         context = (
             f"UNREAD CROSS-SESSION LOG ENTRIES ({log}):\n"
-            "Per the 'Cross-session log reading discipline' rule in CLAUDE.md, "
-            "read each entry in full and dispose of it silently: act, reply by SendMessage, or dismiss. "
-            "Do not restate entries in chat; say at most one line on what one changes for you. "
+            "Read each entry in full and give it a disposition without restating it in chat: "
+            "act, reply by SendMessage, or dismiss. Say at most one line on what it changes for you. "
             "A reply by SendMessage is mandatory if an entry names your scope, files, or claims, "
-            "but never message a stopped session: a message wakes it (check `claude agents --json` first).\n\n"
+            "but never message a stopped session: a message wakes it (check `claude agents --json` first). "
+            "This is the 'Cross-session log reading discipline' rule in CLAUDE.md.\n\n"
             f"{body}\n\n{note}"
             f"Cross-session channels discovered (audience: frontmatter):\n{chan_lines}"
         )

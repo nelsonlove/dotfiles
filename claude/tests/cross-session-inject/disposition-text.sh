@@ -28,7 +28,9 @@ out=$(printf '{"session_id":"inject-text-test"}' | HOME="$T" python3 "$HOOK")
 CTX=$(printf '%s' "$out" | python3 -c 'import json,sys; print(json.load(sys.stdin)["hookSpecificOutput"]["additionalContext"])' 2>/dev/null)
 
 check "the fixture entry was injected (the test reads what it thinks it reads)" yes "A fixture entry."
-check "the new text is there, word for word" yes "read each entry in full and dispose of it silently: act, reply by SendMessage, or dismiss. Do not restate entries in chat; say at most one line on what one changes for you."
+# The wording ruled by the captain on #76, replacing Nelson's relayed first draft (which a review found hard to
+# read: "silently", then one line allowed; "what one changes").
+check "the ruled text is there, word for word" yes "Read each entry in full and give it a disposition without restating it in chat: act, reply by SendMessage, or dismiss. Say at most one line on what it changes for you."
 check "a reply by SendMessage stays mandatory for your scope" yes "A reply by SendMessage is mandatory if an entry names your scope, files, or claims"
 # Any sentence that sends a reply (or an append) to the log, not only the old phrase (review 1 of #76).
 n=$((n + 1))
