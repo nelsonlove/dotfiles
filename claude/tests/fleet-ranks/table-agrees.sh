@@ -175,7 +175,7 @@ if command -v jq >/dev/null 2>&1; then
   mkdir -p "$PTMP/zz000000"; printf '{"template":"admiral"}\n' > "$PTMP/zz000000/state.json"
   row "[L0-CC] ship words target"
   out=$(pr --name "[C2-CC] x" --by "[C0-CC] ship words test")
-  eq "an admiral definition on a non-A0 name is refused" "$out" "promote-session: refused: \`[L0-CC] ship words target\` runs the admiral definition but its name is not an [A0] name; only Nelson makes an admiral, so its rank cannot be read"
+  eq "an admiral definition on a non-A0 name is refused" "$out" "promote-session: refused: \`[L0-CC] ship words target\` reads as an admiral but is not an admiral's name; only Nelson makes an admiral, so its rank cannot be read"
   /usr/bin/trash "$PTMP/zz000000" 2>/dev/null || mv "$PTMP/zz000000" "$PTMP/gone.zz"
   # The common path: a coded MA caller, no --ship, on an MA target (the ship comes from the caller).
   row "[L0-MA] ship words target"

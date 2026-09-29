@@ -159,7 +159,7 @@ REAR_ADMIRAL_SHIPS="CC OB HS MA FL"
 AREAS_ADMIRAL_SHIPS="PE PP HH FN ED WK HB DV"
 # DV (80-89 Divorce) is guarded: its captain starts only when Nelson starts it. No script may wake or promote
 # a session on DV or into DV, whoever the caller is, because the only way into DV is Nelson. promote-session.sh
-# enforces it now; wake-session.sh does not yet (it checks no ship at all), and its edit follows PR #71. This binds
+# and wake-session.sh both enforce it (wake since the follow-up after #71). This binds
 # honest callers of these scripts only: `--by` is self-declared, a SendMessage to a stopped session wakes it
 # with no script, and a bare `claude --bg --name "[C0-DV] …"` starts one with no script. The tripwire hook
 # `claude/hooks/dv-tripwire.sh` watches the bare command line; nothing watches SendMessage.
@@ -172,6 +172,11 @@ unguarded() {
   for c in $1; do ship_is_guarded "$c" || out="${out:+$out }$c"; done
   printf '%s' "$out"
 }
+
+# is_admiral <name>: true only for the two admirals' full names. `rank_of_name` gives -1 to any `[A0] …` name; this is the check that it is one of the two sessions Nelson placed.
+is_admiral() { [ "$1" = "$REAR_ADMIRAL" ] || [ "$1" = "$AREAS_ADMIRAL" ]; }
+# admiral_name_refusal <name>: the sentence for an [A0] name that is not an admiral.
+admiral_name_refusal() { printf "refused: '%s' is not one of the two admirals ('%s', '%s'); an admiral is matched by its full name" "$1" "$REAR_ADMIRAL" "$AREAS_ADMIRAL"; }
 
 ship_is_guarded() {
   [ -n "${1:-}" ] || return 1
@@ -192,7 +197,7 @@ ship_refusal() {
   case "$by" in
     "$REAR_ADMIRAL") list="$REAR_ADMIRAL_SHIPS" ;;
     "$AREAS_ADMIRAL") list="$AREAS_ADMIRAL_SHIPS" ;;
-    *) printf "refused: '%s' is not one of the two admirals ('%s', '%s'); an admiral is matched by its full name" "$by" "$REAR_ADMIRAL" "$AREAS_ADMIRAL"; return 0 ;;
+    *) admiral_name_refusal "$by"; return 0 ;;
   esac
   if [ -z "$ship" ]; then
     # A bare-named session predates the ship codes, and every one of them is on the rear admiral's side.
@@ -225,7 +230,8 @@ ships_in_words() {
 # The ship a name declares — `CC` in `[L0-CC] dotfiles` — and empty for a bare `[L0] dotfiles`, which is
 # never guessed at: a wrong ship code files a session under the wrong captain, and only Nelson renames it.
 ship_of_name() {
-  printf '%s' "$1" | sed -n -E 's/^\[[A-Za-z][0-9]-([A-Za-z]{1,4})\].*/\1/p'
+  # Upper-cased: `[L0-dv]` is on DV. A code read as written let a lower-case DV past the guard (review 1 of #88).
+  printf '%s' "$1" | sed -n -E 's/^\[[A-Za-z][0-9]-([A-Za-z]{1,4})\].*/\1/p' | tr '[:lower:]' '[:upper:]'
 }
 
 ship_is_known() {

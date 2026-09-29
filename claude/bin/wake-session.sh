@@ -68,8 +68,9 @@
 # The admiral rank, `[A0]`, rank -1: first the rear admiral Nelson placed between himself and the captains on 2026-09-26, a rank of its own since 2026-09-29, held by `[A0] rear admiral` and `[A0] areas admiral`. The table is numbered rather than shifted so C0..L0 keep their numbers in both scripts (`_fleet-ranks.sh` is where a renumbering belongs). An admiral may wake any rank below a captain and a captain too, because captains report to it, but only on its own ships: `ship_refusal` in the table keeps each admiral to its ships and refuses DV for every caller. Any other `[A0] …` name is refused, and a ship-coded `[A0-CC]` is not an admiral at all. `[A0]` is never a target this script would be asked for, since an admiral outranks every caller it could have.
 #
 # What it refuses, and why:
-#   * A target at or above the caller's rank, and a `[C0]` target for every caller but the rear
-#     admiral: only Nelson or A0 wakes a captain, and the script cannot verify that it is Nelson.
+#   * A target at or above the caller's rank, and a `[C0]` target for every caller but an admiral: only Nelson or an admiral wakes a captain, and the script cannot verify that it is Nelson.
+#   * The ship rule, from the table (`ship_refusal`): a target on DV (80-89 Divorce), for every caller, because only Nelson starts a session there; and a target outside the calling admiral's own ships (`[A0] rear admiral`: CC, OB, HS, MA, FL and bare names; `[A0] areas admiral`: the area ships). A survey leaves such rows out.
+#   * An `[A0] …` caller that is not one of the two admirals, and a target that reads as rank -1 but is not one of them (an `[A0]` name, or the admiral definition under another name).
 #   * `--all` from the accept verbs' write path (rank -2). That caller sits above every rank, so a survey
 #     would list the whole fleet and `--resume-stopped` would resume it; the verb needs one named session at
 #     a time, and a mass resume belongs to a rank that answers for it.
@@ -255,7 +256,7 @@ by_rank=$(rank_of_caller "$by")
 [ "$by_rank" != 9 ] || die "--by must start with a rank code, bare or ship-coded ([C0], [C1], [C2], [L0], [L0-CC], [C2-OB] …), or the bare [A0], which carries no ship code; got '$by'"
 # An admiral is matched by its FULL NAME: any other `[A0] …` name is refused here, before a single target or a survey (the table's `ship_refusal` says why, in its words).
 if [ "$by_rank" = -1 ]; then
-  case "$by" in "$REAR_ADMIRAL"|"$AREAS_ADMIRAL") ;; *) die "$(ship_refusal "$by" -1 CC)" ;; esac
+  is_admiral "$by" || die "$(admiral_name_refusal "$by")"
 fi
 
 # THE WRITE PATH TELLS ONE SESSION AT A TIME. `human:nelson` is rank -2, which is above every rank in the
@@ -555,8 +556,13 @@ load_row() {  # $1 = a row as JSON
   row_agent=$(jq -r '.template // "bg"' "$JOBS_DIR/$row_id/state.json" 2>/dev/null || echo bg)
   row_rank=$(rank_of_agent "$row_agent")
   if [ "$row_rank" = 9 ] || [ "$row_agent" = bg ]; then row_rank=$(rank_of_name "$row_name"); fi
-  # An admiral is matched by its FULL NAME: a session that runs the admiral definition under a name that is not an [A0] name was not made by Nelson, so its rank cannot be read (as promote-session.sh does since #80).
-  if [ "$row_rank" = -1 ] && [ "$(rank_of_name "$row_name")" != -1 ]; then row_rank=9; fi
+  # An admiral is matched by its FULL NAME. A row that reads as rank -1 (from the admiral definition or an [A0] name) but is not one of the two admirals was not made by Nelson, so its rank cannot be read: row_why says why, for the refusal and the survey (review 1 of #88).
+  row_why=""
+  if [ "$row_rank" = -1 ] && ! is_admiral "$row_name"; then
+    if [ "$(rank_of_name "$row_name")" = -1 ]; then row_why="its [A0] name is not an admiral's name"
+    else row_why="it runs the admiral definition but its name is not an admiral's name"; fi
+    row_rank=9
+  fi
   row_alive=0
   if [ -n "$row_pid" ] && kill -0 "$row_pid" 2>/dev/null; then row_alive=1; fi
 }
@@ -663,7 +669,7 @@ wake_stopped() {  # uses row_*; $1 = the message
 
 ## $stamp · $by — woke \`$row_name\` ($row_id), which was stopped, and it continues under the same id
 
-$by woke the stopped session \`$row_name\` (background id $row_id, agent \`$row_agent\`, $(word_of_rank "$row_rank")) with a flagless \`claude --bg --resume $row_session_id\` from its own cwd \`$row_cwd\`, so the conversation continues under the same id and nothing was forked; verified from \`claude agents --json --all\` after the resume, where $row_id is running again and no new id appeared. Why: $why. The session was told it is continuing, that a write the pause refused can be tried again, to read the log delta from its recorded position and to report back to $by. Posted by \`wake-session.sh\` on behalf of $by, who attests its own log position in its own entries. — $by
+$by woke the stopped session \`$row_name\` (background id $row_id, agent \`$row_agent\`, $(word_of_rank "$row_rank")) with a flagless \`claude --bg --resume $row_session_id\` from its own cwd \`$row_cwd\`, so the conversation continues under the same id and nothing was forked; verified from \`claude agents --json --all\` after the resume, where $row_id is running again and no new id appeared. Why: $why. The session was told it is continuing, that a write the pause refused can be tried again, to read the log delta from its recorded position without restating it, and to report to $by only when something changed, is asked, or failed. Posted by \`wake-session.sh\` on behalf of $by, who attests its own log position in its own entries. — $by
 EOF
   woken_unlogged=""
   printf 'done: %s (%s) is running again under the same id; pid %s; record appended to %s\n' "$row_name" "$row_id" "$verify_pid" "$log"
@@ -678,6 +684,7 @@ if [ "$all_mode" = 0 ]; then
   load_row "$row"
 
   [ "$row_name" != "$by" ] || die "refused: '$session' is $by itself; a session does not wake itself"
+  [ -z "$row_why" ] || die "refused: \`$row_name\` $row_why; only Nelson makes an admiral, so its rank cannot be read"
   [ "$row_rank" != 9 ] || die "cannot tell the target's rank from its agent ('$row_agent') or its name ('$row_name'); refusing rather than guessing"
   # THE SHIP RULE, the table's one sentence (`ship_refusal`): DV is refused for every caller, and each admiral reaches only its own ships (the areas ruling, 2026-09-29).
   r=$(ship_refusal "$by" "$by_rank" "$(ship_of_name "$row_name")"); [ -z "$r" ] || die "$r"
@@ -749,14 +756,15 @@ while IFS= read -r one_row; do
   load_row "$one_row"
   [ "$row_name" != "$by" ] || continue
   if [ "$row_rank" = 9 ]; then
-    unknown_list="$unknown_list    $row_id  $row_name (agent '$row_agent'; no rank code in the name)
+    unknown_list="$unknown_list    $row_id  $row_name (agent '$row_agent'; ${row_why:-no rank code in the name})
 "
     continue
   fi
   # The survey hides captains from everyone but an admiral, for the same reason the single target refuses them: a captain is woken by Nelson or by A0, so only an A0 caller is shown one.
   if [ "$row_rank" = 0 ] && [ "$by_rank" -gt -1 ]; then continue; fi   # above a captain: A0 (-1) and the verb path (-2)
   # The ship rule, as for a single target: DV is never offered, and an admiral sees only its own ships.
-  if [ -n "$(ship_refusal "$by" "$by_rank" "$(ship_of_name "$row_name")")" ]; then continue; fi
+  row_ship=$(ship_of_name "$row_name")
+  if [ -n "$(ship_refusal "$by" "$by_rank" "$row_ship")" ]; then continue; fi
   [ "$row_rank" -gt "$by_rank" ] || continue
   if ! check_reporting_line "$row_name" "$by"; then
     outside_list="$outside_list    $row_id  $row_name — $chain_reason
@@ -772,7 +780,7 @@ while IFS= read -r one_row; do
     stopped_rows="$stopped_rows$one_row
 "
   fi
-  survey_rows="$survey_rows$(ship_of_name "$row_name")$TAB$row_state$TAB$row_display
+  survey_rows="$survey_rows$row_ship$TAB$row_state$TAB$row_display
 "
 done <<EOF
 $rows

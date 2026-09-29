@@ -265,8 +265,9 @@ old_agent=$(jq -r '.template // "bg"' "$JOBS_DIR/$old_id/state.json" 2>/dev/null
 old_rank=$(rank_of_agent "$old_agent")
 # An admiral is matched by its FULL NAME (the table's rule). A session that runs the admiral definition under a
 # name that is not an [A0] name was not made by Nelson, so its rank cannot be read (review 1 of #80).
-if [ "$old_rank" = -1 ] && [ "$(rank_of_name "$old_name")" != -1 ]; then
-  die "refused: \`$old_name\` runs the admiral definition but its name is not an [A0] name; only Nelson makes an admiral, so its rank cannot be read"
+if [ "$old_rank" = -1 ] && ! is_admiral "$old_name"; then
+  # An admiral is one of the two full names (the table's `is_admiral`); an [A0] name or the admiral definition under any other name is refused (review 1 of #88).
+  die "refused: \`$old_name\` reads as an admiral but is not an admiral's name; only Nelson makes an admiral, so its rank cannot be read"
 fi
 [ "$old_rank" != 9 ] && [ "$old_agent" != bg ] || old_rank=$(rank_of_name "$old_name")
 [ "$old_rank" != 9 ] || die "cannot tell the target's current rank from its agent ('$old_agent') or its name ('$old_name')"
