@@ -12,7 +12,7 @@ The source is the vault note `00-09 System/05 Apps & config/05.02 Tasks for 05 A
 - `tickle/jobs/obsidian-backup.yaml`: the host gate is `Nelsons-MacBook-Pro` (it was `Nelsons-MacBook-Air`).
 - `tickle/jobs/vault-backup.yaml`: `status: disabled`, retired. Its script stays in `tickle/scripts/vault-backup/`.
 - `tickle/jobs/task-curator.yaml`: `status: disabled` until it is reviewed.
-- This checklist.
+- The checklist itself is in draft PR #93, apart from #91.
 
 **When PR #91 merges is a step of the cut-over, not before it.** Each Mac's tickle reads its jobs straight from its own dotfiles checkout (`TICKLE_CONFIG_HOME` in `install/launchagents/dev.tickle.daemon.plist`). The Pro has been off the tailnet for weeks, so nothing about it is proven. The order below brings tickle up on the Pro and proves one `obsidian-backup` run there before the Air stops. The Air keeps its old, Air-gated jobs until the end, so the vault is never without a backup.
 
