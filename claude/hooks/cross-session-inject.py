@@ -38,6 +38,10 @@ FLEET_RANKS = Path(__file__).resolve().parent.parent / "bin" / "_fleet-ranks.sh"
 JOBS_DIR = Path.home() / ".claude/jobs"
 
 
+def plural(n, word):
+    return f"{n} {word}" + ("" if n == 1 else "s")
+
+
 def is_ruling(heading):
     return bool(RULING.search(heading))
 
@@ -196,48 +200,40 @@ def main():
     # The rank is looked up only when there is something to show: it costs a bash and, for some sessions, a `claude agents` listing.
     rank = session_rank(session_id) if unread else None
     if rank is not None and rank >= 1:
-        # BELOW CAPTAIN: rulings only. THE STAMP: it advances past every ruling shown, and past the claims and releases around them, which are not meant to be read below captain; it never passes a ruling that was not shown. With rulings left over the cap, it stops just below the first of them, so that ruling (and anything tied with it) comes back next start.
+        # BELOW CAPTAIN: rulings only. THE STAMP, on a later run: it advances past every ruling shown, and past the claims and releases around them, which are not meant to be read below captain; it never passes a ruling that was not shown. With rulings left over the cap, it stops just below the first of them, so that ruling (and anything tied with it) comes back next start.
+        # ON A FIRST RUN (no stamp file for this session id; the captain's word on the #99 follow-up) the rule differs ON PURPOSE: the NEWEST rulings are shown, newest first, up to the cap (the newest stamp group kept whole), and the stamp goes to the newest ruling, so the older rulings of the 48-hour window are passed and never paged later. The note says so. The stamp is clamped to now, so a ruling stamped in the future (a harness-clock stamp runs a day ahead after 20:00 local) cannot hide the rulings logged before it.
         unread.sort(key=lambda pair: norm(pair[0]))
         rulings = [(s, e) for s, e in unread if is_ruling(e.split("\n", 1)[0])]
         if first_run and rulings:
-            # A FIRST RUN below captain (no stamp file yet; the captain's word on the #99 follow-up): the NEWEST rulings, newest first, up to the cap, with a stamp group kept whole; the stamp goes to the newest ruling, so the older ones in the 48-hour window are never paged later. Later runs page oldest first, as below.
-            newest, used = [], 0
+            shown, used = [], 0
+            top = norm(rulings[-1][0])
             for s_, e_ in reversed(rulings):
-                if newest and used + len(e_) > RULINGS_MAX_CHARS and norm(s_) != norm(newest[-1][0]):
+                if shown and used + len(e_) > RULINGS_MAX_CHARS and norm(s_) != top:
                     break
-                newest.append((s_, e_)); used += len(e_)
-            older = len(rulings) - len(newest)
-            note = (f"[This session's first start: the {len(newest)} newest rulings are shown, newest first. {older} older rulings from the last {FIRST_RUN_WINDOW_HOURS} hours are not shown and will not come back; read them in the file if your work needs them.]\n\n" if older else "")
-            chan_lines = "\n".join(f"- {c}" for c in channel_index()) or f"- {log}"
-            emit(
-                f"UNREAD CROSS-SESSION LOG: RULINGS ONLY ({log}):\n"
-                "You are below captain, so since Nelson's ruling of 2026-09-29 you read the RULINGS; claims and releases are left out. "
-                "Before you edit a file, grep the log once for a claim on that path, and honour it. Do not start a Monitor on the log. "
-                "Read each ruling in full and give it a disposition without restating it in chat. Say at most one line on what it changes for you. "
-                "This is the 'Cross-session log reading discipline' rule in CLAUDE.md.\n\n"
-                + "\n\n".join(e_ for _, e_ in newest) + "\n\n" + note
-                + f"Cross-session channels discovered (audience: frontmatter):\n{chan_lines}"
-            )
-            state_file.write_text(norm(newest[0][0]))
-            return
-        shown, used = [], 0
-        for s_, e_ in rulings:
-            if shown and used + len(e_) > RULINGS_MAX_CHARS:
-                break
-            shown.append((s_, e_)); used += len(e_)
-        # A TIE ACROSS THE CAP: when the first ruling left out shares its stamp with the last one shown, the stamp could not move past either, and the same rulings would come back on every start. So the rest of that stamp's rulings are shown too, over the cap: a stamp group is shown whole.
-        while len(shown) < len(rulings) and norm(rulings[len(shown)][0]) == norm(shown[-1][0]):
-            shown.append(rulings[len(shown)])
-        left = rulings[len(shown):]
-        if left:
-            floor = norm(left[0][0])
-            below = [norm(s_) for s_, _ in unread if norm(s_) < floor]
-            new_state = max(below) if below else last
+                shown.append((s_, e_)); used += len(e_)
+            older = len(rulings) - len(shown)
+            left = []
+            note = (f"[This session's first start: the newest {plural(len(shown), 'ruling')} {'is' if len(shown) == 1 else 'are'} shown, newest first. {plural(older, 'older ruling')} from the last {FIRST_RUN_WINDOW_HOURS} hours {'is' if older == 1 else 'are'} not shown and will not come back; read them in the file if your work needs them.]\n\n" if older else "")
+            new_state = min(top, datetime.now().strftime("%Y-%m-%dT%H:%M"))
         else:
-            new_state = max((norm(s_) for s_, _ in unread), default=last)
+            shown, used = [], 0
+            for s_, e_ in rulings:
+                if shown and used + len(e_) > RULINGS_MAX_CHARS:
+                    break
+                shown.append((s_, e_)); used += len(e_)
+            # A TIE ACROSS THE CAP: when the first ruling left out shares its stamp with the last one shown, the stamp could not move past either, and the same rulings would come back on every start. So the rest of that stamp's rulings are shown too, over the cap: a stamp group is shown whole.
+            while len(shown) < len(rulings) and norm(rulings[len(shown)][0]) == norm(shown[-1][0]):
+                shown.append(rulings[len(shown)])
+            left = rulings[len(shown):]
+            if left:
+                floor = norm(left[0][0])
+                below = [norm(s_) for s_, _ in unread if norm(s_) < floor]
+                new_state = max(below) if below else last
+            else:
+                new_state = max((norm(s_) for s_, _ in unread), default=last)
+            note = (f"[{plural(len(left), 'more ruling')} not shown: read them in the file now; they will also come back at the next session start]\n\n" if left else "")
         chan_lines = "\n".join(f"- {c}" for c in channel_index()) or f"- {log}"
         if shown:
-            note = (f"[{len(left)} more rulings not shown: read them in the file now; they will also come back at the next session start]\n\n" if left else "")
             context = (
                 f"UNREAD CROSS-SESSION LOG: RULINGS ONLY ({log}):\n"
                 "You are below captain, so since Nelson's ruling of 2026-09-29 you read the RULINGS; claims and releases are left out. "

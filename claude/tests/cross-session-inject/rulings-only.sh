@@ -168,7 +168,7 @@ if [ "$all" = "T1 T2 T3 T4 T5 " ]; then pass "rulings tied on one stamp over the
   printf '## %sT03:05 · [A0] rear admiral — rulings: two of them\nPLURAL rulings.\n\n' "$day"
   printf '## %sT03:06 · [A0] rear admiral — ruling and release in one\nCOMBINED ruling.\n\n' "$day"
 } > "$LOG"
-job 33333333 lieutenant
+job 33333333 lieutenant; seed 33333333 "${day}T00:00"
 out=$(inject 33333333)
 has   "a ruling marked with an en dash is shown" "$out" "EN dash ruling."
 has   "a ruling marked with a hyphen and a note is shown" "$out" "HYPHEN ruling."
@@ -190,6 +190,7 @@ job 44444444 lieutenant
 out=$(inject 44444444)
 has   "a first run over the cap gets the newest ruling" "$out" "F19 "
 lacks "a first run over the cap does not get the oldest ruling" "$out" "F10 "
+has   "a first run says the older rulings will not come back" "$out" "will not come back"
 first=$(printf '%s' "$out" | grep -oE '^F[0-9]+' | head -1)
 if [ "$first" = F19 ]; then pass "a first run shows the newest ruling first"; else fail "a first run shows the newest ruling first" "first shown: $first"; fi
 st=$(state_of 44444444)
@@ -210,7 +211,38 @@ out=$(inject 55555555)
 has "a first run under the cap gets every ruling (the older)" "$out" "SMALL one."
 has "a first run under the cap gets every ruling (the newer)" "$out" "SMALL two."
 
-EXPECTED=37
+# The NEWEST stamp group is kept whole over the cap; an OLDER tied group is not (it would add text for nothing: it is passed either way).
+{ printf -- '---\naudience: fleet\n---\n\n'
+  printf '## %sT06:00 · [A0] rear admiral — ruling\nOLD %s\n\n' "$day" "$(python3 -c 'print("o" * 900)')"
+  for i in 1 2 3 4 5; do printf '## %sT06:10 · [A0] rear admiral — ruling\nMID%s %s\n\n' "$day" "$i" "$(python3 -c 'print("m" * 900)')"; done
+  for i in 1 2 3 4; do printf '## %sT06:20 · [A0] rear admiral — ruling\nTOP%s %s\n\n' "$day" "$i" "$(python3 -c 'print("t" * 900)')"; done
+} > "$LOG"
+job 66666666 lieutenant
+out=$(inject 66666666)
+tops=$(printf '%s' "$out" | grep -cE '^TOP[0-9]')
+if [ "$tops" = 4 ]; then pass "a first run keeps the newest stamp group whole over the cap"; else fail "a first run keeps the newest stamp group whole over the cap" "$tops of 4 shown"; fi
+has   "an older-ruling count of more than one reads in the plural" "$out" "6 older rulings from"
+{ printf -- '---\naudience: fleet\n---\n\n'
+  for i in 1 2 3 4 5; do printf '## %sT06:10 · [A0] rear admiral — ruling\nMID%s %s\n\n' "$day" "$i" "$(python3 -c 'print("m" * 900)')"; done
+  printf '## %sT06:20 · [A0] rear admiral — ruling\nTOP short.\n\n' "$day"
+} > "$LOG"
+job 67676767 lieutenant
+out=$(inject 67676767)
+mids=$(printf '%s' "$out" | grep -cE '^MID[0-9]')
+if [ "$mids" -lt 5 ]; then pass "a first run does not stretch the cap for an older tied group ($mids of 5 shown)"; else fail "a first run does not stretch the cap for an older tied group" "all 5 shown"; fi
+
+# A ruling stamped in the future (the harness clock runs a day ahead after 20:00 local) must not carry a first run's stamp past now.
+tomorrow=$(date -v+1d +%Y-%m-%d)
+{ printf -- '---\naudience: fleet\n---\n\n'
+  printf '## %sT00:30 · [A0] rear admiral — ruling\nTODAY one.\n\n' "$day"
+  printf '## %sT23:59 · [A0] rear admiral — ruling\nFUTURE one.\n\n' "$tomorrow"
+} > "$LOG"
+job 77777777 lieutenant
+out=$(inject 77777777)
+st=$(state_of 77777777)
+if [ "$st" \< "${tomorrow}T00:00" ]; then pass "a future-stamped ruling does not carry a first run's stamp past now"; else fail "a future-stamped ruling does not carry a first run's stamp past now" "stamp $st"; fi
+
+EXPECTED=42
 [ $((n)) = "$EXPECTED" ] || { fails=$((fails + 1)); echo "FAIL  the check count is $n, expected $EXPECTED"; }
 printf '\n%s checks (expected %s), %s failed, %s skipped\n' "$n" "$EXPECTED" "$fails" "$skips"
 [ "$fails" = 0 ] || exit 1
