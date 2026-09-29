@@ -1,0 +1,29 @@
+name: claude/tests
+
+# Every claude/tests suite that needs no live session, no vault and no machine state, on every pull request that
+# touches claude/ and every push to main. The list, and the reason each other suite is left out, is in
+# claude/tests/run-standalone.sh, which fails if a test file is in neither list.
+#
+# macOS, because the scripts run on this Mac: /bin/bash 3.2 and the BSD tools are what they must work with.
+on:
+  pull_request:
+    paths: [claude/**, .github/workflows/claude-tests.yml]
+  push:
+    branches: [main]
+    paths: [claude/**, .github/workflows/claude-tests.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  standalone:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools the suites need
+        run: |
+          command -v jq >/dev/null || brew install jq
+          jq --version; python3 --version; /bin/bash --version | head -1
+      - name: claude/tests, standalone suites
+        run: bash claude/tests/run-standalone.sh
