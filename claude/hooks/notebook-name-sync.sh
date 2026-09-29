@@ -113,9 +113,13 @@ nns_id_in_frontmatter() {  # $1 = the entry; prints the id, or nothing
       if (v ~ /^".*"/)        { sub(/^"/, "", v); sub(/".*$/, "", v) }
       else if (v ~ /^\047.*\047/) { sub(/^\047/, "", v); sub(/\047.*$/, "", v) }
       else                    { sub(/[ \t]+#.*$/, "", v); sub(/[ \t]+$/, "", v) }
+      if (seen++) dup = 1
       last = v
     }
-    END { if (closed) print last }' "$1" 2>/dev/null || true
+    # A KEY STATED TWICE PRINTS NOTHING, because `roster_value` returns nothing for it and these two must not
+    # disagree about any line. Taking the last one here would have made `roster_entry_is_id` say "ours" about
+    # a record the reader calls unidentified — the same split this shared program exists to end.
+    END { if (closed && !dup) print last }' "$1" 2>/dev/null || true
 }
 
 roster_write() {  # $1 = this session's running entry

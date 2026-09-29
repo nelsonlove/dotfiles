@@ -94,6 +94,10 @@ roster_read() {  # $1 = the entry's path
 # nested under a parent mapping beat the real one and a post-rm resume would have gone to a directory the
 # writer never wrote. The writer touches column zero; the reader now reads it.
 #
+# A QUOTED VALUE ENDS AT ITS FIRST CLOSING QUOTE, which is what the shared awk does. This was greedy to the
+# LAST quote in the line, so `session-id: "ID" # "note"` read as `ID" # "note` here and as `ID` there — the two
+# parsers this round exists to keep identical, disagreeing on the first input the reviewer tried.
+#
 # A QUOTED VALUE IS TAKEN WHOLE, and only an UNQUOTED one can carry a trailing comment. The writer quotes
 # every value it writes, and the first version of this stripped ` # …` before removing the quotes — so
 # `cwd: "/tmp/live #2"` became `"/tmp/live`, an unbalanced quote and a wrong directory. Inside quotes a hash
@@ -110,7 +114,7 @@ roster_value() {  # $1 = the block, $2 = the key
     | sed -E "s/^[[:space:]]*$2[[:space:]]*:[[:space:]]*//" \
     | sed -E 's/[[:space:]]+$//' || true)
   case "$rv_raw" in
-    '"'*'"'*)  printf '%s' "$rv_raw" | sed -E 's/^"(.*)".*$/\1/' ;;
+    '"'*'"'*)  printf '%s' "$rv_raw" | sed -E 's/^"([^"]*)".*$/\1/' ;;
     "'"*"'"*)  printf '%s' "$rv_raw" | sed -E "s/^'(.*)'.*\$/\1/" ;;
     *)         printf '%s' "$rv_raw" | sed -E 's/[[:space:]]+#.*$//' | sed -E 's/[[:space:]]+$//' ;;
   esac
@@ -172,9 +176,13 @@ roster_id_in_frontmatter() {  # $1 = the entry; prints the id, or nothing
       if (v ~ /^".*"/)        { sub(/^"/, "", v); sub(/".*$/, "", v) }
       else if (v ~ /^\047.*\047/) { sub(/^\047/, "", v); sub(/\047.*$/, "", v) }
       else                    { sub(/[ \t]+#.*$/, "", v); sub(/[ \t]+$/, "", v) }
+      if (seen++) dup = 1
       last = v
     }
-    END { if (closed) print last }' "$1" 2>/dev/null || true
+    # A KEY STATED TWICE PRINTS NOTHING, because `roster_value` returns nothing for it and these two must not
+    # disagree about any line. Taking the last one here would have made `roster_entry_is_id` say "ours" about
+    # a record the reader calls unidentified — the same split this shared program exists to end.
+    END { if (closed && !dup) print last }' "$1" 2>/dev/null || true
 }
 
 # WHETHER AN ENTRY IS THIS SESSION'S OWN, and this test is STRICT: inside the closed frontmatter, at column
@@ -222,6 +230,8 @@ $(notebook_entry_files_of "$@")
 EOF
   # AND THE WINNER IS READ BACK, so a caller can tell "no entry" from "an entry nobody can read". Both mean
   # do nothing, but only one of them is worth a line on stderr to the human who must fix the record.
+  # SET EVEN WHEN THERE IS NO WINNER, so a caller that reads it without checking `roster_entry` first gets
+  # today's answer rather than the answer from a previous call.
   roster_entry_unreadable=0
   if [ -n "$roster_entry" ]; then
     roster_read "$roster_entry"
@@ -248,8 +258,12 @@ roster_ended_line_for() {  # $1 = full session id, $2… = the FOUR root argumen
   # AN UNREADABLE NEWEST ENTRY SAYS NOTHING. Telling a session "your entry was ended" on the strength of a
   # record this cannot parse is worse than silence: the line tells it not to reopen the entry, and the entry
   # it means may be the wrong one.
-  if [ "${roster_entry_unreadable:-0}" = 1 ]; then
-    printf 'session-roster: %s is the newest entry for that id but cannot be read; no ended-entry line was added\n' "$roster_entry" >&2
+  # UNREADABLE OR UNORDERABLE, both mean the same thing here: this does not know which entry is the newest, so
+  # it says nothing. The flag for "cannot be read" was honoured and the flag for "cannot be ordered" was not —
+  # the same omission as the sweeper's, in the other caller. A line telling a session "your entry was ended,
+  # do not reopen it" while naming the wrong entry is worse than no line.
+  if [ "${roster_entry_unreadable:-0}" = 1 ] || [ "${roster_entry_ambiguous:-0}" = 1 ]; then
+    printf 'session-roster: the newest entry for that id cannot be identified (%s); no ended-entry line was added\n' "$roster_entry" >&2
     return 0
   fi
   # A MISSING LIBRARY IS NOT A MISSING RECORD. Silence is right when the entry is running, when there is no

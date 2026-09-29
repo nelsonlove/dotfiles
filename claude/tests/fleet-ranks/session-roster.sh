@@ -28,7 +28,7 @@ TMP=$(mktemp -d -t session-roster) || exit 1
 trap 'rm -rf "$TMP"' EXIT
 n=0; fails=0; skips=0
 # Every check outside section 1, whose own count depends on whether the real notebook is on this machine.
-SUITE_BASE=139
+SUITE_BASE=149
 SECTION1_CHECKS=0
 SECTION1_SKIPPED=0
 eq() { n=$((n + 1)); if [ "$2" = "$3" ]; then printf 'PASS  %-56s %s\n' "$1" "$2"; else fails=$((fails + 1)); printf 'FAIL  %-56s got %s, want %s\n' "$1" "$2" "$3"; fi; }
@@ -185,7 +185,20 @@ eq "and it is ours to write into"            "$(lib 'roster_entry_is_id "$1" "'"
 # AN ID IN THE BODY ONLY: it may compete (a spurious competitor only causes a skip) but it is NOT ours.
 eq "a body-only id may compete"              "$(lib 'roster_entry_may_be_id "$1" "'"$ID5"'" && echo yes || echo no' "$E_BODYID")" yes
 eq "but a body-only id is never ours"        "$(lib 'roster_entry_is_id "$1" "'"$ID5"'" && echo yes || echo no' "$E_BODYID")" no
-eq "and a doubled id is never ours"          "$(lib 'roster_entry_is_id "$1" "aaaaaaaa-1111-2222-3333-444444444444" && echo yes || echo no' "$E_FOUR")" yes
+# THE LABEL USED TO LIE: it said "a doubled id" and ran on a fixture with ONE id, so it asserted nothing about
+# duplicates and would have passed against any code that accepts a single id. A test whose name describes a
+# case it does not build is worse than a missing test, because it is counted as coverage.
+eq "a single id is ours"                    "$(lib 'roster_entry_is_id "$1" "aaaaaaaa-1111-2222-3333-444444444444" && echo yes || echo no' "$E_FOUR")" yes
+# A DISTINCT ID, because this fixture makes its id UNREADABLE and two other sections judge `aaaaaaaa` by it.
+# Reusing a live fixture's id has now broken three cases across this suite; the id is the fixture's identity.
+E_TWOID=$(entry "Agent session 2026-09-29T0422.md" 'session: "[L0-CC] two ids"' 'session-id: 78787878-1111-2222-3333-444444444444' 'session-id: 78787878-1111-2222-3333-444444444444' 'agent: lieutenant' 'cwd: /tmp/t')
+eq "a doubled id is never ours"             "$(lib 'roster_entry_is_id "$1" "78787878-1111-2222-3333-444444444444" && echo yes || echo no' "$E_TWOID")" no
+eq "and the reader agrees it is unreadable" "$(lib 'roster_read "$1"; printf "[%s]" "$roster_id"' "$E_TWOID")" "[]"
+# THE TWO PARSERS ON A QUOTED VALUE FOLLOWED BY A QUOTED COMMENT, which is the first input the sixth reviewer
+# tried and the first they disagreed on: the reader was greedy to the LAST quote in the line.
+E_QC=$(entry "Agent session 2026-09-29T0423.md" 'session: "[L0-CC] quoted comment"' 'session-id: "dddddddd-1111-2222-3333-444444444444" # "a note"' 'agent: lieutenant' 'cwd: /tmp/q')
+eq "the reader stops at the first quote"     "$(lib 'roster_read "$1"; printf "%s" "$roster_id"' "$E_QC")" "dddddddd-1111-2222-3333-444444444444"
+eq "and the shared parse agrees"             "$(lib 'printf "%s" "$(roster_id_in_frontmatter "$1")"' "$E_QC")" "dddddddd-1111-2222-3333-444444444444"
 # THE TWO COPIES OF THE SHARED PARSE MUST NOT DRIFT. The hook cannot source the library — it runs before
 # anything sets a library path and must never fail a turn — so the awk program that reads `session-id` exists
 # twice. Two parsers of one line disagreeing is the defect this package produced twice over five review
@@ -512,7 +525,7 @@ mkjob aaaaaaaa aaaaaaaa-1111-2222-3333-444444444444 "[L0-CC] roster four"      #
 mkjob bbbbbbbb bbbbbbbb-1111-2222-3333-444444444444 "[L0-CC] no agent"         # ended but no agent key
 mkjob dddddddd dddddddd                              "[L0-CC] short id"        # short id in its entry
 mkjob eeeeeeee eeeeeeee-1111-2222-3333-444444444444 "[C0-CC] a captain of nelsons"  # four keys + ended
-sweep() { "$SWEEP" --jobs-dir "$SJOBS" --notebook-dir "$NB" --claude-bin "$FAKE" --log "$TMP/sweeplog.md" "$@" 2>&1; }
+sweep() { "$SWEEP" --jobs-dir "$SJOBS" --notebook-dir "$NB" --claude-bin "$FAKE" "$@" 2>&1; }
 out=$(sweep)
 has  "the ended four-key job would be removed" "$out" "WOULD REMOVE  eeeeeeee"
 has  "a running entry is skipped"              "$out" "SKIP  aaaaaaaa"
@@ -543,7 +556,7 @@ printf '[]' > "$TMP/listing.json"
 # "not running", which is the unsafe direction for a script that deletes.
 FAKE_FAIL="$TMP/fake-claude-fail"
 printf '#!/usr/bin/env bash\nexit 1\n' > "$FAKE_FAIL"; chmod +x "$FAKE_FAIL"
-out=$("$SWEEP" --jobs-dir "$SJOBS" --notebook-dir "$NB" --claude-bin "$FAKE_FAIL" --log "$TMP/sweeplog.md" 2>&1); rc=$?
+out=$("$SWEEP" --jobs-dir "$SJOBS" --notebook-dir "$NB" --claude-bin "$FAKE_FAIL" 2>&1); rc=$?
 eq   "a failed listing refuses"                "$rc" 2
 has  "and says it will not sweep blind"        "$out" "refusing to sweep without knowing"
 printf '{"sessions":[{"sessionId":"eeeeeeee-1111-2222-3333-444444444444","status":"idle"}]}' > "$TMP/listing.json"
@@ -600,6 +613,27 @@ entry "Agent session latest.md" 'session: "[L0-CC] no stamp"' 'session-id: ccccc
 mkjob cccccccc cccccccc-dddd-eeee-ffff-000000000000 "[L0-CC] no stamp"
 has  "an undatable entry blocks the sweep"      "$(sweep)" "SKIP  cccccccc"
 
+# A WINNER THAT IS NOT OURS DECIDES NOTHING. The loose selection test is justified by one sentence — a false
+# positive only costs a skip, because the winner still has to pass the four-key test — and that sentence was
+# true of the keys and FALSE of the id: `roster_id_is_full` accepts any full id and nothing compared it to the
+# one asked for. So an entry reading `session-id: <other> # forked from <ours>` competed for our id, won on its
+# stamp, read ended with four good keys, and a session whose own newest record says running lost its job to
+# another session's entry. The invariant was written in the comment and not in the code.
+entry "Agent session 2026-09-24T0100.md" 'session: "[L0-CC] forked from"' 'session-id: 12121212-1111-2222-3333-444444444444' 'agent: lieutenant' 'cwd: /tmp/fk' 'status: draft/running' >/dev/null
+entry "Agent session 2026-09-29T1900.md" 'session: "[L0-CC] the forker"' 'session-id: 34343434-1111-2222-3333-444444444444 # forked from 12121212-1111-2222-3333-444444444444' 'agent: lieutenant' 'cwd: /tmp/fk2' 'status: archived/ended' >/dev/null
+mkjob 12121212 12121212-1111-2222-3333-444444444444 "[L0-CC] forked from"
+out=$(sweep)
+hasnt "another session's entry never decides"  "$out" "WOULD REMOVE  12121212"
+has  "and the job is skipped instead"          "$out" "SKIP  12121212"
+
+# AND A TIE IS UNDECIDABLE, the half of the ambiguity flag that had no fixture. Two entries for one id with the
+# SAME stamp have no newest, and this script deletes on the answer.
+entry "Agent session 2026-09-25T0100.md" 'session: "[L0-CC] tied"' 'session-id: 56565656-1111-2222-3333-444444444444' 'agent: lieutenant' 'cwd: /tmp/tie' 'status: archived/ended' >/dev/null
+mkdir -p "$NB/2026-10"
+printf -- '---\nsession: "[L0-CC] tied"\nsession-id: 56565656-1111-2222-3333-444444444444\nagent: lieutenant\ncwd: /tmp/tie\nstatus: archived/ended\n---\n\nbody\n' > "$NB/2026-10/Agent session 2026-09-25T0100.md"
+mkjob 56565656 56565656-1111-2222-3333-444444444444 "[L0-CC] tied"
+has  "two entries at the same stamp block it"  "$(sweep)" "SKIP  56565656"
+
 # THE ARCHIVE ROOT IS READ IN PRODUCTION. An ended entry MOVES there, so a sweeper that reads only the
 # notebook skips exactly the population it exists for — which is what the first version did, with
 # `--agents-dir` accepted and ignored.
@@ -607,18 +641,45 @@ AR="$TMP/agents"; mkdir -p "$AR/03.04 Records/Agent notebook/2026-09" "$AR/03.09
 printf -- '---\nsession: "[L0-CC] in the archive"\nsession-id: 88888888-1111-2222-3333-444444444444\nagent: lieutenant\ncwd: /tmp/arch\nstatus: archived/ended\n---\n' \
   > "$AR/03.09 Archive/Agent notebook/2026-09/Agent session 2026-09-28T0100.md"
 mkjob 88888888 88888888-1111-2222-3333-444444444444 "[L0-CC] in the archive"
-out=$("$SWEEP" --jobs-dir "$SJOBS" --agents-dir "$AR" --claude-bin "$FAKE" --log "$TMP/sweeplog.md" 2>&1)
+out=$("$SWEEP" --jobs-dir "$SJOBS" --agents-dir "$AR" --claude-bin "$FAKE" 2>&1)
 has  "--agents-dir is honoured, not ignored"   "$out" "WOULD REMOVE  88888888"
 has  "and the archive root is read"            "$out" "03.09 Archive"
-# --go NEEDS --by, because a removal is an act and an act is attributed.
+# THE FLAGS THAT USED TO DELETE NOW REFUSE, and they say where the delete path went. Ignoring them silently
+# would be worse than not having them: a caller who passes `--go` and reads a dry-run tally would believe a
+# removal happened.
 out=$(sweep --go 2>&1); rc=$?
-eq   "--go without --by refuses"               "$rc" 2
-has  "and says why"                            "$out" "an act is attributed"
-out=$(sweep --go --by "[L0-CC] roster test")
-has  "with --by it removes"                    "$out" "REMOVED  eeeeeeee"
-eq   "and it called claude rm with the SHORT id" "$(cat "$TMP/removed.log" 2>/dev/null | tr -d '\n')" "eeeeeeee"
-has  "and wrote one release line"              "$(cat "$TMP/sweeplog.md" 2>/dev/null)" "— release"
-has  "naming the entry it read"                "$(cat "$TMP/sweeplog.md" 2>/dev/null)" "Agent session 2026-09-29T0405.md"
+eq   "--go refuses"                            "$rc" 2
+has  "and names the issue"                     "$out" "#78"
+out=$(sweep --by "someone" 2>&1); rc=$?
+eq   "--by refuses"                            "$rc" 2
+out=$(sweep --log "$TMP/nope.md" 2>&1); rc=$?
+eq   "--log refuses"                           "$rc" 2
+eq   "and wrote no log file"                   "$([ -e "$TMP/nope.md" ] && echo present || echo absent)" absent
+
+# AND NOTHING IS REMOVED BY ANY FLAG OR ANY INPUT — the captain's condition for shipping this at all. Reading
+# the script and concluding it cannot delete is what five review rounds did, and each of them missed something.
+# So this proves it: a stub `claude` FIRST on PATH records every call, the sweeper runs against the whole
+# fixture under every flag it accepts and several it refuses, and afterwards the recorder holds no `rm` and
+# every job directory is still there.
+REC="$TMP/claude-calls.log"; : > "$REC"
+STUBDIR="$TMP/stub"; mkdir -p "$STUBDIR"
+{
+  printf '#!/usr/bin/env bash\n'
+  printf 'printf "%%s\\n" "$*" >> %s\n' "'$REC'"
+  printf 'case "$1" in\n  agents) cat %s ;;\n  *) exit 0 ;;\nesac\n' "'$TMP/listing.json'"
+} > "$STUBDIR/claude"
+chmod +x "$STUBDIR/claude"
+jobs_before=$(ls "$SJOBS" | sort | tr '\n' ' ')
+for flags in "" "--go" "--by someone" "--log $TMP/never.md" "--agents-dir $AR"; do
+  PATH="$STUBDIR:$PATH" "$SWEEP" --jobs-dir "$SJOBS" --notebook-dir "$NB" $flags >/dev/null 2>&1 || true
+done
+jobs_after=$(ls "$SJOBS" | sort | tr '\n' ' ')
+eq  "no flag makes it call claude rm"          "$(grep -c '^rm ' "$REC" || true)" 0
+eq  "every job directory still exists"         "$jobs_after" "$jobs_before"
+# AND THERE IS NO OTHER PATH TO WALK. The stub proves the paths this suite exercises; the source proves there
+# is no removal anywhere in it, reachable or not.
+eq  "the script names no rm subcommand"        "$(grep -vE '^[[:space:]]*#' "$SWEEP" | grep -cE '(CLAUDE_BIN|claude)"?\} +rm\b|\$CLAUDE_BIN" rm' || true)" 0
+eq  "and calls no file-removal command"        "$(grep -cE '^[^#]*[^a-z-]((rm|rmdir|unlink|trash) )' "$SWEEP" || true)" 0
 
 # THE COUNT IS PART OF THE PROOF. `claude/tests/README.md` requires it because a suite in this directory once
 # printed "0 failed" while two of its assertions never ran at all — a section swallowed by a `set -u` abort

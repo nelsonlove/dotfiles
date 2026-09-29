@@ -22,15 +22,20 @@
 #
 # IT RUNS ON NELSON'S WORD AND NEVER ON A SCHEDULE. There is no tickle job for this and there must not be:
 # a sweep is a deletion, and a deletion that runs while nobody is watching is how a fleet loses a session it
-# meant to keep. `--dry-run` is the default; `--go` is the only thing that removes anything, and every removal
-# writes one release line to the cross-session log.
+# A DRY RUN, AND ONLY A DRY RUN. On the captain's word this ships with no delete path at all: `--go` is
+# refused, `claude rm` is never called, and no file is removed by any flag or input — a test asserts that with
+# a recording stub on PATH rather than trusting the reading. The delete path returns as its own PR after a
+# week of this script's output has been read as evidence, and issue #78 carries what it must bring with it.
+#
+# So every line this prints is written to be judged later: the job id, the verdict, the reason, and the live
+# checks the verdict rested on — the listing row, the pid test, and the newest entry with its status. A week
+# of that reads as a case for or against the delete path. A week of "WOULD REMOVE abc12345" would not.
 #
 # Usage:
-#   sweep-jobs.sh [--go] [--by "<your session name>"] [--jobs-dir <path>] [--notebook-dir <path>]
+#   sweep-jobs.sh [--jobs-dir <path>] [--notebook-dir <path>]
 #                 [--archive-dir <path>] [--log <path>] [--claude-bin <path>]
 #
-#   --go          actually remove. Without it nothing is removed and every decision is printed.
-#   --by          who is sweeping, for the log line. Required with --go.
+#   --go          REFUSED. It names issue #78, which holds the delete path and the week of evidence it waits on.
 #   --jobs-dir    where the jobs live (default `~/.claude/jobs`). For testing only.
 #   --agents-dir  the parent both notebook roots are derived from. For testing only, and it was an accepted
 #                 no-op until the review of #71 — it is honoured now, and named here because a flag a script
@@ -59,21 +64,23 @@ NOTEBOOK_DIR=""      # derived from AGENTS_DIR by the library, after the flags a
 NOTEBOOK_DIR_SET=0
 ARCHIVE_DIR=""       # likewise
 ARCHIVE_DIR_SET=0
-FLEET_LOG="$HOME/obsidian/00-09 System/03 Agents/03.16 Cross-session log/CROSS-SESSION.md"
 CLAUDE_BIN="claude"
-go=0
-by=""
 
 die() { printf '%s: %s\n' "$PROG" "$*" >&2; exit 2; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --go) go=1; shift ;;
-    --by) [ $# -ge 2 ] && [ -n "$2" ] || die "--by needs a session name"; by="$2"; shift 2 ;;
+    # REFUSED, AND IT SAYS WHY. Silently ignoring a flag that used to delete is worse than not having it: the
+    # caller asked for a removal and would read a dry-run tally as a report of one.
+    --go) die "--go is not available: this ships as a dry run while a week of its output is read as evidence. The delete path is issue #78, which carries the rules it must bring with it." ;;
+    --by) die "--by belongs to the delete path, which is not in this version; see issue #78" ;;
     --jobs-dir) [ $# -ge 2 ] && [ -n "$2" ] || die "--jobs-dir needs a path"; JOBS_DIR="$2"; shift 2 ;;
     --notebook-dir) [ $# -ge 2 ] && [ -n "$2" ] || die "--notebook-dir needs a path"; NOTEBOOK_DIR="$2"; NOTEBOOK_DIR_SET=1; shift 2 ;;
     --archive-dir) [ $# -ge 2 ] && [ -n "$2" ] || die "--archive-dir needs a path"; ARCHIVE_DIR="$2"; ARCHIVE_DIR_SET=1; shift 2 ;;
-    --log) [ $# -ge 2 ] && [ -n "$2" ] || die "--log needs a path"; FLEET_LOG="$2"; shift 2 ;;
+    # `--log` went with the delete path: the only thing this wrote to the fleet log was a release line for a
+    # removal, and there are no removals. It is refused rather than ignored, so a caller who passes it learns
+    # that nothing is being logged instead of assuming it is.
+    --log) die "--log belongs to the delete path, which is not in this version; nothing is written to the fleet log; see issue #78" ;;
     --claude-bin) [ $# -ge 2 ] && [ -n "$2" ] || die "--claude-bin needs a path"; CLAUDE_BIN="$2"; shift 2 ;;
     --agents-dir) [ $# -ge 2 ] && [ -n "$2" ] || die "--agents-dir needs a path"; AGENTS_DIR="$2"; AGENTS_DIR_SET=1; shift 2 ;;
     -h|--help) sed -n '2,/^set -u$/p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
@@ -81,9 +88,6 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-# `--by "   "` used to pass `[ -n ]` and attribute a removal to whitespace. A name is a name.
-by_trimmed=$(printf '%s' "$by" | tr -d '[:space:]')
-[ "$go" = 0 ] || [ -n "$by_trimmed" ] || die "--go needs --by \"<your session name>\": a removal is an act, and an act is attributed"
 
 script_dir=$(cd "$(dirname "$0")" 2>/dev/null && pwd -P) || script_dir=""
 for lib in notebook-roots session-status session-roster; do
@@ -121,6 +125,13 @@ roster_state_for_id() {  # $1 = full id; sets `roster_pick_state` and `roster_pi
   # filename carries no stamp at all, leave "newest" undefined — and this script's whole authority to delete
   # rests on reading the newest entry. Undefined is not a reason to guess.
   [ "${roster_entry_ambiguous:-0}" = 0 ] || return 0
+  # AND THE WINNER MUST BE OURS. The loose selection test is justified by one sentence — "a false positive only
+  # costs a skip, because the winner still has to pass the caller's four-key test" — and that sentence was
+  # true of the four-key test and FALSE of the id. `roster_id_is_full` accepts ANY full id, and nothing here
+  # compared it to the one asked for. So `session-id: BBBB… # forked from AAAA…` competed for AAAA, won on its
+  # stamp, read `archived/ended` with four good keys, and a session whose own newest record says running lost
+  # its job to another session's entry. An invariant that lives only in a comment is not an invariant.
+  [ "${roster_entry_unreadable:-0}" = 0 ] || return 0
   roster_read "$roster_entry"
   roster_id_is_full "$roster_id" || return 0
   [ -n "$roster_session" ] && [ -n "$roster_agent" ] && [ -n "$roster_cwd" ] || return 0
@@ -157,7 +168,7 @@ EOF
   return $sia_found
 }
 
-swept=0; skipped=0; failed=0
+swept=0; skipped=0
 for job in "$JOBS_DIR"/*; do
   [ -d "$job" ] || continue
   short=$(basename "$job")
@@ -165,56 +176,54 @@ for job in "$JOBS_DIR"/*; do
   full=$(jq -r '.sessionId // ""' "$state" 2>/dev/null || echo "")
   name=$(jq -r '.name // ""' "$state" 2>/dev/null || echo "")
   reason=""
+  # BUILT AS THE CHECKS RUN, so the line cannot claim a check that did not happen. A verdict a reader cannot
+  # re-derive is not evidence, and a week of these has to stand as the case for the delete path.
+  evidence="id=${full:-none}"
 
   if [ -z "$full" ]; then
     reason="its state names no sessionId, so no entry can be matched to it"
   elif ! roster_id_is_full "$full"; then
     reason="its state names '$full', which is not a full sessionId"
-  elif session_is_alive "$full"; then
-    reason="the session is in the listing with a live pid"
   else
-    roster_state_for_id "$full"
-    entry_path="$roster_pick_entry"
-    if [ -z "$roster_pick_state" ]; then
-      reason="no notebook entry carries all four roster keys with that full id"
+    ev_rows=$(printf '%s' "$listing" | jq -r --arg s "$full" '[.[] | select(.sessionId == $s)] | length' 2>/dev/null || echo "?")
+    ev_pids=$(printf '%s' "$listing" | jq -r --arg s "$full" '[.[] | select(.sessionId == $s) | .pid // empty] | join(",")' 2>/dev/null || echo "?")
+    evidence="$evidence listing-rows=$ev_rows pids=${ev_pids:-none}"
+    if session_is_alive "$full"; then
+      evidence="$evidence live-pid=yes"
+      reason="the session is in the listing with a live pid"
     else
-      case "$roster_pick_state" in
-        ended) ;;
-        *) reason="its newest entry $entry_path reads '$roster_pick_state', not archived/ended" ;;
-      esac
+      evidence="$evidence live-pid=no"
+      roster_state_for_id "$full"
+      entry_path="$roster_pick_entry"
+      evidence="$evidence entries-for-id=${roster_entry_count:-0} newest=${roster_entry:-none}"
+      [ "${roster_entry_ambiguous:-0}" = 0 ] || evidence="$evidence order=UNDECIDABLE"
+      if [ -z "$roster_pick_state" ]; then
+        evidence="$evidence newest-status=unreadable-or-incomplete"
+        reason="no notebook entry carries all four roster keys with that full id"
+      else
+        evidence="$evidence newest-status=$roster_pick_state"
+        case "$roster_pick_state" in
+          ended) ;;
+          *) reason="its newest entry $entry_path reads '$roster_pick_state', not archived/ended" ;;
+        esac
+      fi
     fi
   fi
 
+  # EVERY LINE CARRIES ITS EVIDENCE, because a week of these is the case the delete path will be judged on.
+  # The verdict alone cannot be checked by a reader; the three facts under it can. `evidence` is built as the
+  # checks run, so a line can never claim a check that did not happen.
   if [ -n "$reason" ]; then
     skipped=$((skipped + 1))
     printf 'SKIP  %s  %s — %s\n' "$short" "${name:-(unnamed)}" "$reason"
+    printf '      evidence: %s\n' "$evidence"
     continue
   fi
-
-  if [ "$go" = 0 ]; then
-    swept=$((swept + 1))
-    printf 'WOULD REMOVE  %s  %s — its newest entry %s carries all four keys and reads ended\n' "$short" "${name:-(unnamed)}" "$entry_path"
-    continue
-  fi
-  # COUNTED WHEN IT HAPPENS, not when it is attempted. The tally used to include a removal that failed.
-  if "$CLAUDE_BIN" rm "$short" >/dev/null 2>&1; then
-    swept=$((swept + 1))
-    printf 'REMOVED  %s  %s\n' "$short" "${name:-(unnamed)}"
-    stamp=$(date '+%Y-%m-%dT%H:%M')
-    cat <<EOF >> "$FLEET_LOG" 2>/dev/null || printf '%s: the release line could not be written to %s\n' "$PROG" "$FLEET_LOG" >&2
-
-## $stamp · $by — release
-Swept the job \`$short\` of \`${name:-(unnamed)}\` (\`$full\`): its entry \`$entry_path\` carries all four roster keys and reads ended, and the session was not in the listing. The transcript is untouched and a resume by full id still reaches it.
-EOF
-  else
-    failed=$((failed + 1))
-    printf 'FAILED   %s  %s — claude rm refused or failed; nothing was logged\n' "$short" "${name:-(unnamed)}"
-  fi
+  swept=$((swept + 1))
+  printf 'WOULD REMOVE  %s  %s — its newest entry %s carries all four keys and reads ended\n' "$short" "${name:-(unnamed)}" "$entry_path"
+  printf '      evidence: %s\n' "$evidence"
+  continue
 done
 
-if [ "$go" = 1 ]; then
-  printf '\n%s job(s) removed, %s skipped, %s failed\n' "$swept" "$skipped" "$failed"
-else
-  printf '\n%s job(s) would be removed, %s skipped (dry run; --go removes)\n' "$swept" "$skipped"
-fi
+printf '\n%s job(s) WOULD be removed, %s skipped. NOTHING WAS REMOVED: this version has no delete path (issue #78).\n' "$swept" "$skipped"
 exit 0
