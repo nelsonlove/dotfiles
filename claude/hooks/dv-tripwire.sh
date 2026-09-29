@@ -11,10 +11,11 @@
 #     name in `claude agents --json --all` carries `-DV]`;
 #   * the same behind `FOO=1` and wrappers (`env`, `nohup`, `nice -n 5`, `timeout 30`, `sudo -u x`, `xargs`
 #     …), after `;`, `&&` or a newline even when stuck to a word, across a redirect, inside `$( )` and
-#     backticks (quoted or not), a subshell, a heredoc fed to a shell, a shell's `-c` string, `eval` and
-#     `env -S`, and with an attached value (`-n"[C0-DV] x"`, `-r<id>`).
+#     backticks (in double quotes or none; single quotes are text), a subshell, a heredoc or herestring a
+#     shell reads (after `&&`, through a pipe, behind a wrapper), `echo … | bash`, a shell's `-c` string,
+#     `eval`, `env -S` / `--split-string`, and with an attached value (`-n"[C0-DV] x"`, `-r<id>`).
 # A heredoc body that goes to anything but a shell (`cat <<'EOF' >> notes.md`, `git commit -F -`) is text,
-# and is not read. This is a tripwire, not a parser of every shell: it closes the shapes an agent writes.
+# and is not read, except the `$( )` and backticks of an unquoted one, which the shell runs. This is a tripwire, not a parser of every shell: it closes the shapes an agent writes.
 # Nelson starts a DV session in his own terminal, where this hook does not run.
 #
 # WHAT IT CANNOT SEE. A SendMessage to a stopped DV session wakes it without any Bash command, so no Bash hook
@@ -83,31 +84,64 @@ def is_sep(t):
     return t != "" and all(ch in PUNCT or ch == "$" for ch in t) and not is_redirect(t)
 
 def segments(tokens):
-    # A redirect is NOT a split point: `claude --bg 2>/dev/null --name …` is one command. The operator, its
-    # target and a file-descriptor number before it are dropped (review 2 of #73).
-    cur, skip = [], False
+    # Yields (command words, the separator before it, herestring words). A redirect is NOT a split point:
+    # `claude --bg 2>/dev/null --name …` is one command. The operator, its target and a file-descriptor number
+    # before it are dropped; a herestring's word (`<<< "…"`) is kept aside, since a shell runs it.
+    cur, sep, here, skip = [], None, [], None
     for t in tokens:
-        if skip:
-            skip = False
+        if skip is not None:
+            if skip == "<<<":
+                here.append(t)
+            skip = None
             continue
         if is_redirect(t):
             if cur and cur[-1].isdigit():
                 cur.pop()
-            skip = True
+            skip = t
             continue
         if is_sep(t):
-            if cur: yield cur
-            cur = []
+            if cur: yield cur, sep, here
+            cur, here, sep = [], [], t
         else:
             # `out=$` before `(`: the `$` belongs to the separator, not to the word
             cur.append(t[:-1] if t.endswith("=$") else t)
-    if cur: yield cur
+    if cur: yield cur, sep, here
+
+def effective(c):
+    # The program a command really runs: past `FOO=1` words, and past a wrapper and its own flags and values
+    # (`nice -n 5`, `timeout 30`, `sudo -u x`) to the first word that runs something we read.
+    i = 0
+    while i < len(c) and ASSIGN.match(c[i]):
+        i += 1
+    if i >= len(c):
+        return "", []
+    prog = os.path.basename(c[i])
+    if prog in WRAPPERS:
+        for j in range(i + 1, len(c)):
+            w = os.path.basename(c[j])
+            if w == "claude" or w in SHELLS or w == "eval":
+                return effective(c[j:])
+    return prog, c[i + 1:]
+
+def runs_shell(prog):
+    return prog in SHELLS or prog == "eval"
 
 def substitutions(line):
-    # Every `$( … )` and backtick span, found in the raw text, so one inside double quotes is checked too
-    # (shlex keeps a quoted string as one word). Nested spans are found when each inner string is checked.
-    out, i, n = [], 0, len(line)
+    # Every `$( … )` and backtick span the shell would run, found in the raw text so one inside DOUBLE quotes
+    # is checked too (shlex keeps a quoted string as one word). Inside SINGLE quotes they are literal text and
+    # are skipped, and so is an escaped `\$(` (review 3 of #73). Nested spans are found when each inner
+    # string is checked.
+    out, i, n, sq, dq = [], 0, len(line), False, False
     while i < n:
+        ch = line[i]
+        if ch == "\\" and not sq:
+            i += 2; continue
+        if ch == "'" and not dq:
+            sq = not sq; i += 1; continue
+        if ch == '"' and not sq:
+            dq = not dq; i += 1; continue
+        if sq:
+            i += 1; continue
         if line.startswith("$(", i):
             depth, j = 1, i + 2
             while j < n and depth:
@@ -116,7 +150,7 @@ def substitutions(line):
                 j += 1
             out.append(line[i + 2:j - 1] if depth == 0 else line[i + 2:])
             i = j
-        elif line[i] == "`":
+        elif ch == "`":
             j = line.find("`", i + 1)
             if j < 0:
                 out.append(line[i + 1:]); break
@@ -126,27 +160,35 @@ def substitutions(line):
     return out
 
 HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
+def line_feeds_shell(ln):
+    # True when any command on the heredoc's own line runs a shell: `bash <<EOF`, `cd x && bash <<EOF`,
+    # `cat <<EOF | bash`, `nohup bash <<EOF`, `sudo bash <<EOF` (review 3 of #73). A line that does not parse
+    # counts as feeding a shell, so its body is read as commands rather than dropped.
+    try:
+        segs = list(segments(tokenize(ln)))
+    except ValueError:
+        return True
+    return any(runs_shell(effective(c)[0]) for c, _, _ in segs)
+
 def strip_text_heredocs(line):
-    # A heredoc body is TEXT unless a shell reads it. `cat <<'EOF' >> notes.md` and `git commit -F - <<'EOF'`
-    # carry prose, and prose that describes a DV start is not one (review 2 of #73). A body fed to bash, sh,
-    # zsh, dash or eval stays, and is read as commands.
-    lines, out, i = line.split("\n"), [], 0
+    # A heredoc body is TEXT unless a shell reads it: `cat <<'EOF' >> notes.md` and `git commit -F - <<'EOF'`
+    # carry prose, and prose that describes a DV start is not one (review 2 of #73). A body a shell reads stays
+    # in the line and is read as commands. An UNQUOTED text body is returned apart: the shell still runs the
+    # `$( )` and backticks in it while it builds the text (review 3 of #73).
+    lines, out, unquoted, i = line.split("\n"), [], [], 0
     while i < len(lines):
         ln = lines[i]; out.append(ln); i += 1
         m = HEREDOC.search(ln)
-        if not m:
+        if not m or line_feeds_shell(ln):
             continue
-        head = ln[:m.start()].split()
-        words = [w for w in head if not ASSIGN.match(w)]
-        prog = os.path.basename(words[0]) if words else ""
-        if prog in SHELLS or prog == "eval":
-            continue
-        end = m.group(2)
+        end, body = m.group(2), []
         while i < len(lines) and lines[i].strip() != end:
-            i += 1
+            body.append(lines[i]); i += 1
         if i < len(lines):
             out.append(lines[i]); i += 1
-    return "\n".join(out)
+        if m.group(1) == "":
+            unquoted.append("\n".join(body))
+    return "\n".join(out), unquoted
 
 def check_claude(args):
     starts = "--bg" in args
@@ -180,43 +222,64 @@ def check_claude(args):
             if DV.search(nm):
                 deny(REASON + f" (Session {ident} is listed as {nm!r}.)")
 
-def check_segment(c, depth):
-    if depth > 4:
-        return
+def env_split_string(c):
+    # `env -S "…"`, `env -S'…'`, `env --split-string="…"` and `env --split-string "…"` hand a whole command
+    # line in one word (review 3 of #73).
     i = 0
     while i < len(c) and ASSIGN.match(c[i]):
         i += 1
-    if i >= len(c):
+    if i >= len(c) or os.path.basename(c[i]) != "env":
+        return None
+    args = c[i + 1:]
+    for j, a in enumerate(args):
+        if a in ("-S", "--split-string") and j + 1 < len(args):
+            return args[j + 1]
+        if a.startswith("--split-string="):
+            return a.split("=", 1)[1]
+        if a.startswith("-S") and len(a) > 2:
+            return a[2:]
+    return None
+
+def check_segment(c, sep, here, prev, depth):
+    if depth > 4:
         return
-    prog, args = os.path.basename(c[i]), c[i + 1:]
+    s = env_split_string(c)
+    if s is not None:
+        check(s, depth + 1)
+    prog, args = effective(c)
     if prog == "claude":
         check_claude(args)
     elif prog == "eval":
         check(" ".join(args), depth + 1)
-    elif prog in WRAPPERS:
-        # A wrapper and its own flags and values come first (`nice -n 5`, `timeout 30`, `env -u FOO`,
-        # `sudo -u nelson`). The first word after it that runs something is checked as a command of its own,
-        # so `nohup bash -c "…"` reaches the shell branch. `env -S "…"` hands a whole command line in one word.
-        for j in range(len(args)):
-            if prog == "env" and args[j] == "-S" and j + 1 < len(args):
-                check(args[j + 1], depth + 1)
-                return
-            w = os.path.basename(args[j])
-            if w == "claude" or w in SHELLS or w == "eval":
-                check_segment(args[j:], depth + 1)
-                return
+        for h in here:
+            check(h, depth + 1)
     elif prog in SHELLS:
-        # A shell's -c string is a command line of its own (`bash -c "claude …"`, `zsh -lc '…'`).
+        # A shell's -c string is a command line of its own (`bash -c "claude …"`, `zsh -lc '…'`), and so is a
+        # herestring it reads (`bash <<< "…"`).
         for j, a in enumerate(args):
             if a.startswith("-") and not a.startswith("--") and "c" in a[1:] and j + 1 < len(args):
                 check(args[j + 1], depth + 1)
                 break
+        for h in here:
+            check(h, depth + 1)
+        # `echo '…' | bash` and `printf '…' | sh`: the words the left side prints are the shell's commands.
+        if sep == "|" and prev is not None:
+            pprog, pargs = effective(prev)
+            if pprog in ("echo", "printf"):
+                words = [a for a in pargs if not a.startswith("-")]
+                for w in words:
+                    check(w, depth + 1)
+                check(" ".join(words), depth + 1)
 
 def check(line, depth=0):
     if depth > 4:
         return
-    # Text heredocs go first, so prose inside one (backticks included) is never read as a substitution.
-    line = strip_text_heredocs(line)
+    # Text heredocs go first, so prose inside a QUOTED one is never read as a substitution; an unquoted one is
+    # still scanned, because the shell expands it.
+    line, unquoted = strip_text_heredocs(line)
+    for body in unquoted:
+        for sub in substitutions(body):
+            check(sub, depth + 1)
     for sub in substitutions(line):
         check(sub, depth + 1)
     try:
@@ -230,8 +293,10 @@ def check(line, depth=0):
                 segs.extend(segments(tokenize(part)))
             except ValueError:
                 continue
-    for c in segs:
-        check_segment(c, depth)
+    prev = None
+    for c, sep, here in segs:
+        check_segment(c, sep, here, prev, depth)
+        prev = c
 
 check(cmd)
 sys.exit(0)

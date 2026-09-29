@@ -141,6 +141,10 @@ has "DV: nothing is promoted INTO DV" "$out" "$REFUSE_DV"
 out=$(run_promote "[L0-DV] t" --to lieutenant-commander --name "[C2-FL] t" --by "[A0] rear admiral" --ship FL)
 has "DV: nothing is moved OUT of DV either" "$out" "$REFUSE_DV"
 
+# A refusal that lists the ships never offers the guarded one (review 3 of #73).
+out=$(run_promote "[L0-CC] t" --to lieutenant-commander --name "[C2-ZZ] t" --by "[A0] rear admiral" --ship ZZ)
+eq "--ship ZZ: the list offered has no DV" "$out" "promote-session: --ship must be one of: CC OB HS MA PE PP HH FN ED WK HB FL; got 'ZZ'"
+
 echo
 echo "=== wake-session.sh"
 run_wake() {  # run_wake <target name> <by>
@@ -182,7 +186,7 @@ fi
 
 # The count is asserted and is part of the summary line (tests/README.md rule 1). Pending cases count
 # toward it, so the total is the same before and after wake-session.sh is edited.
-EXPECTED=78
+EXPECTED=79
 [ $((n + pending)) = "$EXPECTED" ] || { fails=$((fails + 1)); echo "FAIL  the check count is $((n + pending)), expected $EXPECTED: a line was lost or added without updating EXPECTED"; }
 printf '\n%s checks (expected %s), %s pending, %s failed\n' "$n" "$EXPECTED" "$pending" "$fails"
 [ "$fails" = 0 ] || exit 1

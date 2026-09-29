@@ -218,14 +218,14 @@ by_ship=$(ship_of_name "$by")
 ship_from_target=0
 if [ "$by_rank" = -1 ]; then
   if [ -n "$ship" ]; then
-    ship_is_known "$ship" || die "--ship must be one of: $KNOWN_SHIPS; got '$ship'"
+    ship_is_known "$ship" || die "--ship must be one of: $(unguarded "$KNOWN_SHIPS"); got '$ship'"
     new_ship="$ship"
   else
     new_ship=""
     ship_from_target=1
   fi
 elif [ -n "$ship" ]; then
-  ship_is_known "$ship" || die "--ship must be one of: $KNOWN_SHIPS; got '$ship'"
+  ship_is_known "$ship" || die "--ship must be one of: $(unguarded "$KNOWN_SHIPS"); got '$ship'"
   if [ -n "$by_ship" ] && [ "$ship" != "$by_ship" ] && [ "$ship" != "$FLOATING_SHIP" ]; then
     die "refused: --ship $ship does not match $by's own ship ($by_ship); a rank does not move a session onto another captain's ship"
   fi
@@ -234,13 +234,13 @@ else
   # The captain's wording, corrected by him on 2026-09-26 once HS existed. The words around the list are
   # his; the list itself is `ships_in_words`, read from KNOWN_SHIPS, so it grows with the table.
   [ -n "$by_ship" ] || die "--by has no ship code; pass --ship $(ships_in_words) (FL for a floating session)"
-  ship_is_known "$by_ship" || die "--by carries the ship code '$by_ship', which is not one of: $KNOWN_SHIPS; pass --ship to say which ship"
+  ship_is_known "$by_ship" || die "--by carries the ship code '$by_ship', which is not one of: $(unguarded "$KNOWN_SHIPS"); pass --ship to say which ship"
   new_ship="$by_ship"
 fi
 
 name_ship=$(ship_of_name "$name")
 [ -n "$name_ship" ] || die "--name '$name' must carry the coded form, rank and ship together, like \"$(code_of_rank "$to_rank" "$new_ship") <name>\""
-ship_is_known "$name_ship" || die "--name '$name' carries the ship code '$name_ship', which is not one of: $KNOWN_SHIPS"
+ship_is_known "$name_ship" || die "--name '$name' carries the ship code '$name_ship', which is not one of: $(unguarded "$KNOWN_SHIPS")"
 # THE ADMIRALS AND THE GUARDED SHIP (areas ruling, log 2026-09-29T03:35): `ship_refusal` in the table is the
 # one rule, checked on every ship the change touches. Here the NEW name's ship, before anything is looked
 # up; below, once the target is found, the ship it is on now. Both, because a change touches both ships:
@@ -274,7 +274,7 @@ old_ship=$(ship_of_name "$old_name")
 # A target coded with a ship this table does not know is refused whatever --ship says. Before this, only
 # the path that takes the ship FROM the target checked it, so `--ship CC` moved a `[L0-DV]` session onto CC
 # while DV was held out of the table (review 6 of #72).
-[ -z "$old_ship" ] || ship_is_known "$old_ship" || die "refused: \`$old_name\` carries the ship code '$old_ship', which is not one of: $KNOWN_SHIPS"
+[ -z "$old_ship" ] || ship_is_known "$old_ship" || die "refused: \`$old_name\` carries the ship code '$old_ship', which is not one of: $(unguarded "$KNOWN_SHIPS")"
 ship_note=""
 # The rear admiral's new name takes the target's own ship when no --ship was given: A0 leaves a session
 # where it is. A bare-named target has no ship to take, so it must be said rather than guessed.

@@ -70,6 +70,17 @@ case_ deny  "sudo -u nelson sh -c \"claude --bg --name '[C0-DV] x' y\""
 case_ deny  "eval \"claude --bg --name '[C0-DV] x' y\""
 case_ deny  "env -S \"claude --bg --name '[C0-DV] x' y\""
 case_ deny  'claude --bg -n"[C0-DV] x" y'
+# Review 3 of #73: a heredoc fed to a shell by `&&`, a pipe or a wrapper; an unquoted body expands `$( )`;
+# a herestring or a pipe into a shell; env's long and attached -S.
+case_ deny  $'cd /tmp && bash <<\'EOF\'\nclaude --bg --name "[C0-DV] x" y\nEOF'
+case_ deny  $'cat <<\'EOF\' | bash\nclaude --bg --name "[C0-DV] x" y\nEOF'
+case_ deny  $'nohup bash <<\'EOF\'\nclaude --bg --name "[C0-DV] x" y\nEOF'
+case_ deny  $'sudo bash <<EOF\nclaude --bg --name "[C0-DV] x" y\nEOF'
+case_ deny  $'cat <<EOF\n$(claude --bg --name "[C0-DV] x" y)\nEOF'
+case_ deny  "bash <<< \"claude --bg --name '[C0-DV] x' y\""
+case_ deny  "echo 'claude --bg --name \"[C0-DV] x\" y' | bash"
+case_ deny  "env --split-string=\"claude --bg --name '[C0-DV] x' y\""
+case_ deny  "env -S'claude --bg --name [C0-DV]x y'"
 echo
 echo "=== refused: a DV session reached through the id it resumes"
 case_ deny  "claude --resume $DVID"
@@ -95,9 +106,13 @@ case_ allow 'echo claude --bg --name "[C0-DV] x"'
 case_ allow $'cat <<\'EOF\' >> notes.md\nA bare `claude --bg --name "[C0-DV] x"` starts one\nEOF'
 case_ allow $'git commit -F - <<\'EOF\'\nclaude --bg --name "[C0-DV] x" is refused\nEOF'
 case_ allow 'claude --bg 2>/dev/null --name "[L0-CC] x" y'
+# Review 3 of #73: inside single quotes `$( )` and backticks are text, and a quoted heredoc body is inert.
+case_ allow "echo 'see \`claude --bg --name \"[C0-DV] x\"\` in docs' >> notes.md"
+case_ allow "printf '%s\\n' '\$(claude --bg --name \"[C0-DV] x\")' >> notes.md"
+case_ allow $'cat <<\'EOF\' > x.md\n$(claude --bg --name "[C0-DV] x" y)\nEOF'
 case_ allow ''
 
 printf '\n%s checks, %s failed\n' "$n" "$fails"
-EXPECTED=50
+EXPECTED=62
 [ "$n" = "$EXPECTED" ] || { echo "FAIL  the check count is $n, expected $EXPECTED"; exit 1; }
 [ "$fails" = 0 ] || exit 1
