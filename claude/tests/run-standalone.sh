@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run every claude/tests suite that needs no live session, no vault, no machine state and no wall-clock timing: the set CI runs on every pull request (.github/workflows/claude-tests.yml). The captain said yes to this job on 2026-09-29, after the review of #76 noted that nothing ran these suites unless someone started them by hand.
 #
-# EVERY file under claude/tests except the Markdown ones is accounted for: a RUN command names it, a KNOWN_FAILING command names it, or SKIP gives its reason. The runner fails if a file is in none of them, or if a SKIP entry names a file that does not exist. The covered set is READ FROM the commands, not kept by hand, so removing a RUN row un-covers its file and the check fails.
+# EVERY file under claude/tests that git tracks or would track (not ignored: no .DS_Store, no caches), except the Markdown ones, is accounted for: a RUN command names it, a KNOWN_FAILING command names it, or SKIP gives its reason. The runner fails if a file is in none of them, or if a SKIP entry names a file that does not exist. The covered set is READ FROM the commands, not kept by hand, so removing a RUN row un-covers its file and the check fails.
 #
 # KNOWN_FAILING holds suites that fail on main today for a reason tracked in an issue. They run, and they must still FAIL: the day one passes, the runner fails and says to move it back to RUN.
 #
@@ -19,9 +19,9 @@ cd "$ROOT" || exit 2
 G=claude/hooks/accept-verb-guard.sh
 AVG=claude/tests/accept-verb-guard
 
-# The accept-verb-guard battery writes and reads the fixed directory /tmp/v3/cases (make-battery.py and run-battery.py). Two runs at once would corrupt each other, so the pair runs under a lock (an empty directory, removed with rmdir).
+# The accept-verb-guard battery writes and reads the fixed directory /tmp/v3/cases (make-battery.py and run-battery.py). Two runs at once would corrupt each other, so the pair runs under a lock (an empty directory). A trap removes it on any exit, Ctrl-C included, so an interrupted run does not block the next one.
 LOCK=/tmp/v3.run-standalone.lock
-BATTERY='t=0; until mkdir "$LOCK" 2>/dev/null; do t=$((t + 1)); [ "$t" -lt 300 ] || { echo "run-standalone: $LOCK held for over 5 minutes" >&2; exit 1; }; sleep 1; done; python3 claude/tests/accept-verb-guard/make-battery.py && python3 claude/tests/accept-verb-guard/run-battery.py "$G"; rc=$?; rmdir "$LOCK"; exit "$rc"'
+BATTERY='t=0; until mkdir "$LOCK" 2>/dev/null; do t=$((t + 1)); [ "$t" -lt 300 ] || { echo "run-standalone: $LOCK held for over 5 minutes" >&2; exit 1; }; sleep 1; done; trap "rmdir \"\$LOCK\" 2>/dev/null" EXIT; trap "exit 130" INT TERM; python3 claude/tests/accept-verb-guard/make-battery.py && python3 claude/tests/accept-verb-guard/run-battery.py "$G"'
 export G LOCK
 
 # name | command. Each runs in its own shell; its exit status is its verdict.
@@ -37,9 +37,9 @@ RUN=(
   "accept-verb-guard dispatcher|python3 $AVG/dispatcher-cases.py $G"
   "accept-verb-guard ob|python3 $AVG/ob-cases.py $G"
 )
-# name | command | issue. Each must FAIL; a pass means it is fixed and belongs in RUN again.
+# name | command | issue | the text its failure must print. Each must FAIL WITH THAT TEXT: a pass means it is fixed and belongs in RUN again, and a failure with other text (a wrong argument, a missing tool) is a new failure, not the tracked one.
 KNOWN_FAILING=(
-  "accept-verb-guard verb-list-drift|bash $AVG/verb-list-drift.sh $G|#82"
+  "accept-verb-guard verb-list-drift|bash $AVG/verb-list-drift.sh $G|#82|no verb list found"
 )
 # file | why it is not run here
 SKIP=(
@@ -66,25 +66,32 @@ if [ "$only_accounting" = 0 ]; then
     else fails=$((fails + 1)); printf '===== FAIL  %s\n' "$name"; fi
   done
   for row in "${KNOWN_FAILING[@]}"; do
-    name=${row%%|*}; rest=${row#*|}; cmd=${rest%|*}; issue=${rest##*|}
+    IFS='|' read -r name cmd issue want <<< "$row"
     printf '\n##### %s (known failing, %s)\n' "$name" "$issue"
     ran=$((ran + 1))
-    if bash -c "$cmd"; then fails=$((fails + 1)); printf '===== FAIL  %s now PASSES: %s looks fixed, so move it back to RUN\n' "$name" "$issue"
-    else printf '===== PASS  %s still fails, as tracked in %s\n' "$name" "$issue"; fi
+    if out=$(bash -c "$cmd" 2>&1); then fails=$((fails + 1)); printf '%s\n===== FAIL  %s now PASSES: %s looks fixed, so move it back to RUN\n' "$out" "$name" "$issue"
+    else
+      printf '%s\n' "$out"
+      case "$out" in
+        *"$want"*) printf '===== PASS  %s still fails as tracked in %s ("%s")\n' "$name" "$issue" "$want" ;;
+        *) fails=$((fails + 1)); printf '===== FAIL  %s failed, but not with "%s": a new failure, not the one tracked in %s\n' "$name" "$want" "$issue" ;;
+      esac
+    fi
   done
 fi
 
 printf '\n##### accounting: every file is run, known failing, or skipped with a reason\n'
 unaccounted=0
 commands=""
-for row in "${RUN[@]}" "${KNOWN_FAILING[@]}"; do commands="$commands ${row#*|} "; done
+for row in "${RUN[@]}"; do commands="$commands ${row#*|} "; done
+for row in "${KNOWN_FAILING[@]}"; do IFS='|' read -r _ cmd _ _ <<< "$row"; commands="$commands $cmd "; done
 while IFS= read -r f; do
   rel=${f#claude/tests/}
   hit=0
   case "$commands" in *"$f "*|*"$f\""*|*"$f;"*) hit=1 ;; esac
   for s in "${SKIP[@]}"; do [ "${s%%|*}" = "$rel" ] && hit=1; done
   if [ "$hit" = 0 ]; then unaccounted=$((unaccounted + 1)); printf 'FAIL  %s is not run, not known failing, and not skipped with a reason\n' "$rel"; fi
-done < <(find claude/tests -type f ! -name '*.md' ! -name run-standalone.sh | sort)
+done < <(git ls-files --cached --others --exclude-standard -- claude/tests | grep -v -e '\.md$' -e '/run-standalone\.sh$' | sort -u)
 for s in "${SKIP[@]}"; do
   [ -f "claude/tests/${s%%|*}" ] || { unaccounted=$((unaccounted + 1)); printf 'FAIL  %s is skipped but does not exist\n' "${s%%|*}"; }
   printf 'SKIP  %s — %s\n' "${s%%|*}" "${s#*|}"
