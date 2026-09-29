@@ -3,7 +3,7 @@
 #
 # EVERY file under claude/tests that git tracks or would track (not ignored: no .DS_Store, no caches), except the Markdown ones, is accounted for: a RUN command names it, a KNOWN_FAILING command names it, or SKIP gives its reason. The runner fails if a file is in none of them, or if a SKIP entry names a file that does not exist. The covered set is READ FROM the commands, not kept by hand, so removing a RUN row un-covers its file and the check fails.
 #
-# KNOWN_FAILING is for a suite that fails on main for a reason tracked in an issue: it runs, and it must still FAIL WITH ITS TEXT; the day it passes, the runner fails and says to move it back to RUN. The check itself is proved on two made-up rows every run, so it works on the day a real row is added.
+# KNOWN_FAILING is for a suite that fails on main for a reason tracked in an issue: it runs, and it must still FAIL WITH ITS TEXT; the day it passes, the runner fails and says to move it back to RUN. The check itself is proved every run (not with --accounting-only) by driving the real row loop with three made-up rows: a tracked failure, one that now passes, and one that fails another way, one of them with a pipe in its command.
 #
 # Run: bash claude/tests/run-standalone.sh                    (exit 0 only if all is well)
 #      bash claude/tests/run-standalone.sh --accounting-only  (only the check that every file is accounted for)
@@ -55,10 +55,17 @@ SKIP=(
 
 printf 'bash for the suites: %s (%s)\n' "$(command -v bash)" "$(bash -c 'echo $BASH_VERSION')"
 
-# known_failing <name|cmd|issue|text>: 0 when the command fails and prints the text, 1 otherwise (it passes, or it fails some other way).
+# parse_known <row>: split name|cmd|issue|text into KF_NAME, KF_CMD, KF_ISSUE, KF_WANT. The name is the first field and the issue and text are the last two, so the command itself may hold a pipe.
+parse_known() {
+  local rest
+  KF_NAME=${1%%|*}; rest=${1#*|}
+  KF_WANT=${rest##*|}; rest=${rest%|*}
+  KF_ISSUE=${rest##*|}; KF_CMD=${rest%|*}
+}
+# known_failing <row>: 0 when the command fails and prints the text, 1 otherwise (it passes, or it fails some other way).
 known_failing() {
   local name cmd issue want out
-  IFS='|' read -r name cmd issue want <<< "$1"
+  parse_known "$1"; name=$KF_NAME; cmd=$KF_CMD; issue=$KF_ISSUE; want=$KF_WANT
   if out=$(bash -c "$cmd" 2>&1); then printf '%s\n===== FAIL  %s now PASSES: %s looks fixed, so move it back to RUN\n' "$out" "$name" "$issue"; return 1; fi
   printf '%s\n' "$out"
   case "$out" in
@@ -67,15 +74,33 @@ known_failing() {
   esac
 }
 
+# run_known_rows <row>…: the known-failing loop; adds to the globals `ran` and `fails`.
+run_known_rows() {
+  local row
+  for row in "$@"; do
+    parse_known "$row"
+    printf '\n##### %s (known failing, %s)\n' "$KF_NAME" "$KF_ISSUE"
+    ran=$((ran + 1))
+    known_failing "$row" || fails=$((fails + 1))
+  done
+}
+
 fails=0; ran=0
-# The known-failing check, proved on made-up rows every run (review of #84: with the list empty, it would otherwise be code no run executes).
-printf '\n##### self-check of the known-failing path\n'
-if known_failing 'probe that fails as tracked|echo tracked-text; exit 1|#0|tracked-text' >/dev/null \
-   && ! known_failing 'probe that now passes|true|#0|x' >/dev/null \
-   && ! known_failing 'probe that fails another way|echo other; exit 2|#0|tracked-text' >/dev/null; then
-  printf '===== PASS  the known-failing path tells a tracked failure from a pass and from another failure\n'
-else fails=$((fails + 1)); printf '===== FAIL  the known-failing path is broken\n'; fi
 if [ "$only_accounting" = 0 ]; then
+  # The known-failing path, driven through the real loop with made-up rows every run (review of #84: with the list empty, it would otherwise be code no run executes). Expected: one row passes (the tracked failure), two are caught.
+  printf '\n##### self-check of the known-failing path\n'
+  ran=0; fails=0
+  run_known_rows 'probe: fails as tracked|echo tracked-text | cat; exit 1|#0|tracked-text' 'probe: now passes|true|#0|x' 'probe: fails another way|echo other; exit 2|#0|tracked-text' > "${TMPDIR:-/tmp}/run-standalone.selfcheck.$$" 2>&1
+  parse_known 'probe: fails as tracked|echo tracked-text | cat; exit 1|#0|tracked-text'
+  if [ "$ran" = 3 ] && [ "$fails" = 2 ] && [ "$KF_CMD" = "echo tracked-text | cat; exit 1" ] && [ "$KF_ISSUE" = "#0" ] && [ "$KF_WANT" = tracked-text ]; then
+    printf '===== PASS  the known-failing loop: 3 probe rows run, the tracked failure passes, the other two are caught, and a pipe in a command survives the split\n'
+    ran=1; fails=0
+  else
+    printf '===== FAIL  the known-failing loop is broken (ran %s of 3, caught %s of 2); its output:\n' "$ran" "$fails"
+    cat "${TMPDIR:-/tmp}/run-standalone.selfcheck.$$"
+    ran=1; fails=1
+  fi
+  /usr/bin/trash "${TMPDIR:-/tmp}/run-standalone.selfcheck.$$" 2>/dev/null || true
   for row in ${RUN[@]+"${RUN[@]}"}; do
     name=${row%%|*}; cmd=${row#*|}
     printf '\n##### %s\n' "$name"
@@ -83,18 +108,14 @@ if [ "$only_accounting" = 0 ]; then
     if bash -c "$cmd"; then printf '===== PASS  %s\n' "$name"
     else fails=$((fails + 1)); printf '===== FAIL  %s\n' "$name"; fi
   done
-  for row in ${KNOWN_FAILING[@]+"${KNOWN_FAILING[@]}"}; do
-    printf '\n##### %s (known failing)\n' "${row%%|*}"
-    ran=$((ran + 1))
-    known_failing "$row" || fails=$((fails + 1))
-  done
+  run_known_rows ${KNOWN_FAILING[@]+"${KNOWN_FAILING[@]}"}
 fi
 
 printf '\n##### accounting: every file is run, known failing, or skipped with a reason\n'
 unaccounted=0
 commands=""
 for row in ${RUN[@]+"${RUN[@]}"}; do commands="$commands ${row#*|} "; done
-for row in ${KNOWN_FAILING[@]+"${KNOWN_FAILING[@]}"}; do IFS='|' read -r _ cmd _ _ <<< "$row"; commands="$commands $cmd "; done
+for row in ${KNOWN_FAILING[@]+"${KNOWN_FAILING[@]}"}; do parse_known "$row"; commands="$commands $KF_CMD "; done
 while IFS= read -r f; do
   rel=${f#claude/tests/}
   hit=0
