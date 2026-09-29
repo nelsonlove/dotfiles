@@ -97,16 +97,16 @@ eq "coded 0 MA"   "$(code_of_rank 0 MA)"    "[C0-MA]"
 echo
 echo "=== the ships"
 # MA, the macOS ship (captain `[C0-MA] macos`), on Nelson's "A, MA" of 2026-09-29; the eight area ships
-# PE PP HH FN ED WK HB on the areas ruling of the same day (log 2026-09-29T03:35). DV is NOT known yet: it
-# joins KNOWN_SHIPS with its guard, and until then every script must refuse it (review 5 of #72).
-eq "KNOWN_SHIPS"          "$KNOWN_SHIPS"               "CC OB HS MA PE PP HH FN ED WK HB FL"
+# PE PP HH FN ED WK HB DV on the areas ruling of the same day (log 2026-09-29T03:35). DV joined only with its
+# guard; the guard itself is tested in admirals-and-dv.sh.
+eq "KNOWN_SHIPS"          "$KNOWN_SHIPS"               "CC OB HS MA PE PP HH FN ED WK HB DV FL"
 eq "FLOATING_SHIP"        "$FLOATING_SHIP"             "FL"
 eq "FL is in the list"    "$(ship_is_known FL && echo yes)" yes
 eq "CC is known"          "$(ship_is_known CC && echo yes)" yes
 eq "OB is known"          "$(ship_is_known OB && echo yes)" yes
 eq "HS is known"          "$(ship_is_known HS && echo yes)" yes
 for s in MA PE PP HH FN ED WK HB; do eq "$s is known" "$(ship_is_known "$s" && echo yes)" yes; done
-eq "DV is not known until its guard lands" "$(ship_is_known DV || echo no)" no
+eq "DV is known, with its guard" "$(ship_is_known DV && echo yes)" yes
 eq "XX is not"            "$(ship_is_known XX || echo no)"  no
 eq "an empty code is not" "$(ship_is_known '' || echo no)"  no
 eq "two codes in one value are not" "$(ship_is_known 'CC OB' || echo no)" no
@@ -156,12 +156,12 @@ if command -v jq >/dev/null 2>&1; then
   out=$(pr --name "[C2-MA] x" --by "[C0] ship words test" --ship MA)
   eq "--ship MA and a [C2-MA] name pass the ship gates" "$(reached MA "$out")" past-the-ship-gates
   out=$(pr --name "[C2-DV] x" --by "[C0] ship words test" --ship DV)
-  eq "--ship DV is refused as unknown" "$out" "promote-session: --ship must be one of: CC OB HS MA PE PP HH FN ED WK HB FL; got 'DV'"
-  # A target already coded with a ship this table does not know (DV, until its guard) is refused whatever
-  # --ship says: round 6 of the review of #72 moved a `[L0-DV]` session onto CC with `--ship CC`.
+  eq "--ship DV is refused as guarded" "$out" "promote-session: refused: ship DV is guarded; no script wakes or promotes a session on it or into it, whoever asks, because only Nelson starts a session there"
+  # A target already coded DV is refused whatever --ship says: round 6 of the review of #72 moved a
+  # `[L0-DV]` session onto CC with `--ship CC` while DV was unknown; here DV is known and guarded.
   row "[L0-DV] ship words target"
   out=$(pr --name "[C2-CC] x" --by "[A0] rear admiral" --ship CC)
-  eq "a DV-coded target is refused even with --ship" "$out" "promote-session: refused: \`[L0-DV] ship words target\` carries the ship code 'DV', which is not one of: CC OB HS MA PE PP HH FN ED WK HB FL"
+  eq "a DV-coded target is refused even with --ship" "$out" "promote-session: refused: ship DV is guarded; no script wakes or promotes a session on it or into it, whoever asks, because only Nelson starts a session there"
   # The common path: a coded MA caller, no --ship, on an MA target (the ship comes from the caller).
   row "[L0-MA] ship words target"
   out=$(pr --name "[C2-MA] x" --by "[C0-MA] macos")
@@ -193,8 +193,10 @@ done
 # the review of #72 (three MA table cases, `ships_in_words`, two promote-session cases, and the two new
 # negative checks), 93 with the rear admiral's refusal, 102 with the eight area ships (one
 # known-check each, and the ship of a [C0-DV] name), 103 with the [C0-MA] common-path case, 104 with ships_in_words under a strict-mode IFS, and 105
-# with DV held out (the DV known-check became a not-known check, and one promote case refuses --ship DV), and 108 with
-# a DV-coded target refused under --ship and two values with a space refused as ships (review 6).
+# with DV held out (the DV known-check became a not-known check, and one promote case refuses --ship DV), 108 with
+# a DV-coded target refused under --ship and two values with a space refused as ships (review 6), and still
+# 108 once DV joined with its guard (those checks now say known, and refused as guarded). DV is known but
+# never offered: `ships_in_words` leaves the guarded ship out of the words (review 2 of #73).
 # Change EXPECTED only in the commit that adds or removes a check, and say which.
 # The count is part of the summary line, so a run that lost checks can never print a green summary.
 EXPECTED=108

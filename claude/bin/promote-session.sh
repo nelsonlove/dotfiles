@@ -48,8 +48,10 @@
 # captains on 2026-09-26. It is rank -1, above a captain, and the table is numbered rather than shifted
 # so that C0..L0 keep their numbers in both scripts (`_fleet-ranks.sh` is where a renumbering belongs).
 # What follows from it here: an A0 caller may promote or demote any rank below a captain and a captain
-# too, because a captain reports to A0; the ship rules below do not apply to an A0 CALLER, since A0
-# carries no ship code and a ship boundary is between ships; the new name's ship therefore comes from
+# too, because a captain reports to A0. Since the areas ruling (2026-09-29) there are two A0 sessions, told
+# apart by full name, and each reaches only its own ships (`ship_refusal` in the table): the rear admiral
+# CC, OB, HS, MA and FL, the areas admiral the area ships; DV no caller at all. Within its own ships an A0
+# caller is not held to one ship, since A0 carries no ship code; the new name's ship therefore comes from
 # the TARGET unless --ship says otherwise, and a bare-named target must be given --ship rather than
 # guessed; a ship-coded `[A0-CC]` is not the rear admiral and is refused as a name with no rank code at
 # all; and `--name` never carries A0, because only Nelson makes a rear admiral. `--to captain`
@@ -166,7 +168,7 @@ command -v claude >/dev/null || die "the claude CLI is required"
 # --- ranks and ships, from the one table ------------------------------------------------------
 # `_fleet-ranks.sh` beside this script holds the rank line and the ship codes: `rank_of_name`,
 # `rank_of_caller`, `rank_of_agent`, `word_of_rank`, `bare_code_of_rank`, `code_of_rank`, `KNOWN_SHIPS`,
-# `FLOATING_SHIP`, `ship_of_name`, `ship_is_known` and `ships_in_words`. Both this script and its sibling held byte-identical
+# `FLOATING_SHIP`, `ship_of_name`, `ship_is_known`, `ships_in_words`, and the admirals' and guarded ships with `ship_is_guarded` and `ship_refusal`. Both this script and its sibling held byte-identical
 # copies of most of those, and copies of `rank_of_name` that differed in the comment only — the rank line
 # is the one thing two fleet scripts must never disagree about, so it is one file now. Adding a ship code
 # is one line THERE, not here.
@@ -208,21 +210,22 @@ name_rank=$(rank_of_name "$name"); [ "$name_rank" != -1 ] || die "refused: --nam
 # The new name's ship comes from the promoter's own name, or from --ship when one is given; it is
 # never guessed. A promoter with a bare name has no ship to carry over, so it must say which.
 by_ship=$(ship_of_name "$by")
-# The rear admiral carries no ship code and sits above every ship, so the ship rules do not apply to
-# it as a caller: it cannot "move a session onto another captain's ship", because no ship is its own.
+# An admiral carries no ship code. Within the ships it reaches, the one-ship rule below does not apply to
+# it: it cannot "move a session onto another captain's ship", because no single ship is its own. Which
+# ships it reaches is `ship_refusal`'s rule, checked on the new name's ship and on the target's.
 # A0 keeps a session where it is unless --ship says otherwise, so the new name's ship comes from the
 # TARGET, which is not read until below; the decision is deferred rather than guessed.
 ship_from_target=0
 if [ "$by_rank" = -1 ]; then
   if [ -n "$ship" ]; then
-    ship_is_known "$ship" || die "--ship must be one of: $KNOWN_SHIPS; got '$ship'"
+    ship_is_known "$ship" || die "--ship must be one of: $(unguarded "$KNOWN_SHIPS"); got '$ship'"
     new_ship="$ship"
   else
     new_ship=""
     ship_from_target=1
   fi
 elif [ -n "$ship" ]; then
-  ship_is_known "$ship" || die "--ship must be one of: $KNOWN_SHIPS; got '$ship'"
+  ship_is_known "$ship" || die "--ship must be one of: $(unguarded "$KNOWN_SHIPS"); got '$ship'"
   if [ -n "$by_ship" ] && [ "$ship" != "$by_ship" ] && [ "$ship" != "$FLOATING_SHIP" ]; then
     die "refused: --ship $ship does not match $by's own ship ($by_ship); a rank does not move a session onto another captain's ship"
   fi
@@ -231,13 +234,18 @@ else
   # The captain's wording, corrected by him on 2026-09-26 once HS existed. The words around the list are
   # his; the list itself is `ships_in_words`, read from KNOWN_SHIPS, so it grows with the table.
   [ -n "$by_ship" ] || die "--by has no ship code; pass --ship $(ships_in_words) (FL for a floating session)"
-  ship_is_known "$by_ship" || die "--by carries the ship code '$by_ship', which is not one of: $KNOWN_SHIPS; pass --ship to say which ship"
+  ship_is_known "$by_ship" || die "--by carries the ship code '$by_ship', which is not one of: $(unguarded "$KNOWN_SHIPS"); pass --ship to say which ship"
   new_ship="$by_ship"
 fi
 
 name_ship=$(ship_of_name "$name")
 [ -n "$name_ship" ] || die "--name '$name' must carry the coded form, rank and ship together, like \"$(code_of_rank "$to_rank" "$new_ship") <name>\""
-ship_is_known "$name_ship" || die "--name '$name' carries the ship code '$name_ship', which is not one of: $KNOWN_SHIPS"
+ship_is_known "$name_ship" || die "--name '$name' carries the ship code '$name_ship', which is not one of: $(unguarded "$KNOWN_SHIPS")"
+# THE ADMIRALS AND THE GUARDED SHIP (areas ruling, log 2026-09-29T03:35): `ship_refusal` in the table is the
+# one rule, checked on every ship the change touches. Here the NEW name's ship, before anything is looked
+# up; below, once the target is found, the ship it is on now. Both, because a change touches both ships:
+# promoting a DV session onto FL moves it out of DV, and a bare target named onto DV moves it in.
+r=$(ship_refusal "$by" "$by_rank" "$name_ship"); [ -z "$r" ] || die "$r"
 
 # --- the target session ----------------------------------------------------------------------
 listing=$(claude agents --json --all 2>/dev/null) || die "claude agents --json failed"
@@ -266,7 +274,7 @@ old_ship=$(ship_of_name "$old_name")
 # A target coded with a ship this table does not know is refused whatever --ship says. Before this, only
 # the path that takes the ship FROM the target checked it, so `--ship CC` moved a `[L0-DV]` session onto CC
 # while DV was held out of the table (review 6 of #72).
-[ -z "$old_ship" ] || ship_is_known "$old_ship" || die "refused: \`$old_name\` carries the ship code '$old_ship', which is not one of: $KNOWN_SHIPS"
+[ -z "$old_ship" ] || ship_is_known "$old_ship" || die "refused: \`$old_name\` carries the ship code '$old_ship', which is not one of: $(unguarded "$KNOWN_SHIPS")"
 ship_note=""
 # The rear admiral's new name takes the target's own ship when no --ship was given: A0 leaves a session
 # where it is. A bare-named target has no ship to take, so it must be said rather than guessed.
@@ -274,16 +282,17 @@ if [ "$ship_from_target" = 1 ]; then
   [ -n "$old_ship" ] || die "refused: \`$old_name\` carries no ship code and $by has none either, so the new name's ship cannot be read from anywhere; pass --ship $(ships_in_words) (FL for a floating session)"
   # (an unknown code on the target was already refused above, whatever --ship says)
   new_ship="$old_ship"
-  ship_note="the ship comes from the target, because the rear admiral carries none"
+  ship_note="the ship comes from the target, because an admiral carries none"
 fi
+r=$(ship_refusal "$by" "$by_rank" "$old_ship"); [ -z "$r" ] || die "$r"
 # Reach is judged against the PROMOTER's ship, never against the new name's: a captain making one of
 # its own sessions float passes --ship FL, and that must not read as reaching onto another ship.
 caller_ship="$by_ship"
 [ -n "$caller_ship" ] || caller_ship="$ship"
 # Only the FL TARGET is exempt, which is what was ruled. A floating PROMOTER gets no extra reach
 # here: that would be a rule nobody has made, so it is refused and left as a question in the PR.
-# The rear admiral is exempt as a CALLER, which is not a new rule but the same one: a ship boundary is
-# between ships, and A0 is above them all — captains report to it.
+# An admiral is exempt from THIS check as a caller, because it carries no ship of its own; the ships it may
+# act on are limited instead by `ship_refusal` (above), which keeps each admiral to its own ships.
 if [ "$by_rank" != -1 ] && [ -n "$old_ship" ] && [ "$old_ship" != "$FLOATING_SHIP" ] && [ "$old_ship" != "$caller_ship" ]; then
   die "refused: \`$old_name\` is on ship $old_ship and $by acts on ship $caller_ship; only a rank on its own ship, or Nelson, changes that session's rank (a floating $FLOATING_SHIP session is the exception, and this one is not floating)"
 fi
