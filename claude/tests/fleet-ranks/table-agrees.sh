@@ -115,20 +115,37 @@ eq "ship of a bare name"  "$(ship_of_name '[L0] dotfiles')"    ""
 eq "ship of [A0]"         "$(ship_of_name '[A0] rear admiral')" ""
 
 echo
-echo "=== promote-session.sh speaks the table: MA passes the ship gate, and the refusal names every ship"
-# Both runs refuse BEFORE any session is looked up or any record written: the all-zero id is no session,
-# --dry-run is set, and --jobs-dir and --log point into a temp dir. No throwaway is needed.
+echo "=== promote-session.sh speaks the table: MA passes the ship gate, and both refusals name every ship"
 # Added 2026-09-29 on review of #72: the refusal sentences once typed the ship list by hand, and no case
 # read their text, so a ship missing from them would have shipped with every check green.
+# NOTHING HERE READS THE MACHINE OR THE FLEET. A first version ran promote-session.sh as it stood, and a
+# second review showed it went red under an empty HOME (no ~/.claude/agents/lieutenant.md) and queried the
+# live `claude agents` listing. So HOME is a temp dir holding a stub rank definition, and `claude` is a stub
+# on PATH that prints one fixture row; the all-zero id is no real session, --dry-run is set, and --jobs-dir
+# and --log point into the temp dir. The one real dependency is `jq`, which the script itself needs; without
+# it these cases are counted as skipped, and the skip is in the summary line.
 PTMP=$(mktemp -d -t table-agrees) || exit 1
+trap 'rm -rf "$PTMP"' EXIT
 ZERO=00000000-0000-0000-0000-000000000000
-pr() { bash "$BIN/promote-session.sh" --session $ZERO --to lieutenant --why x --jobs-dir "$PTMP" --log "$PTMP/log.md" --dry-run "$@" 2>&1; }
-out=$(pr --name "[L0] x" --by "[C2] ship words test")
-eq "no ship: the refusal names every ship" "$out" "promote-session: --by has no ship code; pass --ship CC, OB, HS or MA (FL for a floating session)"
-out=$(pr --name "[L0-MA] x" --by "[C2] ship words test" --ship MA)
-case "$out" in *"no background session"*) r=past-the-ship-gate ;; *) r="$out" ;; esac
-eq "--ship MA and an [L0-MA] name pass the ship gates" "$r" past-the-ship-gate
-rm -rf "$PTMP"
+mkdir -p "$PTMP/home/.claude/agents" "$PTMP/stubbin" "$PTMP/cwd"
+: > "$PTMP/home/.claude/agents/lieutenant.md"
+# The fixture row: a bare-named commander, so the rear admiral's path has no ship to take from it.
+printf '[{"id":"zz000000","sessionId":"%s","name":"[C1] ship words target","cwd":"%s"}]\n' "$ZERO" "$PTMP/cwd" > "$PTMP/listing.json"
+printf '#!/bin/sh\ncat "%s"\n' "$PTMP/listing.json" > "$PTMP/stubbin/claude"; chmod +x "$PTMP/stubbin/claude"
+pr() { HOME="$PTMP/home" PATH="$PTMP/stubbin:$PATH" bash "$BIN/promote-session.sh" --session $ZERO --to lieutenant --why x --jobs-dir "$PTMP" --log "$PTMP/log.md" --dry-run "$@" 2>&1; }
+skipped=0
+if command -v jq >/dev/null 2>&1; then
+  out=$(pr --name "[L0] x" --by "[C0] ship words test")
+  eq "no ship on --by: the refusal names every ship" "$out" "promote-session: --by has no ship code; pass --ship CC, OB, HS or MA (FL for a floating session)"
+  out=$(pr --name "[L0-CC] x" --by "[A0] rear admiral")
+  eq "no ship on the target: the refusal names every ship" "$out" "promote-session: refused: \`[C1] ship words target\` carries no ship code and [A0] rear admiral has none either, so the new name's ship cannot be read from anywhere; pass --ship CC, OB, HS or MA (FL for a floating session)"
+  out=$(pr --name "[L0-MA] x" --by "[C0] ship words test" --ship MA)
+  # Passing means the dry run reaches its end and names MA as the new ship; any refusal stops it earlier.
+  case "$out" in *"ship MA (from --ship)"*"dry run: nothing touched"*) r=past-the-ship-gates ;; *) r="$out" ;; esac
+  eq "--ship MA and an [L0-MA] name pass the ship gates" "$r" past-the-ship-gates
+else
+  skipped=3; printf 'SKIP  the three promote-session cases: jq is not installed, and the script needs it\n'
+fi
 
 echo
 echo "=== the negative: neither consumer may still define a shared name"
@@ -149,11 +166,12 @@ for f in wake-session.sh promote-session.sh; do
   if [ "$c" -ge 1 ]; then eq "$f sources the table" yes yes; else eq "$f sources the table" no yes; fi
 done
 
-# The count is asserted, not only printed (tests/README.md rule 1): 84 before the MA cases, and 92 since
+# The count is asserted, not only printed (tests/README.md rule 1): 84 before the MA cases, 92 after
 # the review of #72 (three MA table cases, `ships_in_words`, two promote-session cases, and the two new
-# negative checks). Change EXPECTED only in the commit that adds or removes a check, and say which.
+# negative checks), then 93 with the rear admiral's refusal.
+# Change EXPECTED only in the commit that adds or removes a check, and say which.
 # The count is part of the summary line, so a run that lost checks can never print a green summary.
-EXPECTED=92
-[ "$n" = "$EXPECTED" ] || { fails=$((fails + 1)); echo "FAIL  the check count is $n, expected $EXPECTED: a line was lost or added without updating EXPECTED"; }
-printf '\n%s checks (expected %s), %s failed\n' "$n" "$EXPECTED" "$fails"
+EXPECTED=93
+[ $((n + skipped)) = "$EXPECTED" ] || { fails=$((fails + 1)); echo "FAIL  the check count is $n, expected $EXPECTED: a line was lost or added without updating EXPECTED"; }
+printf '\n%s checks (expected %s), %s skipped, %s failed\n' "$n" "$EXPECTED" "$skipped" "$fails"
 [ "$fails" = 0 ] || exit 1
