@@ -50,7 +50,7 @@
 #   --resume-stopped  with --all, resume every stopped session in your line, one log entry each.
 #   --log      the cross-session log to append the record to (default: the fleet log).
 #   --notebook-dir  where the agent notebook lives. For testing only.
-#   --archive-dir   where ended notebook entries live (default: every `03 Agents/03.09*` folder). For testing only.
+#   --archive-dir   where ended notebook entries live (default: `03 Agents/03.09 Archive/Agent notebook`). For testing only.
 #   --agents-dir    the `03 Agents` folder both default roots are found under. For testing only.
 #   --jobs-dir  where Claude Code's job state lives, which is where a target's RANK is read from
 #              (`<id>/state.json`, key `template`, through the rank definitions). For testing only, and
@@ -116,15 +116,17 @@ PAUSE_GATE="$REPO_ROOT/tickle/scripts/_lib/pause-gate.sh"
 JOBS_DIR="$HOME/.claude/jobs"
 NOTEBOOK_DIR="$HOME/obsidian/00-09 System/03 Agents/03.04 Records/Agent notebook"
 # TWO ROOTS, ruled 2026-09-29: a notebook entry that has ENDED moves out of the notebook into the agents
-# archive, `03 Agents/03.09 …/<subfolder>/YYYY-MM/`, while running entries stay in the notebook. A stopped
-# session's entry — and its superiors' entries, for the reporting line — is therefore usually an ended one,
-# so the index reads BOTH roots or it refuses every stopped session after the move. The archive is found by
-# its `03.09` prefix and read recursively, and only files named `Agent session *.md` are taken from either
-# root, so neither the archive's own name nor its subfolder's matters. Which entry wins is unchanged: the
-# newest by the timestamp in the filename, wherever it sits. `--archive-dir` replaces the archive root for
-# tests; `--notebook-dir` without `--archive-dir` reads no archive at all, so a test stays sealed.
+# archive, while running entries stay in the notebook. A stopped session's entry — and its superiors' entries,
+# for the reporting line — is therefore usually an ended one, so the index reads BOTH roots or it refuses every
+# stopped session after the move. The roots are exactly two, narrowed on Nelson's word on #69 ("narrow it":
+# other folders in 03.09 hold other archived things): `03 Agents/03.04 Records/Agent notebook/` and
+# `03 Agents/03.09 Archive/Agent notebook/`. Under each, only `<root>/YYYY-MM/Agent session *.md` is read —
+# one month folder down, no deeper. Which entry wins is unchanged: the newest by the timestamp in the
+# filename, wherever it sits. `--archive-dir` replaces the archive root for tests, `--agents-dir` moves the
+# parent both defaults are found under, and `--notebook-dir` without `--archive-dir` reads no archive at all,
+# so a test stays sealed.
 AGENTS_DIR="$HOME/obsidian/00-09 System/03 Agents"
-ARCHIVE_DIR=""
+ARCHIVE_DIR=""   # derived from AGENTS_DIR after the flags are read, unless --archive-dir gives it
 ARCHIVE_DIR_SET=0
 NOTEBOOK_DIR_SET=0
 AGENTS_DIR_SET=0
@@ -197,6 +199,7 @@ done
 
 # --agents-dir moves the parent both default roots are found under; an explicit --notebook-dir still wins.
 if [ "$AGENTS_DIR_SET" = 1 ] && [ "$NOTEBOOK_DIR_SET" = 0 ]; then NOTEBOOK_DIR="$AGENTS_DIR/03.04 Records/Agent notebook"; fi
+[ "$ARCHIVE_DIR_SET" = 1 ] || ARCHIVE_DIR="$AGENTS_DIR/03.09 Archive/Agent notebook"
 
 [ -n "$by" ] || die "--by is required"
 command -v jq >/dev/null     || die "jq is required"
@@ -366,19 +369,20 @@ FNR == 1 {
 END { flush() }
 '
 
-# The roots the index reads, one per line: the notebook, then the archive roots. Without test flags the
-# archive roots are every directory directly under `03 Agents` whose name begins `03.09`; with
-# `--archive-dir`, that path alone; with `--notebook-dir` and no `--archive-dir`, none.
+# The roots the index reads, one per line: the notebook, then the archive. With `--notebook-dir` and no
+# `--archive-dir`, the notebook alone.
 notebook_roots() {
   printf '%s\n' "$NOTEBOOK_DIR"
-  if [ "$ARCHIVE_DIR_SET" = 1 ]; then
-    printf '%s\n' "$ARCHIVE_DIR"
-  elif [ "$NOTEBOOK_DIR_SET" = 0 ]; then
-    local d
-    for d in "$AGENTS_DIR"/03.09*; do
-      [ -d "$d" ] && printf '%s\n' "$d"
-    done
-  fi
+  if [ "$ARCHIVE_DIR_SET" = 1 ] || [ "$NOTEBOOK_DIR_SET" = 0 ]; then printf '%s\n' "$ARCHIVE_DIR"; fi
+  return 0
+}
+
+# The entries under one root: `<root>/YYYY-MM/Agent session *.md`, one month folder down and no deeper.
+entries_in_root() {
+  local m
+  for m in "$1"/[0-9][0-9][0-9][0-9]-[0-9][0-9]; do
+    [ -d "$m" ] && find "$m" -mindepth 1 -maxdepth 1 -type f -name 'Agent session *.md' -print 2>/dev/null
+  done
   return 0
 }
 
@@ -391,7 +395,7 @@ build_report_index() {
   # here requires a status.
   local entry_files
   entry_files=$(notebook_roots | while IFS= read -r root; do
-    [ -n "$root" ] && [ -d "$root" ] && find "$root" -type f -name 'Agent session *.md' -print 2>/dev/null
+    [ -n "$root" ] && [ -d "$root" ] && entries_in_root "$root"
   done | sort || true)
   # An empty file list must never reach xargs: with no arguments grep would read stdin and hang.
   [ -n "$entry_files" ] || return 0
