@@ -9,6 +9,10 @@ on:
   push:
     branches: [main]
 
+# The job only reads the repository (review 1 of #74: without this, a push event may get write rights).
+permissions:
+  contents: read
+
 jobs:
   token-guard:
     runs-on: ubuntu-latest
@@ -21,8 +25,10 @@ jobs:
           BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
           HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
         run: |
-          # A push that creates the branch has an all-zero "before"; check the head commit's tree and its own diff.
-          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+          # A push that creates the branch has an all-zero "before", and a force-push to main names an old tip
+          # the checkout does not have. In both cases, fall back to the head's parent (the head's own diff and
+          # its tree), or to the head itself when it has no parent (its tree only).
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ] || ! git rev-parse --verify -q "$BASE^{commit}" >/dev/null; then
             BASE="$(git rev-parse "$HEAD^" 2>/dev/null || echo "$HEAD")"
           fi
           bash githooks/token-guard.sh --range "$BASE" "$HEAD"

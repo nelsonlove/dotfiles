@@ -10,8 +10,8 @@
 # It refuses when:
 #   * claude/settings.local.json is present as anything but a symlink (git mode 120000). In this repo it must
 #     be a symlink into 09.11 Secrets; the real file holds secrets and lives outside the repo;
-#   * any content matches a GitHub token: a classic token (`ghp_` and 36 letters or digits) or a fine-grained
-#     one (`github_pat_` and 20 or more letters, digits or underscores).
+#   * any content matches a GitHub token: `ghp_`, `gho_`, `ghu_`, `ghs_` or `ghr_` and 36 letters or digits,
+#     or a fine-grained one (`github_pat_` and 20 or more letters, digits or underscores).
 # It says why and names the path. Exit 1 on a refusal, 2 on bad usage, 0 when clean.
 #
 # WHY IT EXISTS (Nelson's "C", 2026-09-29). Between 2026-09-22 09:12 and 2026-09-29, claude/settings.local.json
@@ -33,7 +33,10 @@ set -u
 
 SETTINGS="claude/settings.local.json"
 # The patterns are built from parts so this file does not match itself.
-P_CLASSIC="gh""p_[A-Za-z0-9]{36}"
+# gh[pousr]_: the classic personal token (p), the OAuth token `gh auth` holds (o), user-to-server (u),
+# server-to-server (s) and refresh (r) tokens (review 1 of #74: this machine's GITHUB_PERSONAL_ACCESS_TOKEN
+# is a `gho_` token).
+P_CLASSIC="gh""[pousr]_[A-Za-z0-9]{36}"
 P_FINE="github""_pat_[A-Za-z0-9_]{20,}"
 PATTERN="$P_CLASSIC|$P_FINE"
 
@@ -84,17 +87,33 @@ else
     refuse "$SETTINGS is mode $m at $head, not a symlink (120000). It must be a symlink into 09.11 Secrets."
   fi
   # 2. Every file in the tree at head.
+  # git grep exits 1 for "no match" and 2 or more for an error; an error must never read as a clean tree
+  # (review 1 of #74).
+  hits=$(g -c core.quotePath=false grep -I -l -E "$PATTERN" "$head" --); grc=$?
+  if [ "$grc" -ge 2 ]; then
+    printf 'token-guard: git grep failed on the tree at %s (exit %s); refusing to call it clean\n' "$head" "$grc" >&2
+    exit 2
+  fi
   while IFS= read -r f; do
-    [ -n "$f" ] && refuse "$f at $head contains what looks like a GitHub token."
-  done < <(g grep -I -l -E "$PATTERN" "$head" -- 2>/dev/null | sed "s|^$head:||")
+    [ -n "$f" ] && refuse "${f#"$head":} at $head contains what looks like a GitHub token."
+  done <<< "$hits"
   # 3. Every line added by any commit in the range, so a token added and later removed still counts: it is
   # in the history the pull request would publish.
-  # One pass: awk tags each added line with its file, and one grep keeps the matches (a grep per line was far
-  # too slow on a long range). Only the file names are printed, never the matching text.
+  # One pass: awk tags each ADDED line with its file, and one grep keeps the matches. Only the file names are
+  # printed, never the matching text. Hardened on review 1 of #74:
+  #   * core.quotePath=false, so a non-ASCII name is not quoted; a name git still quotes is refused anyway,
+  #     under the placeholder, because an empty name must never drop a line;
+  #   * a `+++` line counts as a file header only BEFORE the first hunk of a file, so an added line that
+  #     starts with `++ ` is content, not a header;
+  #   * --diff-merges=first-parent shows what a merge commit adds, so a token added while resolving a merge
+  #     is seen.
   while IFS= read -r f; do
     [ -n "$f" ] && refuse "$f gains a line that looks like a GitHub token in $base..$head (history counts, even if a later commit removes it)."
-  done < <(g log -p --no-color --format= "$base..$head" -- \
-             | awk '/^\+\+\+ b\//{f=substr($0,7);next} /^\+\+\+ /{f="";next} /^\+/{print f "\t" substr($0,2)}' \
+  done < <(g -c core.quotePath=false log -p --no-color --no-ext-diff --diff-merges=first-parent --format= "$base..$head" -- \
+             | awk '/^diff --git /{hunk=0; f="(a file whose name git quotes)"; next}
+                    !hunk && /^\+\+\+ /{ if (substr($0,5,2)=="b/") f=substr($0,7); next }
+                    /^@@ /{hunk=1; next}
+                    hunk && /^\+/{print f "\t" substr($0,2)}' \
              | grep -aE "	.*($PATTERN)" | cut -f1 | sort -u)
 fi
 

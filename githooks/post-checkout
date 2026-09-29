@@ -1,9 +1,3 @@
 #!/bin/sh
-# post-checkout: WARN (never fail) when claude/settings.local.json is a regular file, not a symlink.
-# `git pull --autostash` rewrites every stashed file fresh, and that is believed to be how the symlink became a
-# regular file holding a token on 2026-09-22 (inferred, not proved; see githooks/token-guard.sh).
-f="$(git rev-parse --show-toplevel)/claude/settings.local.json"
-if [ -e "$f" ] && [ ! -L "$f" ]; then
-  echo "token-guard: WARNING: claude/settings.local.json is a regular file, not a symlink. It may hold a token, and this repo is public. Fix: move its settings into the 09.11 Secrets file, then restore the symlink into 09.11 Secrets (git checkout -- claude/settings.local.json restores the tracked link)." >&2
-fi
-exit 0
+# post-checkout: the same warning as post-merge, kept in one place (see githooks/post-merge).
+exec sh "$(dirname "$0")/post-merge" "$@"

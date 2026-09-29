@@ -268,7 +268,8 @@ wire_githooks() {
   local cur
   hdr "Git hooks"
   [[ -d "$REPO_ROOT/githooks" ]] || { warn "no githooks/ in the repo — skipping"; return; }
-  cur="$(git -C "$REPO_ROOT" config --get core.hooksPath 2>/dev/null || true)"
+  # --local: a global hooksPath must not stop this repo from wiring its own (a repo-local value overrides it).
+  cur="$(git -C "$REPO_ROOT" config --local --get core.hooksPath 2>/dev/null || true)"
   if [[ "$cur" == "githooks" ]]; then
     ok "core.hooksPath = githooks (already wired)"
   elif [[ -z "$cur" ]]; then
@@ -278,7 +279,7 @@ wire_githooks() {
       warn "could not set core.hooksPath — the token guard is NOT wired"
     fi
   else
-    warn "core.hooksPath is already '$cur' — left as it is; the token guard in githooks/ is NOT wired"
+    warn "this repo's core.hooksPath is already '$cur' — left as it is; the token guard in githooks/ is NOT wired"
   fi
 }
 

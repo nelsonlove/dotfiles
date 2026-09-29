@@ -1,5 +1,5 @@
 #!/bin/sh
-# post-merge: WARN (never fail) when claude/settings.local.json is a regular file, not a symlink.
+# post-merge (and post-checkout, which runs this file): WARN (never fail) when claude/settings.local.json is a regular file, not a symlink.
 # `git pull --autostash` rewrites every stashed file fresh, and that is believed to be how the symlink became a
 # regular file holding a token on 2026-09-22 (inferred, not proved; see githooks/token-guard.sh).
 f="$(git rev-parse --show-toplevel)/claude/settings.local.json"
