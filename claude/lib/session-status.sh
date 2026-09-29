@@ -103,11 +103,17 @@ session_status_block() {  # $1 = file; prints the frontmatter lines, or nothing
 # BEFORE the quotes, or `^"(.*)"$` never matches a value with a trailing space and the quotes survive into the
 # comparison. A trailing ` # comment` goes too, because YAML allows one and both readers must agree that it is
 # not part of the value.
+# COLUMN ZERO ONLY. This accepted an INDENTED key and took the last match, so a `status:` nested under a parent
+# mapping beat the record's own top-level one: an entry reading `status: draft/running` with `meta:` and an
+# indented `status: archived/ended` under it read as ENDED. `roster_read` was fixed for exactly this in the
+# third review round of #71 and this reader, which decides whether a session counts as running, was not — so
+# the two disagreed about the same note. While the sweeper is a dry run that is a false line in the evidence;
+# with a delete path it is the wrong job removed.
 session_status_value() {  # $1 = the block, $2 = key name
   printf '%s\n' "$1" \
-    | grep -E "^[[:space:]]*$2[[:space:]]*:" \
+    | grep -E "^$2[[:space:]]*:" \
     | tail -n 1 \
-    | sed -E "s/^[[:space:]]*$2[[:space:]]*:[[:space:]]*//" \
+    | sed -E "s/^$2[[:space:]]*:[[:space:]]*//" \
     | sed -E 's/[[:space:]]+#.*$//' \
     | sed -E 's/[[:space:]]+$//' \
     | sed -E 's/^"(.*)"$/\1/; s/^'"'"'(.*)'"'"'$/\1/' \

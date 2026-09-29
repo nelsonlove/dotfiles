@@ -198,8 +198,24 @@ while [ $# -gt 0 ]; do
 done
 
 # --agents-dir moves the parent both default roots are found under; an explicit --notebook-dir still wins.
-if [ "$AGENTS_DIR_SET" = 1 ] && [ "$NOTEBOOK_DIR_SET" = 0 ]; then NOTEBOOK_DIR="$AGENTS_DIR/03.04 Records/Agent notebook"; fi
-[ "$ARCHIVE_DIR_SET" = 1 ] || ARCHIVE_DIR="$AGENTS_DIR/03.09 Archive/Agent notebook"
+# THE TWO NOTEBOOK ROOTS, from one definition. Guarded the three ways #61 ruled — readable, parses, defines
+# what is wanted — because a roots library that silently defined nothing would leave this script reading NO
+# notebook at all and refusing every wake for a missing record, which is a lie about the record rather than a
+# failure to find it.
+NOTEBOOK_ROOTS_LIB="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)/../lib/notebook-roots.sh"
+[ -r "$NOTEBOOK_ROOTS_LIB" ] || die "the notebook-roots library is missing or unreadable at $NOTEBOOK_ROOTS_LIB"
+bash -n "$NOTEBOOK_ROOTS_LIB" 2>/dev/null || die "the notebook-roots library at $NOTEBOOK_ROOTS_LIB does not parse; refusing rather than reading half a notebook"
+# shellcheck source=../lib/notebook-roots.sh
+. "$NOTEBOOK_ROOTS_LIB" || die "the notebook-roots library at $NOTEBOOK_ROOTS_LIB could not be sourced"
+for fn in notebook_roots_of entries_in_root notebook_dir_for archive_dir_for; do
+  command -v "$fn" >/dev/null 2>&1 || die "the notebook-roots library at $NOTEBOOK_ROOTS_LIB parsed but defined no $fn; refusing"
+done
+
+# THE DEFAULTS ARE DERIVED BY THE LIBRARY, after the flags are read, so the paths live in exactly one place.
+# `--agents-dir` moves the parent both come from; an explicit `--notebook-dir` still wins; `--archive-dir`
+# wins for the archive. Deriving here as well would be a second home for the same two strings.
+NOTEBOOK_DIR=$(notebook_dir_for "$AGENTS_DIR" "$NOTEBOOK_DIR" "$NOTEBOOK_DIR_SET" "$AGENTS_DIR_SET")
+ARCHIVE_DIR=$(archive_dir_for "$AGENTS_DIR" "$ARCHIVE_DIR" "$ARCHIVE_DIR_SET")
 
 [ -n "$by" ] || die "--by is required"
 command -v jq >/dev/null     || die "jq is required"
@@ -226,6 +242,7 @@ fi
 # `~/.claude/bin` symlink the installer makes. A missing or unreadable table is fatal: every rank check in
 # this script depends on it, and a script that cannot read the rank line must not act on a rank.
 FLEET_RANKS="$script_dir/_fleet-ranks.sh"
+
 [ -r "$FLEET_RANKS" ] || die "the rank table is missing or unreadable at $FLEET_RANKS; this script cannot judge a rank without it"
 # PARSED BEFORE IT IS SOURCED, and the `|| die` after the `.` is not enough on its own. Under `set -e` a
 # SYNTAX ERROR in a sourced file aborts this script before the `||` is ever reached, the EXIT trap is
@@ -361,10 +378,18 @@ FNR == 1 {
 {
   if (!infm) next
   if ($0 ~ /^---[ \t\r]*$/) { infm = 0; next }
-  if (match($0, "^[ \t]*session[ \t]*:[ \t]*"))             { sess = strip(substr($0, RLENGTH + 1)) }
-  else if (match($0, "^[ \t]*session-status[ \t]*:[ \t]*")) { old_stat = strip(substr($0, RLENGTH + 1)) }
-  else if (match($0, "^[ \t]*status[ \t]*:[ \t]*"))         { new_stat = strip(substr($0, RLENGTH + 1)) }
-  else if (match($0, "^[ \t]*" key "[ \t]*:[ \t]*"))        { rt   = strip(substr($0, RLENGTH + 1)) }
+  # COLUMN ZERO, ALL FOUR. These matched a key at ANY indentation and took the last, so a key nested under a
+  # parent mapping beat the record own top-level one. For `status` that was a wrong word in a message. For
+  # `reports-to` it was a PERMISSION: that key is what `check_reporting_line` walks, so an entry stating
+  # `reports-to: [C1-CC] plugins` at column zero and carrying an indented `reports-to: [C0-CC] claude code`
+  # under some other block handed the chain to a caller the record does not name, and the wake was allowed.
+  # Measured before changing: of 495 entries across both roots, zero carry any of these four keys indented,
+  # so nothing real reads differently. `claude/lib/session-status.sh` was anchored in the seventh review
+  # round and this copy was not, which is the same pair-drift this program own comment warns about.
+  if (match($0, "^session[ \t]*:[ \t]*"))             { sess = strip(substr($0, RLENGTH + 1)) }
+  else if (match($0, "^session-status[ \t]*:[ \t]*")) { old_stat = strip(substr($0, RLENGTH + 1)) }
+  else if (match($0, "^status[ \t]*:[ \t]*"))         { new_stat = strip(substr($0, RLENGTH + 1)) }
+  else if (match($0, "^" key "[ \t]*:[ \t]*"))        { rt   = strip(substr($0, RLENGTH + 1)) }
 }
 END { flush() }
 '
@@ -372,19 +397,10 @@ END { flush() }
 # The roots the index reads, one per line: the notebook, then the archive. With `--notebook-dir` and no
 # `--archive-dir`, the notebook alone.
 notebook_roots() {
-  printf '%s\n' "$NOTEBOOK_DIR"
-  if [ "$ARCHIVE_DIR_SET" = 1 ] || [ "$NOTEBOOK_DIR_SET" = 0 ]; then printf '%s\n' "$ARCHIVE_DIR"; fi
-  return 0
+  notebook_roots_of "$NOTEBOOK_DIR" "$NOTEBOOK_DIR_SET" "$ARCHIVE_DIR" "$ARCHIVE_DIR_SET"
 }
 
 # The entries under one root: `<root>/YYYY-MM/Agent session *.md`, one month folder down and no deeper.
-entries_in_root() {
-  local m
-  for m in "$1"/[0-9][0-9][0-9][0-9]-[0-9][0-9]; do
-    [ -d "$m" ] && find "$m" -mindepth 1 -maxdepth 1 -type f -name 'Agent session *.md' -print 2>/dev/null
-  done
-  return 0
-}
 
 build_report_index() {
   [ "$REPORT_INDEX_BUILT" = 0 ] || return 0
@@ -788,7 +804,11 @@ if [ -n "$ships" ]; then
     if ship_is_known "$one_ship"; then
       print_ship_block "$one_ship" "SHIP $one_ship"
     else
-      print_ship_block "$one_ship" "SHIP $one_ship — not one of the known ships ($KNOWN_SHIPS); listed as the name spells it"
+      # THE LIST COMES FROM THE VARIABLE, never from a hand-written one, and it is readable: with four codes
+      # `CC OB HS FL` reads fine, with the twelve #72 adds it does not. `ships_in_words` in the shared table
+      # is the right home for the wording and does not exist on this base yet — when it lands, this becomes
+      # one call. What must never appear here is a list somebody typed out.
+      print_ship_block "$one_ship" "SHIP $one_ship — not one of the known ships ($(printf '%s' "$KNOWN_SHIPS" | sed -E 's/ /, /g')); listed as the name spells it"
     fi
   done <<EOF
 $ships
