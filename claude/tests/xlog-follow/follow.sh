@@ -206,6 +206,17 @@ start --state "$ST5"; sleep 4
 eq "after kill -9, the printed entry is not printed again" "$(lines)" 0
 stop
 
+# 9n. Review 4 of #77: a quiet re-arm (a resume with no gap) does not switch off the cap for a later stalled
+# rewrite.
+seed; for i in $(seq 1 30); do entry "2026-09-28T0$((i % 10)):11" "Filler $i."; done
+ST6="$T/state6"; start --state "$ST6"; sleep 4; stop
+cp "$LOG" "$T/full3"; start --state "$ST6"
+: > "$LOG"; head -c 300 "$T/full3" >> "$LOG"; sleep 4.5
+tail -c +301 "$T/full3" >> "$LOG"; waitfor 1; sleep 3
+case "$(head -1 "$OUT")" in *"read the log"*) r=notice ;; *) r="$(head -1 "$OUT")" ;; esac
+eq "a quiet re-arm, then a stalled rewrite: one notice" "$(lines)|$r" "1|notice"
+stop
+
 # 9h. GNU stat: with a GNU `stat` first on PATH, it still follows (tested with gstat where it exists).
 if command -v gstat >/dev/null 2>&1; then
   mkdir -p "$T/gnu"; ln -sf "$(command -v gstat)" "$T/gnu/stat"
@@ -229,7 +240,7 @@ if kill -0 "$HP" 2>/dev/null; then eq "a closed pipe ends it" alive gone; killal
 left=$(pgrep -f "xlog-follow.sh --log $LOG" | wc -l | tr -d ' ')
 eq "no follower is left running" "$left" 0
 
-EXPECTED=36
+EXPECTED=37
 printf '\n%s checks (expected %s), %s failed\n' "$n" "$EXPECTED" "$fails"
 [ "$n" = "$EXPECTED" ] || { echo "FAIL  the check count is $n, expected $EXPECTED"; exit 1; }
 [ "$fails" = 0 ] || exit 1

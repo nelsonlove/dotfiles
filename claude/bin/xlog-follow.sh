@@ -112,8 +112,11 @@ if [ -n "$state" ] && [ -f "$state" ]; then
     if [ $(( offset - s_offset )) -gt "$RESUME_MAX" ]; then
       notice "$(( offset - s_offset )) bytes of new entries arrived since the last run, too many to print here"
     else
+      # That gap passed the fingerprint and size checks: no per-tick heading cap on it. Only when there IS a gap,
+      # or the flag would outlive a quiet re-arm and switch the cap off for a later stalled rewrite (review 4).
+      # Tested BEFORE offset moves back to the saved place.
+      if [ "$s_offset" -lt "$offset" ]; then resumed=1; fi
       offset=$s_offset; fp=$s_fp   # the loop reads the gap on its first tick
-      resumed=1                    # that gap passed the fingerprint and size checks: no per-tick heading cap on it
     fi
   else
     # The log was replaced, cut or rewritten since the last run: what came in between cannot be told apart from
@@ -151,7 +154,7 @@ while :; do
   if [ "$resync" = 1 ]; then
     # A pending entry was appended before this change; print it rather than lose it (review 1 of #77).
     if is_entry "$buf"; then emit "$buf"; fi
-    buf=""; inode=$n_inode; offset=$n_size; mtime=$n_mtime; settle=2
+    buf=""; inode=$n_inode; offset=$n_size; mtime=$n_mtime; settle=2; resumed=0
     continue
   fi
   mtime=$n_mtime
