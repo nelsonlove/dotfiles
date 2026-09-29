@@ -50,7 +50,7 @@ case "$1" in
     [ -n "${ANTHROPIC_API_KEY:-}" ] && echo KEY_LEAKED >> "$S/calls"
     pwd > "$S/bg_cwd"
     shift; while [ "$#" -gt 1 ]; do shift; done; printf '%s' "$1" > "$S/bg_prompt"
-    if [ "$(cat "$S/bg_registers")" = 1 ]; then echo '[{"name":"[L0-OB] weekly rollups","pid":1}]' > "$S/agents.json"; fi
+    if [ "$(cat "$S/bg_registers")" = 1 ]; then echo '[{"name":"[L0-OB] weekly rollups","pid":1,"status":"busy"}]' > "$S/agents.json"; fi
     echo "started deadbeef"; exit "$(cat "$S/bg_rc")" ;;
 esac
 exit 0
@@ -88,15 +88,15 @@ check "subst: <reason> untouched" grep -qF '— no object: <reason>' "$S/bg_prom
 check "subst: <n> untouched" grep -qF 'Report `<n> spec notes read`' "$S/bg_prompt"
 check "subst: --- body line kept" grep -qx -- '---' "$S/bg_prompt"
 check "subst: markers not in brief" bash -c "! grep -qF 'weekly-rollups brief:' '$S/bg_prompt'"
-check "dispatch: API key unset" bash -c "! grep -qF KEY_LEAKED '$S/calls'"
-check "dispatch: agent and name" grep -qF -- '--bg --agent lieutenant --name [L0-OB] weekly rollups' "$S/calls"
+check "CLI call: API key unset" bash -c "! grep -qF KEY_LEAKED '$S/calls'"
+check "dispatch: agent, name, --" grep -qF -- '--bg --agent lieutenant --name [L0-OB] weekly rollups -- ' "$S/calls"
 check "dispatch: from trusted cwd" [ "$(cat "$S/bg_cwd")" = "$C/dotfiles" ]
 check "claim: one line in log" [ "$(grep -c 'tickle weekly-rollups — claim' "$XLOG")" = 1 ]
 check "claim: names the ruling" grep -qF 'alright go for it' "$XLOG"
 check "happy: no queue item" [ "$(queue_count)" = 0 ]
 
 # 2. Dry run: every guard, prints the command, writes and dispatches nothing.
-new_case; rm "$NB/Agent rollup for 2026-W39.md"
+new_case; /usr/bin/trash "$NB/Agent rollup for 2026-W39.md"
 before=$(find "$V" -type f -exec md5 -q {} \; | sort | md5 -q)
 go --dry-run --week 2026-W40
 after=$(find "$V" -type f -exec md5 -q {} \; | sort | md5 -q)
@@ -107,6 +107,7 @@ check "dry: would file queue item" out_has "would file queue item"
 check "dry: prints command" out_has "env -u ANTHROPIC_API_KEY"
 check "dry: reports auth and trust" out_has "dispatch directory trusted = true"
 check "dry: complete" out_has "DRY RUN complete"
+check "dry: command has --" out_has "weekly\\ rollups -- "
 
 # 3. Paused: skip, record, no dispatch.
 new_case; printf -- '---\npaused: true\npaused-by: test\n---\n' > "$C/Pause.md"; go --week 2026-W40
@@ -123,7 +124,7 @@ new_case; LOAD=9.99 go --week 2026-W40
 check "load 9.99: dispatched" dispatched
 
 # 6. Previous week missing: ONE queue item, dispatch goes on; a second run files no second item.
-new_case; rm "$XS/Cross-session rollup for 2026-W39.md"; go --week 2026-W40
+new_case; /usr/bin/trash "$XS/Cross-session rollup for 2026-W39.md"; go --week 2026-W40
 check "prev missing: dispatched" dispatched
 check "prev missing: one item" [ "$(queue_count)" = 1 ]
 check "prev missing: title" [ -f "$Q/Weekly rollup missed 2026-W39.md" ]
@@ -144,17 +145,24 @@ check "exists xs: no dispatch" not_dispatched
 # 8. Brief markers: missing, duplicated, not on own line, out of order -> exit 3, no dispatch, queue item.
 new_case; sed -i '' '/brief: end -->/d' "$BN"; go --week 2026-W40
 check "marker missing: exit 3" [ "$RC" = 3 ]; check "marker missing: no dispatch" not_dispatched
-check "marker missing: queue item" [ -f "$Q/Weekly rollup missed 2026-W40.md" ]
+check "marker missing: queue item" [ -f "$Q/Weekly rollup not started 2026-W40.md" ]
 new_case; printf '<!-- weekly-rollups brief: start -->\n' >> "$BN"; go --week 2026-W40
 check "marker twice: exit 3" [ "$RC" = 3 ]; check "marker twice: no dispatch" not_dispatched
 new_case; sed -i '' 's/^<!-- weekly-rollups brief: start -->$/text <!-- weekly-rollups brief: start -->/' "$BN"; go --week 2026-W40
 check "marker inline: exit 3" [ "$RC" = 3 ]
+new_case; printf -- '---\n---\n<!-- weekly-rollups brief: start -->\n  \n\n<!-- weekly-rollups brief: end -->\n' > "$BN"; go --week 2026-W40
+check "blank brief: exit 3" [ "$RC" = 3 ]; check "blank brief: no dispatch" not_dispatched
 new_case; printf -- '---\n---\n<!-- weekly-rollups brief: end -->\nx\n<!-- weekly-rollups brief: start -->\n' > "$BN"; go --week 2026-W40
 check "marker order: exit 3" [ "$RC" = 3 ]; check "marker order: no dispatch" not_dispatched
 
 # 9. Live lieutenant: no second one.
-new_case; echo '[{"name":"[L0-OB] weekly rollups","pid":42}]' > "$S/agents.json"; go --week 2026-W40
-check "live: exit 0" [ "$RC" = 0 ]; check "live: reason" out_has "already live"; check "live: no dispatch" not_dispatched
+new_case; echo '[{"name":"[L0-OB] weekly rollups","pid":42,"status":"busy"}]' > "$S/agents.json"; go --week 2026-W40
+check "live busy: exit 0" [ "$RC" = 0 ]; check "live busy: reason" out_has "live and busy"; check "live busy: no dispatch" not_dispatched
+new_case; echo '[{"name":"[L0-OB] weekly rollups","pid":42,"status":"idle"}]' > "$S/agents.json"; go --week 2026-W40
+check "live idle: exit 5" [ "$RC" = 5 ]; check "live idle: no dispatch" not_dispatched
+check "live idle: queue item" grep -qF 'claude stop' "$Q/Weekly rollup not started 2026-W40.md"
+new_case; /usr/bin/trash "$NB/Agent rollup for 2026-W39.md"; echo '[{"name":"[L0-OB] weekly rollups","pid":42,"status":"busy"}]' > "$S/agents.json"; go --week 2026-W40
+check "live busy: no false missed item" [ "$(queue_count)" = 0 ]
 new_case; echo '[{"name":"[L0-OB] weekly rollups (old)","pid":42}]' > "$S/agents.json"; go --week 2026-W40
 check "live: other name does not block" dispatched
 
@@ -163,8 +171,14 @@ new_case; echo 1 > "$S/agents_rc"; go --week 2026-W40
 check "agents fail: exit 2" [ "$RC" = 2 ]; check "agents fail: no dispatch" not_dispatched
 new_case; echo 1 > "$S/bg_rc"; go --week 2026-W40
 check "bg fail: exit 4" [ "$RC" = 4 ]; check "bg fail: no claim" [ ! -s "$XLOG" ]
+check "bg fail: queue item" grep -qx 'needs: ruling' "$Q/Weekly rollup not started 2026-W40.md"
+echo 0 > "$S/bg_rc"; echo '[]' > "$S/agents.json"; /usr/bin/trash "$S/bg_prompt"; go --week 2026-W40
+check "rerun ok: exit 0" [ "$RC" = 0 ]; check "rerun ok: dispatched" dispatched
+check "rerun ok: item settled" grep -qx 'needs: nothing' "$Q/Weekly rollup not started 2026-W40.md"
+check "rerun ok: response line" grep -qF 'started the lieutenant for 2026-W40 after all' "$Q/Weekly rollup not started 2026-W40.md"
 new_case; echo 0 > "$S/bg_registers"; go --week 2026-W40
 check "bg silent: exit 4" [ "$RC" = 4 ]; check "bg silent: no claim" [ ! -s "$XLOG" ]
+check "bg silent: queue item" [ -f "$Q/Weekly rollup not started 2026-W40.md" ]
 new_case; echo '{"projects":{}}' > "$C/claude.json"; go --week 2026-W40
 check "untrusted: exit 2" [ "$RC" = 2 ]; check "untrusted: no dispatch" not_dispatched
 
