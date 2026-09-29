@@ -94,7 +94,7 @@ eq "a captain on its own ship: no word here" "$(ship_refusal '[C0-CC] claude cod
 # Every target row is a lieutenant (tests/README.md section 4): an admiral's reach is by ship, not by rank.
 command -v jq >/dev/null 2>&1 || { echo "STOP  jq is not installed, and both scripts need it"; exit 1; }
 T=$(mktemp -d "${TMPDIR:-/tmp}/admirals-and-dv.XXXXXX") || exit 1
-trap 'trash "$T" 2>/dev/null || rm -rf "$T"' EXIT
+trap '/usr/bin/trash "$T" 2>/dev/null || true' EXIT
 ZERO=00000000-0000-0000-0000-000000000000
 mkdir -p "$T/home/.claude/agents" "$T/stubbin" "$T/cwd" "$T/jobs" "$T/agents/Agent notebook/2026-09" "$T/archive"
 for d in captain commander lieutenant-commander lieutenant; do : > "$T/home/.claude/agents/$d.md"; done
@@ -156,7 +156,9 @@ WAKE_CASES=(
   "[L0-DV] t|[C0-DV] divorce|$REFUSE_DV"
   "[L0-DV] t|human:nelson|$REFUSE_DV"
 )
-if grep -q 'ship_refusal' "$BIN/wake-session.sh"; then
+# The gate is a CALL, not a mention: a comment naming the function must not switch these cases on (review 1
+# of #73). A line whose first non-blank character is `#` is skipped.
+if grep -qE '^[[:space:]]*[^#[:space:]].*ship_refusal' "$BIN/wake-session.sh"; then
   for c in "${WAKE_CASES[@]}"; do
     IFS='|' read -r tgt by want <<<"$c"
     out=$(run_wake "$tgt" "$by")

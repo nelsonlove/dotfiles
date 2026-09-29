@@ -5,15 +5,18 @@
 # Nelson starts it". The fleet scripts refuse every caller for DV (`ship_refusal` in claude/bin/_fleet-ranks.sh),
 # but a session does not need a script to start one: a bare `claude --bg --name "[C0-DV] …"` does it. This
 # hook is the guard on that bare command line. It refuses:
-#   * `claude … --bg …` or `claude … --resume …` / `-r` whose line names a `-DV]` session, in any case;
+#   * `claude … --bg …` or `claude … --resume …` / `-r` whose `--name` (or `-n`, `--name=`) is a `-DV]`
+#     session, in any case; the free-text prompt is not read;
 #   * `claude --resume <id>` / `-r <id>` / `--resume=<id>` where <id> (short or full) is a session whose
 #     name in `claude agents --json --all` carries `-DV]`;
-#   * the same behind `FOO=1`, `env`, `nohup` and similar, and inside a shell's `-c` string.
+#   * the same behind `FOO=1` and wrappers (`env`, `nohup`, `nice -n 5`, `timeout 30`, `xargs` …), after
+#     `;`, `&&` or a newline even when stuck to a word, inside `$( )`, backticks, a subshell, a heredoc fed
+#     to a shell, and a shell's `-c` string.
 # Nelson starts a DV session in his own terminal, where this hook does not run.
 #
 # WHAT IT CANNOT SEE. A SendMessage to a stopped DV session wakes it without any Bash command, so no Bash hook
-# sees it; nothing guards SendMessage. A command it cannot parse (unbalanced quotes) is refused only if it
-# names `-DV]` beside a `claude` word, since the shell will refuse it anyway.
+# sees it; nothing guards SendMessage. `claude -c` / `--continue` resumes the latest conversation of the
+# working directory without naming it, and is not checked. A line that does not parse is skipped.
 #
 # Fail-open on everything else: no `claude` word, bad JSON, or a listing that cannot be read lets the call
 # through, because a tripwire that blocks unrelated work would be switched off, and then it guards nothing.
@@ -42,8 +45,11 @@ def deny(reason):
 REASON = ("refused by the DV tripwire: ship DV (80-89 Divorce) is guarded, and its sessions start only when "
           "Nelson starts them (areas ruling, 2026-09-29). No agent starts or resumes a DV session.")
 
-SEP = {";", "&&", "||", "|", "&"}
-WRAPPERS = {"env", "nohup", "exec", "command", "time", "caffeinate", "sudo", "nice"}
+# Split on newlines and on ; & | ( ) < > ` { } even when they touch a word, so `cd x; claude`, `a&&claude`,
+# `$(claude …)`, a subshell and a heredoc body fed to a shell all come apart into commands (review 1 of #73).
+PUNCT = "();<>|&\n`{}"
+WRAPPERS = {"env", "nohup", "exec", "command", "time", "caffeinate", "sudo", "nice", "timeout", "gtimeout",
+            "xargs", "stdbuf", "doas"}
 SHELLS = {"bash", "sh", "zsh", "dash"}
 ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 
@@ -61,51 +67,91 @@ def name_of(ident):
             return row.get("name") or ""
     return ""
 
+def tokenize(line):
+    lex = shlex.shlex(line, posix=True, punctuation_chars=PUNCT)
+    lex.whitespace = " \t\r"
+    lex.whitespace_split = True
+    return list(lex)
+
+def is_sep(t):
+    return t != "" and all(ch in PUNCT or ch == "$" for ch in t)
+
+def segments(tokens):
+    cur = []
+    for t in tokens:
+        if is_sep(t):
+            if cur: yield cur
+            cur = []
+        else:
+            # `out=$` before `(`: the `$` belongs to the separator, not to the word
+            cur.append(t[:-1] if t.endswith("=$") else t)
+    if cur: yield cur
+
+def check_claude(args):
+    starts = "--bg" in args
+    resumes = [a for a in args if a in ("--resume", "-r") or a.startswith("--resume=")]
+    if not (starts or resumes):
+        return
+    # Only a NAME or a RESUMED ID counts. The free-text prompt is not a name: a brief that mentions
+    # `[C0-DV]` to leave it alone is not a DV start (review 1 of #73).
+    for k, a in enumerate(args):
+        val = None
+        if a in ("--name", "-n") and k + 1 < len(args):
+            val = args[k + 1]
+        elif a.startswith("--name="):
+            val = a.split("=", 1)[1]
+        if val is not None and DV.search(val):
+            deny(REASON)
+        ident = None
+        if a.startswith("--resume="):
+            ident = a.split("=", 1)[1]
+        elif a in ("--resume", "-r") and k + 1 < len(args):
+            ident = args[k + 1]
+        if ident:
+            if DV.search(ident):
+                deny(REASON)
+            nm = name_of(ident)
+            if DV.search(nm):
+                deny(REASON + f" (Session {ident} is listed as {nm!r}.)")
+
+def check_segment(c, depth):
+    i = 0
+    while i < len(c) and ASSIGN.match(c[i]):
+        i += 1
+    if i >= len(c):
+        return
+    prog = os.path.basename(c[i])
+    if prog == "claude":
+        check_claude(c[i + 1:])
+    elif prog in WRAPPERS:
+        # A wrapper and its own flags and values come first (`nice -n 5`, `timeout 30`, `env -u FOO`); the
+        # first `claude` word after it is the command it runs.
+        for j in range(i + 1, len(c)):
+            if os.path.basename(c[j]) == "claude":
+                check_claude(c[j + 1:])
+                break
+    elif prog in SHELLS and depth < 3:
+        # A shell's -c string is a command line of its own (`bash -c "claude …"`, `zsh -lc '…'`).
+        args = c[i + 1:]
+        for j, a in enumerate(args):
+            if a.startswith("-") and not a.startswith("--") and "c" in a[1:] and j + 1 < len(args):
+                check(args[j + 1], depth + 1)
+                break
+
 def check(line, depth=0):
     try:
-        tokens = shlex.split(line, posix=True)
+        segs = list(segments(tokenize(line)))
     except ValueError:
-        if DV.search(line):
-            deny(REASON + " (The command could not be parsed, and it names a DV session beside a claude word.)")
-        return
-    cmds, cur = [], []
-    for t in tokens:
-        if t in SEP:
-            if cur: cmds.append(cur); cur = []
-        else:
-            cur.append(t)
-    if cur: cmds.append(cur)
-    for c in cmds:
-        # Skip what runs a command without being one: `FOO=1`, `env`, `nohup` and their like.
-        i = 0
-        while i < len(c) and (ASSIGN.match(c[i]) or os.path.basename(c[i]) in WRAPPERS or (c[i].startswith("-") and i > 0)):
-            i += 1
-        if i >= len(c):
-            continue
-        prog, args = os.path.basename(c[i]), c[i + 1:]
-        # A shell's -c string is a command line of its own (`bash -c "claude …"`, `zsh -lc '…'`).
-        if prog in SHELLS and depth < 3:
-            for j, a in enumerate(args):
-                if a.startswith("-") and not a.startswith("--") and "c" in a[1:] and j + 1 < len(args):
-                    check(args[j + 1], depth + 1)
-                    break
-            continue
-        if prog != "claude":
-            continue
-        starts = "--bg" in args
-        resumes = [a for a in args if a in ("--resume", "-r") or a.startswith("--resume=")]
-        if not (starts or resumes):
-            continue
-        if any(DV.search(a) for a in args):
-            deny(REASON)
-        for k, a in enumerate(args):
-            ident = None
-            if a.startswith("--resume="):
-                ident = a.split("=", 1)[1]
-            elif a in ("--resume", "-r") and k + 1 < len(args):
-                ident = args[k + 1]
-            if ident and DV.search(name_of(ident)):
-                deny(REASON + f" (Session {ident} is listed as {name_of(ident)!r}.)")
+        # An unbalanced quote, most often an apostrophe in a heredoc body. Read it line by line instead, and
+        # skip a line that still does not parse: a line the shell cannot parse starts no session.
+        segs = []
+        for part in line.split("\n"):
+            try:
+                segs.extend(segments(tokenize(part)))
+            except ValueError:
+                continue
+    for c in segs:
+        check_segment(c, depth)
 
 check(cmd)
 sys.exit(0)

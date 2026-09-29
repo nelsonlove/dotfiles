@@ -13,7 +13,7 @@ HERE=$(cd "$(dirname "$0")" && pwd -P)
 HOOK="$HERE/../../hooks/dv-tripwire.sh"
 n=0; fails=0
 T=$(mktemp -d "${TMPDIR:-/tmp}/dv-tripwire.XXXXXX") || exit 1
-trap 'trash "$T" 2>/dev/null || rm -rf "$T"' EXIT
+trap '/usr/bin/trash "$T" 2>/dev/null || true' EXIT
 mkdir -p "$T/stubbin"
 DVID=dddddddd-0000-0000-0000-000000000000
 CCID=cccccccc-0000-0000-0000-000000000000
@@ -47,6 +47,19 @@ case_ deny  'FOO=1 claude --bg --name "[C0-DV] x" y'
 case_ deny  'env FOO=1 claude --bg --name "[C0-DV] x" y'
 case_ deny  'bash -c "claude --bg --name \"[C0-DV] x\" y"'
 case_ deny  "zsh -lc 'claude --resume $DVID'"
+# Review 1 of #73 proved each of these got past: separators stuck to words, newlines, substitutions,
+# subshells, heredocs fed to a shell, and wrappers that take a value.
+case_ deny  'cd /tmp; claude --bg --name "[C0-DV] x" y'
+case_ deny  'true&&claude --bg --name "[C0-DV] x" y'
+case_ deny  $'cd /tmp\nclaude --bg --name "[C0-DV] x" y'
+case_ deny  'out=$(claude --bg --name "[C0-DV] x" y)'
+case_ deny  'out=`claude --bg --name "[C0-DV] x" y`'
+case_ deny  '(claude --bg --name "[C0-DV] x" y)'
+case_ deny  $'bash <<EOF\nclaude --bg --name "[C0-DV] x" y\nEOF'
+case_ deny  'nice -n 5 claude --bg --name "[C0-DV] x" y'
+case_ deny  'env -u FOO claude --bg --name "[C0-DV] x" y'
+case_ deny  'timeout 30 claude --bg --name "[C0-DV] x" y'
+case_ deny  'claude --bg --name="[C0-DV] x" y'
 echo
 echo "=== refused: a DV session reached through the id it resumes"
 case_ deny  "claude --resume $DVID"
@@ -62,9 +75,14 @@ case_ allow 'grep -n "\-DV\]" notes.md'
 case_ allow 'echo "[C0-DV] divorce is the guarded captain"'
 case_ allow 'git commit -m "claude --bg names [C0-DV] in a message"'
 case_ allow 'ls ~/obsidian/"80-89 Divorce"'
+# The free-text prompt is not a name: a brief that mentions DV in order to leave it alone is not a DV start.
+case_ allow 'claude --bg --agent lieutenant --name "[L0-CC] t" "leave [C0-DV] alone"'
+# A heredoc append whose body mentions DV and has an apostrophe starts no session.
+case_ allow $'cat <<\'EOF\' >> ~/.claude/notes.md\nNelson\'s ruling: [C0-DV] divorce is guarded\nEOF'
+case_ allow 'echo claude --bg --name "[C0-DV] x"'
 case_ allow ''
 
 printf '\n%s checks, %s failed\n' "$n" "$fails"
-EXPECTED=23
+EXPECTED=37
 [ "$n" = "$EXPECTED" ] || { echo "FAIL  the check count is $n, expected $EXPECTED"; exit 1; }
 [ "$fails" = 0 ] || exit 1

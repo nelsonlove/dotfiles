@@ -150,8 +150,9 @@ REAR_ADMIRAL="[A0] rear admiral"
 AREAS_ADMIRAL="[A0] areas admiral"
 REAR_ADMIRAL_SHIPS="CC OB HS MA FL"
 AREAS_ADMIRAL_SHIPS="PE PP HH FN ED WK HB DV"
-# DV (80-89 Divorce) is guarded: its captain starts only when Nelson starts it. No script wakes or promotes
-# a session on DV or into DV, whoever the caller is, because the only way into DV is Nelson. This binds
+# DV (80-89 Divorce) is guarded: its captain starts only when Nelson starts it. No script may wake or promote
+# a session on DV or into DV, whoever the caller is, because the only way into DV is Nelson. promote-session.sh
+# enforces it now; wake-session.sh does not yet (it checks no ship at all), and its edit follows PR #71. This binds
 # honest callers of these scripts only: `--by` is self-declared, a SendMessage to a stopped session wakes it
 # with no script, and a bare `claude --bg --name "[C0-DV] …"` starts one with no script. The tripwire hook
 # `claude/hooks/dv-tripwire.sh` watches the bare command line; nothing watches SendMessage.
