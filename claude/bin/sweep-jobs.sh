@@ -130,6 +130,14 @@ roster_state_for_id() {  # $1 = full id; sets `roster_pick_state` and `roster_pi
   # filename carries no stamp at all, leave "newest" undefined — and this script's whole authority to delete
   # rests on reading the newest entry. Undefined is not a reason to guess.
   [ "${roster_entry_ambiguous:-0}" = 0 ] || return 0
+  # DELIBERATELY REDUNDANT WITH THE REASON CHAIN BELOW, and neither copy is dead. The chain re-checks these two
+  # flags to choose the right WORDS; these two lines make the VERDICT safe whatever the chain later becomes.
+  # Measured, not assumed: removing either one alone changes no output at all, and removing BOTH turns the
+  # fork fixture into `WOULD REMOVE`, which is the thing this package exists to prevent. So a mutation run
+  # reports each one alone as "not caught" — that is the signature of a redundant pair, not a hole, and
+  # `claude/tests/fleet-ranks/mutants.sh` kills them together for exactly this reason. Do not delete one as
+  # dead code: the one you leave is then the only thing standing between a reordered chain and a deletion.
+  #
   # AND THE WINNER MUST BE OURS. The loose selection test is justified by one sentence — "a false positive only
   # costs a skip, because the winner still has to pass the caller's four-key test" — and that sentence was
   # true of the four-key test and FALSE of the id. `roster_id_is_full` accepts ANY full id, and nothing here
@@ -198,7 +206,11 @@ for job in "$JOBS_DIR"/*; do
     # `.status // "none"` COLLAPSED THREE DIFFERENT FACTS — an absent key, a null and a false — into one word,
     # and the shell fallback then printed the same word for zero rows. Each is now distinct, because the whole
     # point of this field is to show a reader how often the listing says one thing and the pid says another.
-    ev_stat=$(printf '%s' "$listing" | jq -r --arg s "$full" '[.[] | select(.sessionId == $s) | if has("status") then (.status | tostring) else "absent" end] | join(",")' 2>/dev/null || echo "?")
+    # EACH ROW AS ITS OWN JSON VALUE, joined by a character that cannot appear inside one. `tostring` made the
+    # string "null" identical to a null, an empty string vanish inside a comma-joined list, and an object drop
+    # its own commas into the list. `@json` keeps every value distinguishable from every other, which is the
+    # single thing this field exists to do.
+    ev_stat=$(printf '%s' "$listing" | jq -r --arg s "$full" '[.[] | select(.sessionId == $s) | if has("status") then (.status | @json) else "absent" end] | join(" | ")' 2>/dev/null || echo "?")
     [ "$ev_rows" != 0 ] || ev_stat="no-rows"
     evidence="$evidence listing-rows=$ev_rows pids=${ev_pids:-none} listing-status=${ev_stat:-empty-string}"
     if session_is_alive "$full"; then
@@ -208,7 +220,14 @@ for job in "$JOBS_DIR"/*; do
       evidence="$evidence live-pid=no"
       roster_state_for_id "$full"
       entry_path="$roster_pick_entry"
-      evidence="$evidence entries-mentioning-id=${roster_entry_count:-0} newest=${roster_entry:-none}"
+      # THE LABEL IS DECIDED AFTER THE ORDER IS. This printed `newest=` unconditionally and the ambiguous branch
+      # then appended `first=` beside it, so the line carried BOTH and the false label survived the fix that
+      # was supposed to remove it. The reason and the label have to come from the same decision.
+      if [ "${roster_entry_ambiguous:-0}" = 0 ]; then
+        evidence="$evidence entries-mentioning-id=${roster_entry_count:-0} newest=${roster_entry:-none}"
+      else
+        evidence="$evidence entries-mentioning-id=${roster_entry_count:-0} first=${roster_entry:-none}"
+      fi
       # ONE REASON FOR FIVE DIFFERENT FINDINGS IS A REASON FOR NONE OF THEM. Every empty `roster_pick_state`
       # printed "no notebook entry carries all four roster keys" and `newest-status=unreadable-or-incomplete`,
       # which was false for a tie between two complete entries, false when the newest entry was complete and
@@ -220,7 +239,7 @@ for job in "$JOBS_DIR"/*; do
       elif [ "${roster_entry_ambiguous:-0}" != 0 ]; then
         # `first=`, NOT `newest=`: when nothing can be ordered there is no newest, and labelling an arbitrary
         # member of a tie as the newest is the same false precision the reason used to carry.
-        evidence="$evidence order=UNDECIDABLE first=${roster_entry:-none} newest-status=not-read"
+        evidence="$evidence order=UNDECIDABLE newest-status=not-read"
         reason="${roster_order_reason:-the entries for that id cannot be ordered}, so nothing was read"
       elif [ -n "$(roster_duplicate_key_in "$roster_entry")" ]; then
         # BEFORE THE OTHER TWO, because a doubled key makes a reader return nothing and both branches below

@@ -15,6 +15,18 @@ Two habits follow, and they are cheap:
 * **One deliberately broken assertion per suite, run once**, before you believe any of it.
 * **A count you can check.** The suite prints `N checks` — know what N should be from reading the file, and notice when it changes for no reason. When the same file's count fell from 87 to 61 the same evening, that was a broken line swallowing whole sections, and the count was the only thing that said so.
 
+### 1a. And run the mutation from a file, not from memory
+
+`fleet-ranks/mutants.sh` breaks each guard in `fleet-ranks/session-roster.sh` on a copy of the tree and requires the suite to notice. Run it when you add a guard, and **add a mutant in the same commit** — a guard with no mutant is a guard nobody has watched fail.
+
+Why a file rather than a habit, measured across eight review rounds on #71: three assertions in that suite were green for a reason that had nothing to do with the code they named. One fixture had its trigger line indented, so the whole-file grep it existed to catch never matched it. One had a comment carrying no apostrophe, so a greedy match and a first-match match gave the same answer. One was named for indented keys and contained none. Each was counted as coverage, and each was found by running a mutation by hand — which happens only when somebody remembers, and twice it happened only because a reviewer asked.
+
+Three things that runner must do, each learned by getting it wrong in the first version:
+
+* **Run an unmutated baseline first, and report nothing if it is red.** The first version copied `bin`, `lib` and `tests` and not `hooks`, so the unmutated copy was already failing thirty checks and every mutant was reported as caught. A mutation runner with a broken baseline is a machine for producing false confidence — the same defect it exists to catch, one level up.
+* **Say when a mutant matched nothing.** An anchor moves whenever the code is edited, and a mutant that silently changes nothing reads exactly like a caught one. Six of the first twenty-one matched nothing, through doubled escaping, and said so.
+* **Kill a redundant pair together.** Where two layers each prevent the same bad outcome, removing either alone changes no output, and a single-layer mutant reports "not caught" for a guard that is working perfectly. That is a property of the design, not a hole: `roster_state_for_id`'s two early returns and the sweeper's reason chain are exactly this, and the mutant removes both, whereupon the fork fixture turns into `WOULD REMOVE`.
+
 ## 2. A suite that only meets its own fixtures is a test of the fixtures
 
 **Run against the real population, read-only, under the shell options the caller really uses.**

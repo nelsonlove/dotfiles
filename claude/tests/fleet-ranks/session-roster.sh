@@ -28,7 +28,7 @@ TMP=$(mktemp -d -t session-roster) || exit 1
 trap 'rm -rf "$TMP"' EXIT
 n=0; fails=0; skips=0
 # Every check outside section 1, whose own count depends on whether the real notebook is on this machine.
-SUITE_BASE=168
+SUITE_BASE=171
 SECTION1_CHECKS=0
 SECTION1_SKIPPED=0
 eq() { n=$((n + 1)); if [ "$2" = "$3" ]; then printf 'PASS  %-56s %s\n' "$1" "$2"; else fails=$((fails + 1)); printf 'FAIL  %-56s got %s, want %s\n' "$1" "$2" "$3"; fi; }
@@ -313,7 +313,10 @@ eq "a tie gives the wake no ended line" "$(lib 'roster_ended_line_for "90909090-
 # name. The reviewer classified this as reports-only from the `status` side; the gating key is the other one.
 WIDX="$TMP/wakeidx"; mkdir -p "$WIDX"
 sed -n "/^index_awk='/,/^'$/p" "$ROOT/claude/bin/wake-session.sh" | sed '1d;$d' > "$WIDX/idx.awk"
-printf -- '---\nsession: "[L0-CC] nested line"\nreports-to: "[C1-CC] plugins"\nmeta:\n  reports-to: "[C0-CC] claude code"\nstatus: draft/running\n---\n\nbody\n' > "$WIDX/Agent session 2026-09-29T0900.md"
+# THE FIXTURE MUST CARRY BOTH INDENTED KEYS. The first version had an indented `reports-to` and no indented
+# `status`, so the status half of this test returned `running` under the OLD awk too and passed on revert —
+# the third fixture in this package to be green for a reason that had nothing to do with the code it names.
+printf -- '---\nsession: "[L0-CC] nested line"\nreports-to: "[C1-CC] plugins"\nstatus: draft/running\nmeta:\n  reports-to: "[C0-CC] claude code"\n  status: archived/ended\n---\n\nbody\n' > "$WIDX/Agent session 2026-09-29T0900.md"
 eq "an indented reports-to never wins" "$(awk -v key="reports-to" -f "$WIDX/idx.awk" "$WIDX/Agent session 2026-09-29T0900.md" | cut -f 2)" "[C1-CC] plugins"
 eq "and an indented status never wins" "$(awk -v key="reports-to" -f "$WIDX/idx.awk" "$WIDX/Agent session 2026-09-29T0900.md" | cut -f 4)" "running"
 
@@ -708,7 +711,14 @@ mkjob 24242424 24242424-1111-2222-3333-444444444444 "[L0-CC] lone unstamped"
 out=$(sweep)
 has  "a lone unstamped entry says so"          "$out" "carries no timestamp"
 hasnt "and is not called a tie"                "$(printf '%s' "$out" | grep 'SKIP  24242424' || true)" "two entries share"
-has  "and the field is first=, not newest="    "$out" "first="
+# BOTH HALVES, because "first= appears" was true while `newest=` appeared on the same line and the false label
+# survived the fix meant to remove it. An assertion that a thing is PRESENT proves nothing about the thing that
+# should be ABSENT, and this suite has now made that mistake twice.
+# `-A1`, because the evidence is the line UNDER the verdict. Scoping to the verdict line alone found neither
+# label and the assertion failed honestly — which is the first time in this suite that scoping a check tighter
+# made it say something true rather than something convenient.
+has  "and the field is first="                 "$(printf '%s' "$out" | grep -A1 'SKIP  24242424' || true)" "first="
+hasnt "and newest= is not on that line"        "$(printf '%s' "$out" | grep -A1 'SKIP  24242424' || true)" "newest="
 
 # A DOUBLED KEY IS NOT A MISSING KEY. The readers return nothing for a key stated twice, which is right, but
 # "nothing" reads the same as "absent" — so an entry holding all four keys with one of them twice was reported
@@ -718,6 +728,16 @@ mkjob 35353535 35353535-1111-2222-3333-444444444444 "[L0-CC] doubled agent"
 out=$(sweep)
 has  "a doubled key is named as doubled"       "$out" "states 'agent' twice"
 hasnt "and is not called incomplete"           "$(printf '%s' "$out" | grep 'SKIP  35353535' || true)" "does not carry all four"
+
+# AN UNCLOSED BLOCK IS THE CAUSE, NOT THE DOUBLED KEY INSIDE IT. The duplicate reporter did not require a
+# closing fence while every other reader does, so a file whose frontmatter never ends was reported as "states
+# 'agent' twice" when the true cause is that nothing in it reads at all — and the duplicate branch sits ahead
+# of the unreadable one, so the better answer was masked.
+printf -- '---\nsession: "[L0-CC] unclosed dup"\nsession-id: 46464646-1111-2222-3333-444444444444\nagent: lieutenant\nagent: lieutenant\ncwd: /tmp/ud\nstatus: archived/ended\n' > "$NB/2026-09/Agent session 2026-09-27T0600.md"
+mkjob 46464646 46464646-1111-2222-3333-444444444444 "[L0-CC] unclosed dup"
+out=$(sweep)
+hasnt "an unclosed block is not blamed on a key" "$(printf '%s' "$out" | grep 'SKIP  46464646' || true)" "twice"
+has  "and the job is skipped"                   "$out" "SKIP  46464646"
 
 # THE ARCHIVE ROOT IS READ IN PRODUCTION. An ended entry MOVES there, so a sweeper that reads only the
 # notebook skips exactly the population it exists for — which is what the first version did, with

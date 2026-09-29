@@ -191,12 +191,17 @@ roster_id_in_frontmatter() {  # $1 = the entry; prints the id, or nothing
 # the same either way; the stated cause was false, and the cause is the part a human acts on.
 roster_duplicate_key_in() {  # $1 = the entry; prints the first doubled key, or nothing
   [ -n "${1:-}" ] && [ -f "$1" ] || return 0
+  # THE BLOCK MUST CLOSE, like every other reader here. Without that this reported a doubled key in a file whose
+  # frontmatter never ends — where the true cause is that NOTHING reads, and the duplicate branch sits ahead of
+  # the unreadable one and hid the more informative answer. A reader that is more permissive than `roster_read`
+  # about which files it will speak for is the same drift this package has fixed four times.
   awk 'NR == 1 { if ($0 !~ /^---[ \t\r]*$/) exit 0; infm = 1; next }
-       infm && /^---[ \t\r]*$/ { exit 0 }
-       infm && /^session[ \t]*:/      { if (a++) { print "session"; exit 0 } }
-       infm && /^session-id[ \t]*:/   { if (b++) { print "session-id"; exit 0 } }
-       infm && /^agent[ \t]*:/        { if (c++) { print "agent"; exit 0 } }
-       infm && /^cwd[ \t]*:/          { if (d++) { print "cwd"; exit 0 } }' "$1" 2>/dev/null || true
+       infm && /^---[ \t\r]*$/ { closed = 1; exit 0 }
+       infm && /^session[ \t]*:/      { if (a++ && !dup) dup = "session" }
+       infm && /^session-id[ \t]*:/   { if (b++ && !dup) dup = "session-id" }
+       infm && /^agent[ \t]*:/        { if (c++ && !dup) dup = "agent" }
+       infm && /^cwd[ \t]*:/          { if (d++ && !dup) dup = "cwd" }
+       END { if (closed && dup) print dup }' "$1" 2>/dev/null || true
 }
 
 # WHETHER AN ENTRY IS THIS SESSION'S OWN, and this test is STRICT: inside the closed frontmatter, at column
@@ -236,12 +241,17 @@ roster_newest_entry_for_id() {  # $1 = full session id, $2… = the FOUR root ar
     # and two filenames with the same stamp — and the caller printed "two or more entries" for both, so a LONE
     # unstamped entry was reported as a tie while its own evidence line said the count was one. A reason that
     # contradicts the evidence printed beside it teaches a reader to trust neither.
+    # EVERY CAUSE IS KEPT. The last writer used to win within one call, so a set holding BOTH an unstamped file
+    # and a tie reported only the tie and lost the other half. The verdict is the same either way; the line a
+    # human reads should name everything that made the order undecidable, not the last thing found.
     if [ -z "$ros_stamp" ]; then
       roster_entry_ambiguous=1
-      roster_order_reason="the filename ${ros_f##*/} carries no timestamp, so it cannot be placed in order"
+      ros_cause="the filename ${ros_f##*/} carries no timestamp, so it cannot be placed in order"
+      case "$roster_order_reason" in *"${ros_f##*/} carries no timestamp"*) ;; *) roster_order_reason="${roster_order_reason:+$roster_order_reason; }$ros_cause" ;; esac
     elif [ -n "$roster_entry" ] && [ "$ros_stamp" = "$ros_best_stamp" ]; then
       roster_entry_ambiguous=1
-      roster_order_reason="two entries share the timestamp $ros_stamp, so neither is the newest"
+      ros_cause="two entries share the timestamp $ros_stamp, so neither is the newest"
+      case "$roster_order_reason" in *"share the timestamp $ros_stamp"*) ;; *) roster_order_reason="${roster_order_reason:+$roster_order_reason; }$ros_cause" ;; esac
     fi
     if [ -z "$roster_entry" ] || [ "$ros_stamp" \> "$ros_best_stamp" ]; then
       roster_entry="$ros_f"
