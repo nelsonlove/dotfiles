@@ -21,6 +21,7 @@
 # WHAT IT CANNOT SEE. A SendMessage to a stopped DV session wakes it without any Bash command, so no Bash hook
 # sees it; nothing guards SendMessage. `claude -c` / `--continue` resumes the latest conversation of the
 # working directory without naming it, and is not checked. A line that does not parse is skipped.
+# A name built in a shell variable (`n='[L0-DV] x'; claude --bg --name "$n"`) is not seen either: the hook reads the command's text and does not run the shell. Found by the DV soak of 2026-09-29; the test suite asserts it passes, so a future fix shows up.
 #
 # Fail-open on everything else: no `claude` word, bad JSON, or a listing that cannot be read lets the call
 # through, because a tripwire that blocks unrelated work would be switched off, and then it guards nothing.

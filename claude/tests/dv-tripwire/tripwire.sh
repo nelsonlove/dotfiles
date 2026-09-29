@@ -115,9 +115,26 @@ case_ allow 'claude --bg 2>/dev/null --name "[L0-CC] x" y'
 case_ allow "echo 'see \`claude --bg --name \"[C0-DV] x\"\` in docs' >> notes.md"
 case_ allow "printf '%s\\n' '\$(claude --bg --name \"[C0-DV] x\")' >> notes.md"
 case_ allow $'cat <<\'EOF\' > x.md\n$(claude --bg --name "[C0-DV] x" y)\nEOF'
+# KNOWN LIMIT, asserted so a future fix shows up (the DV soak of 2026-09-29 found it): a name built in a shell
+# variable is not read, because the hook reads text and does not run the shell. If the hook ever refuses this,
+# this case fails: move it to the deny list above and take it out of the header's limits.
+case_ allow "n='[L0-DV] var'; claude --bg --name \"\$n\" y"
 case_ allow ''
 
+echo
+echo "=== registered: claude/settings.json runs the hook on every Bash call"
+n=$((n + 1))
+reg=$(python3 - "$HERE/../../settings.json" <<'PYX'
+import json, sys
+d = json.load(open(sys.argv[1]))
+hits = [h for e in d.get("hooks", {}).get("PreToolUse", []) if e.get("matcher") == "Bash"
+        for h in e.get("hooks", []) if h.get("command") == "/Users/nelson/.claude/hooks/dv-tripwire.sh"]
+print("ok" if len(hits) == 1 and hits[0].get("type") == "command" and hits[0].get("timeout") == 10 else "missing or wrong: %r" % hits)
+PYX
+)
+if [ "$reg" = ok ]; then printf 'PASS  a Bash PreToolUse entry runs dv-tripwire.sh, timeout 10\n'; else fails=$((fails + 1)); printf 'FAIL  settings.json: %s\n' "$reg"; fi
+
 printf '\n%s checks, %s failed\n' "$n" "$fails"
-EXPECTED=65
+EXPECTED=67
 [ "$n" = "$EXPECTED" ] || { echo "FAIL  the check count is $n, expected $EXPECTED"; exit 1; }
 [ "$fails" = 0 ] || exit 1
