@@ -217,6 +217,29 @@ case "$(head -1 "$OUT")" in *"read the log"*) r=notice ;; *) r="$(head -1 "$OUT"
 eq "a quiet re-arm, then a stalled rewrite: one notice" "$(lines)|$r" "1|notice"
 stop
 
+# 9o. Follow-ups of #83. --help is the header and nothing else.
+h=$(bash "$FOLLOW" --help 2>&1); hrc=$?
+case "$h" in *"USAGE"*) r=has-usage ;; *) r=no-usage ;; esac
+case "$h" in *"LC_ALL=C"*|*"set -u"*) r="$r+code" ;; esac
+eq "--help prints the header, and no code" "$hrc|$r" "0|has-usage"
+# 9p. --state must be a file: a directory, or a path ending in / (an empty CLAUDE_CODE_SESSION_ID gives one), is refused.
+mkdir -p "$T/statedir"
+# Bounded: a follower that does NOT refuse runs forever, so each runs in the background and counts as "running" if it is still alive after 10 s (a first version of this case ran it in the foreground and hung the suite).
+bounded_rc() { bash "$FOLLOW" --log "$LOG" --state "$1" >/dev/null 2>&1 & local p=$! t=0; while kill -0 "$p" 2>/dev/null && [ "$t" -lt 20 ]; do sleep 0.5; t=$((t + 1)); done; if kill -0 "$p" 2>/dev/null; then kill "$p" 2>/dev/null; wait "$p" 2>/dev/null; echo running; else wait "$p"; echo $?; fi; }
+r1=$(bounded_rc "$T/statedir"); r2=$(bounded_rc "$T/nosuch/")
+eq "--state refuses a directory and a path ending in /" "$r1|$r2" "2|2"
+# 9q. A notice whose pipe is closed still moves the saved place, so the next run does not repeat it.
+seed; ST7="$T/state7"
+( bash "$FOLLOW" --log "$LOG" --state "$ST7" | true ) & HP=$!
+sleep 1.5
+# The burst is ONE append, so one poll sees all of it (entry by entry it took over a second, the first poll saw part of it, and the rest correctly gave the next run a gap notice).
+for i in $(seq 1 90); do printf '\n## 2026-09-29T09:%s · [L0-CC] test — claim\nBurst %s %s\n' "$((10 + i % 50))" "$i" "$(printf '%0200d' 0)"; done > "$T/burst"
+cat "$T/burst" >> "$LOG"
+sleep 4; killall_followers; wait "$HP" 2>/dev/null
+start --state "$ST7"; sleep 4
+eq "a notice lost to a closed pipe is not printed again" "$(lines)" 0
+stop
+
 # 9h. GNU stat: with a GNU `stat` first on PATH, it still follows (tested with gstat where it exists).
 if command -v gstat >/dev/null 2>&1; then
   mkdir -p "$T/gnu"; ln -sf "$(command -v gstat)" "$T/gnu/stat"
@@ -240,7 +263,7 @@ if kill -0 "$HP" 2>/dev/null; then eq "a closed pipe ends it" alive gone; killal
 left=$(pgrep -f "xlog-follow.sh --log $LOG" | wc -l | tr -d ' ')
 eq "no follower is left running" "$left" 0
 
-EXPECTED=37
+EXPECTED=40
 printf '\n%s checks (expected %s), %s failed\n' "$n" "$EXPECTED" "$fails"
 [ "$n" = "$EXPECTED" ] || { echo "FAIL  the check count is $n, expected $EXPECTED"; exit 1; }
 [ "$fails" = 0 ] || exit 1

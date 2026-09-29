@@ -7,7 +7,7 @@
 # line is one whole entry: its `## ` heading and its body, with the entry's newlines joined by " ⏎ ". So the
 # event IS the entry, and a session reads it without running anything.
 #
-# THE MONITOR COMMAND a session uses. Pass `timeout_ms: 1800000`, the Monitor tool's maximum: without it (or with a `timeout` key, which the tool does not read) the Monitor expires after its default of 5 minutes. It may still expire sooner; re-arm it with the same command when it expires. --state makes the new run print what arrived in between, or one notice line telling you to read the log from your last-read stamp (a gap over 16 KB, or a log rewritten or replaced while no Monitor ran).
+# THE MONITOR COMMAND a session uses. Always pass `timeout_ms: 1800000`, the Monitor tool's maximum: the default is 5 minutes, and no other key name sets it. It may still expire sooner; re-arm it with the same command when it expires. --state makes the new run print what arrived in between, or one notice line telling you to read the log from your last-read stamp (a gap over 16 KB, or a log rewritten or replaced while no Monitor ran, or while the last one was still re-syncing after a rewrite).
 #
 #     Monitor({ command: "bash ~/.claude/bin/xlog-follow.sh --state ~/.local/state/xlog-follow/$CLAUDE_CODE_SESSION_ID",
 #               description: "new cross-session log entries",
@@ -43,8 +43,11 @@ log=""; state=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --log) [ $# -ge 2 ] || { echo "xlog-follow: --log needs a path" >&2; exit 2; }; log="$2"; shift 2 ;;
-    --state) [ $# -ge 2 ] || { echo "xlog-follow: --state needs a path" >&2; exit 2; }; state="$2"; shift 2 ;;
-    -h|--help) sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --state) [ $# -ge 2 ] || { echo "xlog-follow: --state needs a path" >&2; exit 2; }; state="$2"; shift 2
+      # A directory, or a path ending in / (what an empty $CLAUDE_CODE_SESSION_ID gives), can never hold the state file.
+      case "$state" in */) echo "xlog-follow: --state must be a file path, not a directory: '$state' (is \$CLAUDE_CODE_SESSION_ID empty?)" >&2; exit 2 ;; esac
+      [ ! -d "$state" ] || { echo "xlog-follow: --state must be a file path, not a directory: '$state'" >&2; exit 2; } ;;
+    -h|--help) awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$0"; exit 0 ;;   # the header comment, and nothing after it
     *) echo "xlog-follow: unknown argument '$1'" >&2; exit 2 ;;
   esac
 done
@@ -58,7 +61,7 @@ fi
 [ -n "$log" ] && [ -f "$log" ] || { echo "xlog-follow: no cross-session log found" >&2; exit 1; }
 
 trap 'save_state; exit 0' TERM INT HUP
-trap 'save_state; exit 0' PIPE
+trap 'closed' PIPE   # where SIGPIPE is not ignored; where it is, the failed printf's `|| closed` does the same
 
 # inode, size and mtime. The form is chosen ONCE: GNU `stat -f` means --file-system and prints junk, so an
 # `a || b` fallback is wrong on Linux (review 1 of #77). GNU first, because BSD `stat` rejects -c outright.
@@ -77,7 +80,7 @@ emit() {  # print one entry as one line, trailing blank lines trimmed; exit if n
   while [ "${e%"$NL"}" != "$e" ]; do e="${e%"$NL"}"; done
   e="${e//$NL/ ⏎ }"
   [ -n "$e" ] || return 0
-  printf '%s\n' "$e" || { save_state; exit 0; }
+  printf '%s\n' "$e" || closed
 }
 is_entry() { case "$1" in $HEAD_GLOB*) return 0 ;; *) return 1 ;; esac; }
 
@@ -93,7 +96,9 @@ save_state() {
   printf '%s %s %s\n' "$inode" "$so" "$sfp" > "$state.tmp" && mv -f "$state.tmp" "$state"
   return 0
 }
-notice() { printf 'xlog-follow: %s; read the log from your last-read stamp: %s\n' "$1" "$log" || exit 0; }
+# closed: the reader is gone. After a builtin printf fails, bash keeps the unsent text in its output buffer, and any later builtin printf, or any $( ) child, flushes it into ITS output (found by the test of a notice lost to a closed pipe: the text landed in the state file). So stdout goes to /dev/null and one echo flushes the leftover there, and only then is the place saved. Every failed write, and the PIPE trap, comes here.
+closed() { exec >/dev/null 2>&1; echo; save_state; exit 0; }
+notice() { printf 'xlog-follow: %s; read the log from your last-read stamp: %s\n' "$1" "$log" || closed; }
 settle=0        # >0 while waiting for a cut or rewrite to finish: polls with no change still needed
 buf=""          # the entry being collected: empty, or text that starts with a stamped heading
 last_new=$SECONDS
@@ -106,7 +111,10 @@ offset=${size:-0}; fp=$(fingerprint "$log" "$offset")
 if [ -n "$state" ] && [ -f "$state" ]; then
   # Resume where the last run stopped (a Monitor expires, at most after 30 minutes, and is re-armed), if it is the same file and the bytes before the saved end are unchanged. Otherwise print one notice and start at the end.
   read -r s_inode s_offset s_fp < "$state"
-  if [ "$s_inode" = "$inode" ] && [ "${s_offset:-x}" -le "$offset" ] 2>/dev/null && [ "$(fingerprint "$log" "$s_offset")" = "$s_fp" ]; then
+  # The line is `inode offset fingerprint`, and the fingerprint is `0` or cksum's `crc size`. Anything else is unusable, so a notice below.
+  case "$s_inode$s_offset" in ""|*[!0-9]*) s_inode=x ;; esac
+  case "$s_fp" in 0) ;; [0-9]*" "[0-9]*) case "$s_fp" in *[!0-9\ ]*|*" "*" "*) s_inode=x ;; esac ;; *) s_inode=x ;; esac
+  if [ "$s_inode" = "$inode" ] && [ "$s_offset" -le "$offset" ] && [ "$(fingerprint "$log" "$s_offset")" = "$s_fp" ]; then
     if [ $(( offset - s_offset )) -gt "$RESUME_MAX" ]; then
       notice "$(( offset - s_offset )) bytes of new entries arrived since the last run, too many to print here"
     else
@@ -174,12 +182,11 @@ while :; do
     resumed=0
     if [ $(( n_size - offset )) -gt "$RESUME_MAX" ] || [ "$heads" -gt "$MAX_HEADS" ]; then
       if is_entry "$buf"; then emit "$buf"; fi
-      if [ "$heads" -gt "$MAX_HEADS" ]; then
-        notice "more than $MAX_HEADS entries arrived at once, too many to be appends"
-      else
-        notice "$(( n_size - offset )) bytes arrived at once, too many to be appends"
-      fi
+      if [ "$heads" -gt "$MAX_HEADS" ]; then msg="more than $MAX_HEADS entries arrived at once, too many to be appends"
+      else msg="$(( n_size - offset )) bytes arrived at once, too many to be appends"; fi
+      # Move and save the place BEFORE the notice: if the pipe is closed, the notice exits through `closed`, whose save_state must not save the place before the burst, or the next run repeats the notice.
       buf=""; offset=$n_size; fp=$(fingerprint "$log" "$offset"); last_new=$SECONDS; save_state
+      notice "$msg"
       continue
     fi
     buf="$buf$chunk"
