@@ -8,6 +8,7 @@
 # event IS the entry, and a session reads it without running anything.
 #
 # THE MONITOR COMMAND a session uses. Always pass `timeout_ms: 1800000`, the Monitor tool's maximum: the default is 5 minutes, and no other key name sets it. It may still expire sooner; re-arm it with the same command when it expires. --state makes the new run print what arrived in between, or one notice line telling you to read the log from your last-read stamp (a gap over 16 KB, or a log rewritten or replaced while no Monitor ran, or while the last one was still re-syncing after a rewrite).
+# A long entry can arrive CUT SHORT: the harness cuts a Monitor notification at about 500 characters and adds `...(truncated)`, although this script printed the line whole. The line starts with the entry's stamp and heading, so read that entry in full in the log when you see the mark.
 #
 #     Monitor({ command: "bash ~/.claude/bin/xlog-follow.sh --state ~/.local/state/xlog-follow/$CLAUDE_CODE_SESSION_ID",
 #               description: "new cross-session log entries",
