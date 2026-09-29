@@ -21,7 +21,7 @@
 # WHAT IT CANNOT SEE. A SendMessage to a stopped DV session wakes it without any Bash command, so no Bash hook
 # sees it; nothing guards SendMessage. `claude -c` / `--continue` resumes the latest conversation of the
 # working directory without naming it, and is not checked. A line that does not parse is skipped.
-# Nor does it see what the SHELL builds, because it reads the command's text and does not run the shell: a name in a variable (`n='[L0-DV] x'; claude --bg --name "$n"`, found by the DV soak of 2026-09-29), an ANSI-C quoted name (`--name $'[C0-\x44V] x'`), or the program itself in a variable (`c=claude; $c --bg …`), both found by the review of #86. The test suite lets each through as a KNOWN-LIMIT, so a future fix shows up.
+# Nor does it see what the SHELL builds, because it reads the command's text and does not run the shell: a name in a variable (`n='[L0-DV] x'; claude --bg --name "$n"`, found by the DV soak of 2026-09-29), or the program itself in a variable (`c=claude; $c --bg …`, found by the review of #86). ANSI-C quotes (`$'…'`), a `$( )` or backtick span that names claude, and a glob that matches claude ARE read: the hook does those three expansions itself. The test suite lets each through as a KNOWN-LIMIT, so a future fix shows up.
 #
 # Fail-open on everything else: no `claude` word, bad JSON, or a listing that cannot be read lets the call
 # through, because a tripwire that blocks unrelated work would be switched off, and then it guards nothing.
@@ -29,7 +29,7 @@
 # ONE python3 process for the whole hook, since it runs on every Bash call: the program is read into a variable
 # with the builtin `read` (no extra process), and python3 reads the tool call from stdin itself.
 IFS= read -r -d '' PROG <<'PYEOF' || true
-import json, os, re, shlex, subprocess, sys
+import codecs, fnmatch, json, os, re, shlex, subprocess, sys
 
 try:
     cmd = json.load(sys.stdin).get("tool_input", {}).get("command", "") or ""
@@ -39,8 +39,21 @@ except Exception:
 # ~/.claude/hooks or dotfiles/claude/tests is not the word, so most fleet commands leave here (review of #86).
 # Two more things the shell does that the text does not show (review 2 of #86): the file system ignores case, so `Claude` runs Claude Code; and bash joins `c\laude`, `cl""aude` and `'cl'aude` back into `claude`. So the fast path looks at the text as written and with backslashes and quotes removed, in any case.
 WORD = re.compile(r"(^|[^.A-Za-z0-9_-])claude([^/A-Za-z0-9_.-]|$)", re.I)
-if not (WORD.search(cmd) or WORD.search(re.sub(r"[\\'\"]", "", cmd))):   # both: removing the quotes of -S'claude …' glues the word to -S
-    sys.exit(0)
+ANSI_C = re.compile(r"\$'((?:[^'\\]|\\.)*)'")
+def decode_ansi_c(text):
+    # bash turns $'...' into its decoded text; so does this, so `$'\x63laude'` reads as claude (review 3 of #86).
+    def one(m):
+        try:
+            body = codecs.decode(m.group(1).encode("utf-8"), "unicode_escape").encode("latin-1", "replace").decode("utf-8", "replace")
+        except Exception:
+            body = m.group(1)
+        return "'" + body.replace("'", "") + "'"
+    return ANSI_C.sub(one, text)
+plain = decode_ansi_c(cmd)
+# The slow path also runs when a word holds glob characters near "cl": `/opt/homebrew/bin/claud*` has no whole word.
+if not (WORD.search(cmd) or WORD.search(plain) or WORD.search(re.sub(r"[\\'\"]", "", plain))
+        or re.search(r"cl[^\s]*[*?\[]|[*?\[][^\s]*ude", plain, re.I)):
+    sys.exit(0)   # both texts: removing the quotes of -S'claude …' glues the word to -S
 DV = re.compile(r"-dv\]", re.I)
 
 def deny(reason):
@@ -120,6 +133,9 @@ def effective(c):
     if i >= len(c):
         return "", []
     prog = os.path.basename(c[i]).lower()
+    # A glob that bash expands to claude (`/opt/homebrew/bin/claud*`, `cl[a]ude`) is claude (review 3 of #86).
+    if prog != "claude" and any(ch in prog for ch in "*?[") and fnmatch.fnmatchcase("claude", prog):
+        prog = "claude"
     if prog in WRAPPERS:
         for j in range(i + 1, len(c)):
             w = os.path.basename(c[j]).lower()
@@ -289,6 +305,31 @@ def check_segment(c, sep, here, prev, depth):
                     check(w, depth + 1)
                 check(" ".join(words), depth + 1)
 
+def stand_in(line):
+    # For TOKENIZING only: a $( ) or backtick span that holds the claude word stands in as the word itself, so
+    # `"$(command -v claude)" --bg …` and `$(echo claude) --bg …` read as a claude call (review 3 of #86). The span's
+    # inside is still checked on its own by substitutions(). Single-quoted text is left alone.
+    out, i, n, sq = [], 0, len(line), False
+    while i < n:
+        ch = line[i]
+        if ch == "'" :
+            sq = not sq; out.append(ch); i += 1; continue
+        if not sq and line.startswith("$(", i):
+            depth, j = 1, i + 2
+            while j < n and depth:
+                if line[j] == "(": depth += 1
+                elif line[j] == ")": depth -= 1
+                j += 1
+            span = line[i:j]
+            out.append("claude" if WORD.search(span) else span); i = j; continue
+        if not sq and ch == "`":
+            j = line.find("`", i + 1)
+            j = n if j < 0 else j + 1
+            span = line[i:j]
+            out.append("claude" if WORD.search(span) else span); i = j; continue
+        out.append(ch); i += 1
+    return "".join(out)
+
 def check(line, depth=0):
     if depth > 4:
         return
@@ -300,6 +341,7 @@ def check(line, depth=0):
             check(sub, depth + 1)
     for sub in substitutions(line):
         check(sub, depth + 1)
+    line = stand_in(decode_ansi_c(line))
     try:
         segs = list(segments(tokenize(line)))
     except ValueError:

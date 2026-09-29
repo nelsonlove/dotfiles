@@ -99,6 +99,15 @@ case_ deny  'CLAUDE --bg --name "[C0-DV] x" y'
 case_ deny  'c\laude --bg --name "[C0-DV] x" y'
 case_ deny  'cl""aude --bg --name "[C0-DV] x" y'
 case_ deny  "'cl'aude --bg --name \"[C0-DV] x\" y"
+# Review 3 of #86: a program the shell builds from ANSI-C quotes, a substitution, or a glob.
+case_ deny  "\$'claude' --bg --name \"[C0-DV] x\" y"
+case_ deny  "\$'\\x63laude' --bg --name \"[C0-DV] x\" y"
+case_ deny  "claude --bg --name \$'[C0-\\x44V] x' y"
+case_ deny  '"$(command -v claude)" --bg --name "[C0-DV] x" y'
+case_ deny  '$(echo claude) --bg --name "[C0-DV] x" y'
+case_ deny  '`echo claude` --bg --name "[C0-DV] x" y'
+case_ deny  '/opt/homebrew/bin/claud* --bg --name "[C0-DV] x" y'
+case_ deny  '/opt/homebrew/bin/cl[a]ude --bg --name "[C0-DV] x" y'
 echo
 echo "=== refused: a DV session reached through the id it resumes"
 case_ deny  "claude --resume $DVID"
@@ -130,8 +139,10 @@ case_ allow "printf '%s\\n' '\$(claude --bg --name \"[C0-DV] x\")' >> notes.md"
 case_ allow $'cat <<\'EOF\' > x.md\n$(claude --bg --name "[C0-DV] x" y)\nEOF'
 # KNOWN LIMITS, found by the DV soak of 2026-09-29 and the review of #86: the hook reads the command's text and does not run the shell, so it cannot see a name or a program built by the shell.
 known_limit "n='[L0-DV] var'; claude --bg --name \"\$n\" y"
-known_limit "claude --bg --name \$'[C0-\\x44V] x' y"
 known_limit "c=claude; \$c --bg --name \"[C0-DV] x\" y"
+# A substitution that runs claude for its output is not a start.
+case_ allow 'x=$(claude agents --json --all); echo "$x" | jq length'
+case_ allow 'echo "$(claude --version)"'
 case_ allow ''
 
 echo
@@ -148,6 +159,6 @@ PYX
 if [ "$reg" = ok ]; then printf 'PASS  the repo settings.json has one Bash PreToolUse entry for dv-tripwire.sh, timeout 1-10 s\n'; else fails=$((fails + 1)); printf 'FAIL  settings.json: %s\n' "$reg"; fi
 
 printf '\n%s checks, %s failed, %s known limits let through\n' "$n" "$fails" "$known"
-EXPECTED=74
+EXPECTED=83
 [ "$n" = "$EXPECTED" ] || { echo "FAIL  the check count is $n, expected $EXPECTED"; exit 1; }
 [ "$fails" = 0 ] || exit 1
