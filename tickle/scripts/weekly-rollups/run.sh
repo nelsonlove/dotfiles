@@ -148,7 +148,8 @@ if [ "$dry" != "1" ] && [ -z "${WR_LOCKED:-}" ]; then
   case "$lrc" in
     0|2|3|4|5|6) wr_ok=1; exit "$lrc" ;;
     75) finish 0 "SKIPPED — another weekly-rollups run holds $LOCK_FILE" ;;
-    *) finish 2 "lockf could not take the lock $LOCK_FILE (exit $lrc)" ;;
+    6[4-9]|7[0-8]) finish 2 "lockf could not take the lock $LOCK_FILE (exit $lrc)" ;;
+    *) finish 2 "the locked run ended with exit $lrc (above 128 means a signal, such as tickle's timeout)" ;;
   esac
 fi
 [ "$dry" = "1" ] && say "DRY RUN — nothing is written and nothing is dispatched"
@@ -178,6 +179,13 @@ is_ours() { grep -Eq '^[[:space:]]+by:[[:space:]]*"?tickle weekly-rollups"?[[:sp
 uuid7() { /usr/bin/perl -MTime::HiRes=time -e 'my $ms=int(time*1000); my @r=map{int rand 256}1..10; printf "%08x-%04x-7%03x-%04x-%04x%08x\n", $ms>>16, $ms&0xffff, ($r[0]<<4|$r[1]>>4)&0xfff, 0x8000|(($r[2]<<8|$r[3])&0x3fff), $r[4]<<8|$r[5], ($r[6]<<24|$r[7]<<16|$r[8]<<8|$r[9])'; }
 
 is_closed() { grep -Eq '^status:[[:space:]]*"?archived/' "$1"; }
+# open_not_started <week>: every open "not started" item for the week, the dated "(again …)" ones too, one per line.
+open_not_started() {
+  for f in "$QUEUE_DIR/Weekly rollup not started $1.md" "$QUEUE_DIR/Weekly rollup not started $1 (again "*").md"; do
+    [ -f "$f" ] && ! is_closed "$f" && printf '%s\n' "$f"
+  done
+  return 0
+}
 
 # respond <file> <needs> <line> — set `needs` and `modified` in the frontmatter, and put <line> at the end of the
 # `## Response` section (before the next `## ` heading, or at the end of the file). Only on this job's own open items:
@@ -191,15 +199,17 @@ respond() {
   st=$(iso_now)
   m0=$(stat -f %m "$rf") || { say "WARNING: could not update $rf (cannot stat it)"; return 0; }
   tmpf=$(mktemp "$(dirname "$rf")/.weekly-rollups-respond.XXXXXX") || { say "WARNING: could not update $rf (no temp file)"; return 0; }
-  if awk -v st="$st" -v nd="$rn" -v ln="- $st — $rl" '
+  WR_LN="- $st — $(printf '%s' "$rl" | tr '\n\r' '  ')" \
+  awk -v st="$st" -v nd="$rn" '
+      BEGIN { ln = ENVIRON["WR_LN"] }
       BEGIN { fm = 0; inr = 0; done = 0 }
       fm < 2 && /^---$/ { fm++; print; next }
       fm == 1 && /^needs:/ { print "needs: " nd; next }
       fm == 1 && /^modified:/ { print "modified: " st; next }
       fm >= 2 && /^## / { if (inr && !done) { print ln; print ""; done = 1 }; inr = ($0 == "## Response") }
       { print }
-      END { if (!done) print ln }' "$rf" > "$tmpf" \
-     && [ "$(stat -f %m "$rf")" = "$m0" ] && mv "$tmpf" "$rf"; then
+      END { if (!done) print ln }' "$rf" > "$tmpf"
+  if [ "$?" -eq 0 ] && chmod "$(stat -f %Lp "$rf")" "$tmpf" && [ "$(stat -f %m "$rf")" = "$m0" ] && mv "$tmpf" "$rf"; then
     say "queue item updated (needs: $rn): $rf"
   else
     say "WARNING: could not update $rf (it changed while being rewritten, or the write failed); left as it was"
@@ -215,9 +225,8 @@ file_queue_item() {
   kind="$1"; qw="$2"; why="$3"; suffix="${4:-}"
   title="Weekly rollup $kind $qw$suffix"
   qf="$QUEUE_DIR/$title.md"
-  ns_item="$QUEUE_DIR/Weekly rollup not started $qw.md"
-  if [ "$kind" = missed ] && [ -e "$ns_item" ] && ! is_closed "$ns_item"; then
-    say "not filing \"missed $qw\": the open item $ns_item already asks about that week"
+  if [ "$kind" = missed ] && [ -n "$(open_not_started "$qw")" ]; then
+    say "not filing \"missed $qw\": an open \"not started $qw\" item already asks about that week"
     return 0
   fi
   if [ -e "$qf" ]; then
@@ -278,9 +287,23 @@ Expected:
 
 # settle_not_started <week> — after a confirmed dispatch, close out this job's own "not started" item for the week.
 settle_not_started() {
-  nf="$QUEUE_DIR/Weekly rollup not started $1.md"
-  [ -f "$nf" ] || return 0
-  respond "$nf" nothing "${2:-The weekly-rollups job started the lieutenant for $1 after all.}" || true
+  open_not_started "$1" | while IFS= read -r nf; do
+    respond "$nf" nothing "${2:-The weekly-rollups job started the lieutenant for $1 after all.}" || true
+  done
+}
+
+# check_previous — guard 5, also run by guard 3 before it skips, so a missing previous week is never passed over.
+check_previous() {
+  missing=""
+  [ -e "$(nb_file "$prev")" ] || missing="$missing notebook"
+  [ -e "$(xs_file "$prev")" ] || missing="$missing cross-session"
+  if [ -n "$missing" ]; then
+    say "previous week $prev missing:$missing"
+    file_queue_item missed "$prev" "Missing at the run for $week:$missing."
+  else
+    say "previous week $prev: both rollups exist"
+    [ "$dry" = "1" ] || settle_not_started "$prev" "The rollups for $prev now exist."
+  fi
 }
 
 # ---- 1. fleet pause ----
@@ -309,6 +332,7 @@ exists=""
 [ -e "$(xs_file "$week")" ] && exists="$exists $(xs_file "$week")"
 if [ -n "$exists" ]; then
   [ "$dry" = "1" ] || settle_not_started "$week" "The rollups for $week now exist."
+  check_previous
   finish 0 "SKIPPED — $week already has a rollup, nothing overwritten, nothing dispatched:$exists"
 fi
 say "target week $week: no rollup yet"
@@ -336,15 +360,7 @@ fi
 say "live check: no $LT_NAME running"
 
 # ---- 5. previous week's rollups ----
-missing=""
-[ -e "$(nb_file "$prev")" ] || missing="$missing notebook"
-[ -e "$(xs_file "$prev")" ] || missing="$missing cross-session"
-if [ -n "$missing" ]; then
-  say "previous week $prev missing:$missing"
-  file_queue_item missed "$prev" "Missing at the run for $week:$missing."
-else
-  say "previous week $prev: both rollups exist"
-fi
+check_previous
 
 # ---- 6. brief markers ----
 [ -r "$BRIEF_NOTE" ] || { file_queue_item "not started" "$week" "The standing brief note could not be read, so no lieutenant was started."; finish 3 "standing brief unreadable: $BRIEF_NOTE"; }

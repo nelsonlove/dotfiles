@@ -54,7 +54,7 @@ case "$1" in
       1) echo '[{"id":"deadbeef","name":"[L0-OB] weekly rollups","pid":1,"status":"busy","state":"working"}]' > "$S/agents.json" ;;
       other) echo '[{"id":"cafef00d","name":"[L0-OB] weekly rollups","pid":2,"status":"busy","state":"working"}]' > "$S/agents.json" ;;
     esac
-    if [ "$(cat "$S/bg_registers")" = noid ]; then echo "started"; else echo "backgrounded session deadbeef"; fi
+    if [ "$(cat "$S/bg_registers")" = noid ]; then printf 'started\nsecond line\n'; else echo "backgrounded session deadbeef"; fi
     exit "$(cat "$S/bg_rc")" ;;
 esac
 exit 0
@@ -255,6 +255,25 @@ check "closed: dated item filed" [ -f "$Q/Weekly rollup not started 2026-W40 (ag
 # 10i. A lock that cannot be taken for any reason but "held" is a failed run.
 new_case; mkdir -p "$C/ro"; chmod 500 "$C/ro"; LOCKPATH="$C/ro/run.lock" go --week 2026-W40; chmod 700 "$C/ro"
 check "lock unusable: exit 2" [ "$RC" = 2 ]; check "lock unusable: says so" out_has "lockf could not take the lock"; check "lock unusable: no dispatch" not_dispatched
+
+# 10j. A multi-line cause is recorded on one line; the item keeps its file mode.
+new_case; echo noid > "$S/bg_registers"; go --week 2026-W40; chmod 644 "$Q/Weekly rollup not started 2026-W40.md"
+echo '[]' > "$S/agents.json"; go --week 2026-W40
+check "multi-line cause: recorded" grep -qF 'Output: started second line' "$Q/Weekly rollup not started 2026-W40.md"
+check "mode kept" [ "$(stat -f %Lp "$Q/Weekly rollup not started 2026-W40.md")" = 644 ]
+
+# 10k. Guard 5 settles last week's open item once last week's rollups exist; a dated item is settled too.
+new_case; /usr/bin/trash "$NB/Agent rollup for 2026-W39.md" "$XS/Cross-session rollup for 2026-W39.md"; echo 1 > "$S/bg_rc"; go --week 2026-W39
+: > "$NB/Agent rollup for 2026-W39.md"; : > "$XS/Cross-session rollup for 2026-W39.md"; echo 0 > "$S/bg_rc"; echo '[]' > "$S/agents.json"; go --week 2026-W40
+check "prev settled at guard 5" grep -qx 'needs: nothing' "$Q/Weekly rollup not started 2026-W39.md"
+new_case; echo 1 > "$S/bg_rc"; go --week 2026-W40
+sed -i '' 's|^status: draft/proposed$|status: archived/done|' "$Q/Weekly rollup not started 2026-W40.md"; echo '[]' > "$S/agents.json"; go --week 2026-W40
+echo 0 > "$S/bg_rc"; echo '[]' > "$S/agents.json"; go --week 2026-W40
+check "dated item settled" grep -qx 'needs: nothing' "$Q/Weekly rollup not started 2026-W40 (again $(date +%Y-%m-%d)).md"
+
+# 10l. Guard 3 still reports a missing previous week before it skips.
+new_case; : > "$NB/Agent rollup for 2026-W40.md"; /usr/bin/trash "$XS/Cross-session rollup for 2026-W39.md"; go --week 2026-W40
+check "guard 3: exit 0" [ "$RC" = 0 ]; check "guard 3: missed filed" [ -f "$Q/Weekly rollup missed 2026-W39.md" ]
 
 # 11. Week arithmetic and bad input.
 new_case; go --dry-run --week 2027-W01
