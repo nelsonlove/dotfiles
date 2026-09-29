@@ -28,7 +28,7 @@ bad = [h for h in rul if re.search(r"—\s*(claim|release)\b", h)]
 # False negatives: a heading whose kind (the text after "· author — ") names a ruling, and is not a claim or release, must read as a ruling.
 def kind(h):
     m = re.search(r"·.*?\s[—–-]\s*(.*)$", h); return m.group(1) if m else ""
-missed = [h for h in heads if re.search(r"\bruling\b", kind(h), re.I) and not re.match(r"(claim|release)\b", kind(h), re.I) and not hook.is_ruling(h)]
+missed = [h for h in heads if re.search(r"\brulings?\b", kind(h), re.I) and not re.match(r"(claim|release)\b", kind(h), re.I) and not hook.is_ruling(h)]
 for h in missed: print("      missed:", h[:120], file=sys.stderr)
 print("entries=%d rulings=%d claims_or_releases=%d misread=%d missed=%d" % (len(heads), len(rul), len(claims), len(bad), len(missed)))
 PY
@@ -161,15 +161,21 @@ if [ "$all" = "T1 T2 T3 T4 T5 " ]; then pass "rulings tied on one stamp over the
   printf '## %sT03:01 · [A0] rear admiral – ruling\nEN dash ruling.\n\n' "$day"
   printf '## %sT03:02 · [A0] rear admiral - ruling (relayed)\nHYPHEN ruling.\n\n' "$day"
   printf '## %sT03:03 · [L0-CC] a - claim: the pre-ruling file\nHYPHEN claim.\n\n' "$day"
+  printf '## %sT03:04 · [A0] rear admiral—ruling\nNO SPACE ruling.\n\n' "$day"
+  printf '## %sT03:05 · [A0] rear admiral — rulings: two of them\nPLURAL rulings.\n\n' "$day"
+  printf '## %sT03:06 · [A0] rear admiral — ruling and release in one\nCOMBINED ruling.\n\n' "$day"
 } > "$LOG"
 job 33333333 lieutenant
 out=$(inject 33333333)
 has   "a ruling marked with an en dash is shown" "$out" "EN dash ruling."
 has   "a ruling marked with a hyphen and a note is shown" "$out" "HYPHEN ruling."
 lacks "a hyphen claim is still a claim" "$out" "HYPHEN claim."
+has   "a ruling marked with an em dash and no space is shown" "$out" "NO SPACE ruling."
+has   "a plural 'rulings:' is shown" "$out" "PLURAL rulings."
+has   "a combined 'ruling and release in one' is shown" "$out" "COMBINED ruling."
 has   "a lieutenant still gets the channel list" "$out" "Cross-session channels discovered"
 
-EXPECTED=25
+EXPECTED=28
 [ $((n)) = "$EXPECTED" ] || { fails=$((fails + 1)); echo "FAIL  the check count is $n, expected $EXPECTED"; }
 printf '\n%s checks (expected %s), %s failed, %s skipped\n' "$n" "$EXPECTED" "$fails" "$skips"
 [ "$fails" = 0 ] || exit 1
