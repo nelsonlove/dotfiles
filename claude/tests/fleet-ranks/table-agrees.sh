@@ -109,14 +109,31 @@ eq "an empty code is not" "$(ship_is_known '' || echo no)"  no
 eq "ship of [L0-CC]"      "$(ship_of_name '[L0-CC] dotfiles')" CC
 eq "ship of [C0-HS]"      "$(ship_of_name '[C0-HS] orange')"   HS
 eq "ship of [C0-MA]"      "$(ship_of_name '[C0-MA] macos')"    MA
+eq "ships in words"       "$(ships_in_words)"          "CC, OB, HS or MA"
 eq "ship of [L0-FL]"      "$(ship_of_name '[L0-FL] dotfiles')" FL
 eq "ship of a bare name"  "$(ship_of_name '[L0] dotfiles')"    ""
 eq "ship of [A0]"         "$(ship_of_name '[A0] rear admiral')" ""
 
 echo
+echo "=== promote-session.sh speaks the table: MA passes the ship gate, and the refusal names every ship"
+# Both runs refuse BEFORE any session is looked up or any record written: the all-zero id is no session,
+# --dry-run is set, and --jobs-dir and --log point into a temp dir. No throwaway is needed.
+# Added 2026-09-29 on review of #72: the refusal sentences once typed the ship list by hand, and no case
+# read their text, so a ship missing from them would have shipped with every check green.
+PTMP=$(mktemp -d -t table-agrees) || exit 1
+ZERO=00000000-0000-0000-0000-000000000000
+pr() { bash "$BIN/promote-session.sh" --session $ZERO --to lieutenant --why x --jobs-dir "$PTMP" --log "$PTMP/log.md" --dry-run "$@" 2>&1; }
+out=$(pr --name "[L0] x" --by "[C2] ship words test")
+eq "no ship: the refusal names every ship" "$out" "promote-session: --by has no ship code; pass --ship CC, OB, HS or MA (FL for a floating session)"
+out=$(pr --name "[L0-MA] x" --by "[C2] ship words test" --ship MA)
+case "$out" in *"no background session"*) r=past-the-ship-gate ;; *) r="$out" ;; esac
+eq "--ship MA and an [L0-MA] name pass the ship gates" "$r" past-the-ship-gate
+rm -rf "$PTMP"
+
+echo
 echo "=== the negative: neither consumer may still define a shared name"
 for f in wake-session.sh promote-session.sh; do
-  for fn in rank_of_name rank_of_caller rank_of_agent word_of_rank bare_code_of_rank code_of_rank ship_of_name ship_is_known; do
+  for fn in rank_of_name rank_of_caller rank_of_agent word_of_rank bare_code_of_rank code_of_rank ship_of_name ship_is_known ships_in_words; do
     # `grep -c` PRINTS 0 and EXITS 1 when it finds nothing, so a `|| echo 0` fallback appends a second
     # zero and the value becomes two lines. Learned here, at the cost of twenty false failures.
     # `^name()` WITHOUT requiring the brace: a copy written with `{` on the next line slipped past the
@@ -132,9 +149,11 @@ for f in wake-session.sh promote-session.sh; do
   if [ "$c" -ge 1 ]; then eq "$f sources the table" yes yes; else eq "$f sources the table" no yes; fi
 done
 
-# The count is asserted, not only printed (tests/README.md rule 1): 84 before the MA cases, 87 with them.
-# Change EXPECTED only in the same commit that adds or removes a check, and say which.
-EXPECTED=87
-printf '\n%s checks, %s failed\n' "$n" "$fails"
-[ "$n" = "$EXPECTED" ] || { echo "FAIL  the check count is $n, expected $EXPECTED: a line was lost or added without updating EXPECTED"; exit 1; }
+# The count is asserted, not only printed (tests/README.md rule 1): 84 before the MA cases, and 92 since
+# the review of #72 (three MA table cases, `ships_in_words`, two promote-session cases, and the two new
+# negative checks). Change EXPECTED only in the commit that adds or removes a check, and say which.
+# The count is part of the summary line, so a run that lost checks can never print a green summary.
+EXPECTED=92
+[ "$n" = "$EXPECTED" ] || { fails=$((fails + 1)); echo "FAIL  the check count is $n, expected $EXPECTED: a line was lost or added without updating EXPECTED"; }
+printf '\n%s checks (expected %s), %s failed\n' "$n" "$EXPECTED" "$fails"
 [ "$fails" = 0 ] || exit 1

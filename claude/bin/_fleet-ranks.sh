@@ -123,15 +123,28 @@ code_of_rank() {  # $1 = rank, $2 = ship code
 
 # --- the ships -------------------------------------------------------------------------------------
 # CC is the Claude Code ship, OB the obsidian ship, HS the home server (captain `[C0-HS] orange`), all
-# three ruled 2026-09-26, and MA the macOS ship (captain `[C0-MA] macos`), ruled 2026-09-29 on Nelson's
-# "A, MA". FL is not a ship but the marker of a floating session shared across captains,
-# and it is listed beside them because it is what such a name carries.
+# three ruled 2026-09-26; MA is the macOS ship (captain `[C0-MA] macos`), ruled 2026-09-29 on Nelson's
+# "A, MA". FL is not a ship but the marker of a floating session shared across captains, and it is listed
+# beside them because it is what such a name carries.
 #
 # ADD A SHIP HERE AND NOWHERE ELSE. `FLOATING_SHIP` sits directly below on purpose: `FL` appears both in
 # the list and as the floating marker, and the survey in `docs/fleet-machinery/` flags that separating the
-# two is how they drift apart.
+# two is how they drift apart. A refusal that names the ships builds the words with `ships_in_words`, so
+# no sentence types the list out by hand (it did until 2026-09-29, and adding MA had to edit it).
 KNOWN_SHIPS="CC OB HS MA FL"
 FLOATING_SHIP="FL"
+
+# The real ships in words, for a refusal: "CC, OB, HS or MA". FL is left out, because the sentences that
+# use this name it on its own ("FL for a floating session").
+ships_in_words() {
+  local out="" last="" c
+  for c in $KNOWN_SHIPS; do
+    [ "$c" = "$FLOATING_SHIP" ] && continue
+    if [ -n "$last" ]; then out="${out:+$out, }$last"; fi
+    last="$c"
+  done
+  if [ -n "$out" ]; then printf '%s or %s' "$out" "$last"; else printf '%s' "$last"; fi
+}
 
 # The ship a name declares — `CC` in `[L0-CC] dotfiles` — and empty for a bare `[L0] dotfiles`, which is
 # never guessed at: a wrong ship code files a session under the wrong captain, and only Nelson renames it.
