@@ -278,13 +278,19 @@ printf -- '=== wake-session: every listed rank code is accepted, not the numbers
 # is documentation of the intended value, carried into the label for a human reading the output, not
 # something this loop compares against anything. The numbers themselves are asserted in
 # claude/tests/fleet-ranks/table-agrees.sh — read that file for evidence about the rank values.
+# A0 is tried with an admiral's FULL name: since the wake follow-up after #71 (#88), an admiral is matched by its full name, so a bare `[A0] x` is refused (the case after this loop).
 for pair in "A0:-1" "C0:0" "C1:1" "C2:2" "L0:3" "L1:3"; do
   code=${pair%%:*}; want=${pair##*:}
-  got=$(printf '%s' "$("$W" --session nosuch --by "[$code] x" --why x --notebook-dir "$NB" --jobs-dir "$JOBSNULL" --dry-run 2>&1)")
+  by_name="[$code] x"; [ "$code" = A0 ] && by_name="[A0] rear admiral"
+  got=$(printf '%s' "$("$W" --session nosuch --by "$by_name" --why x --notebook-dir "$NB" --jobs-dir "$JOBSNULL" --dry-run 2>&1)")
   # a valid code gets past the --by check and dies on the unknown session instead
   if printf '%s' "$got" | grep -q 'no background session'; then pass "[$code] is accepted as a rank code (rank $want, per table-agrees.sh)"
   else fail "[$code] is accepted as a rank code (rank $want, per table-agrees.sh)" "$(printf '%s' "$got" | head -n 1)"; fi
 done
+
+# An [A0] name that is not one of the two admirals is refused as a caller, with the table's sentence (#88).
+refused_because "a bare [A0] x is refused: an admiral is matched by its full name" "is not one of the two admirals ('[A0] rear admiral', '[A0] areas admiral'); an admiral is matched by its full name" -- \
+  "$W" --session nosuch --by "[A0] x" --why x --notebook-dir "$NB" --jobs-dir "$JOBSNULL" --dry-run
 
 # THIS MUST BE A REAL CASE, counted through pass/fail like every other one above — it used to be printed and
 # never compared, which is the same disease this file's own header describes for the captain cases: a check
@@ -294,5 +300,8 @@ done
 lines=$(grep -c '^## ' "$LOG" 2>/dev/null) || lines=0
 if [ "$lines" = 0 ]; then pass "no case wrote a log line (log lines written: $lines)"
 else fail "no case wrote a log line (log lines written: $lines)" "every case was a dry run or a refusal"; fi
-printf '%s cases, %s failed\n' "$n" "$fails"
+# The count is asserted (tests/README.md rule 1): 58 cases until #88, 59 with the bare-[A0] refusal.
+EXPECTED=59
+[ "$n" = "$EXPECTED" ] || { fails=$((fails + 1)); printf 'FAIL  [the case count is %s, expected %s]\n' "$n" "$EXPECTED"; }
+printf '%s cases (expected %s), %s failed\n' "$n" "$EXPECTED" "$fails"
 [ "$fails" = 0 ] || exit 1
