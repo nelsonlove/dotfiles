@@ -155,7 +155,8 @@ allowed "the same target, rank from the name instead, is reachable by its comman
 
 printf -- '=== wake-session: the survey reads A0 and names its rank\n'
 out=$("$W" --all --by "[A0] rear admiral" --notebook-dir "$NB" --jobs-dir "$JOBSNULL" --log "$LOG" 2>&1)
-printf '%s' "$out" | grep -q 'rear admiral' && pass "survey names the rear admiral as the caller" || fail "survey names the rear admiral as the caller"
+# The survey heading is "survey by <name> (<rank word>, …)". The rank word for -1 is "admiral" since 2026-09-29 (#80); the NAME still says rear admiral, so the check reads the word in its parentheses, not the name.
+printf '%s' "$out" | grep -q 'survey by \[A0\] rear admiral (admiral,' && pass "survey names the caller and its rank word, admiral" || fail "survey names the caller and its rank word, admiral"
 printf '%s' "$out" | grep -q 'SHIP\|NO SHIP CODE' && pass "survey still groups by ship for an A0 caller" || fail "survey still groups by ship for an A0 caller"
 # The survey hides a captain-ranked row from a caller below A0, and shows it to A0. Same stub, two callers.
 out=$("$W" --all --by "$HOP" --notebook-dir "$NB" --jobs-dir "$JOBSCAP" --log "$LOG" 2>&1)

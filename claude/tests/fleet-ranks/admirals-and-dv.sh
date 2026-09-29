@@ -19,9 +19,7 @@
 # a stub on PATH that prints a fixture listing, the target id is all zeros, every run is --dry-run, and
 # --jobs-dir, --log and the notebook roots point into the temp dir. `jq` is the one real dependency.
 #
-# THE WAKE CASES ARE PENDING until wake-session.sh calls `ship_refusal`. It sits in open PR #71, which goes
-# first, so this branch may not edit it yet. Until then its cases are counted as pending in the summary line
-# and never as passes; the day the script calls the function, they run.
+# THE WAKE CASES were pending until wake-session.sh called `ship_refusal` (it sat in PR #71); since the wake follow-up they run every time.
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd -P)
 BIN="$HERE/../../bin"
@@ -165,28 +163,36 @@ WAKE_CASES=(
 )
 # The gate is a CALL, not a mention: a comment naming the function must not switch these cases on (review 1
 # of #73), and the call is the `$(ship_refusal …)` form both scripts use, before any `#` on the line (review 2).
-if grep -qE '^[^#]*\$\(ship_refusal ' "$BIN/wake-session.sh"; then
-  for c in "${WAKE_CASES[@]}"; do
-    IFS='|' read -r tgt by want <<<"$c"
-    out=$(run_wake "$tgt" "$by")
-    has "wake: $by on \`$tgt\` is refused" "$out" "$want"
-  done
-  # The admitted directions: the gate lets these through. Whether the target is then woken or sent a
-  # message is the rest of the script's business, so the assertion is only that no ship refusal fired.
-  for c in "[L0-PE] t|[A0] areas admiral" "[L0-CC] t|[A0] rear admiral"; do
-    IFS='|' read -r tgt by <<<"$c"
-    out=$(run_wake "$tgt" "$by")
-    case "$out" in *"$REFUSE_UNKNOWN"*|*"$REFUSE_REACH"*|*"$REFUSE_DV"*) r="$out" ;; *) r=admitted ;; esac
-    eq "wake: $by on \`$tgt\` passes the ship gate" "$r" admitted
-  done
-else
-  pending=$(( ${#WAKE_CASES[@]} + 2 ))
-  printf 'PENDING  %s wake cases: wake-session.sh does not call ship_refusal yet (it waits on PR #71)\n' "$pending"
-fi
+# Since the wake follow-up after #71, wake-session.sh calls ship_refusal, so these run every time (they were pending while #71 held the file).
+for c in "${WAKE_CASES[@]}"; do
+  IFS='|' read -r tgt by want <<<"$c"
+  out=$(run_wake "$tgt" "$by")
+  has "wake: $by on \`$tgt\` is refused" "$out" "$want"
+done
+# The admitted directions: the gate lets these through. Whether the target is then woken or sent a message is the rest of the script's business, so the assertion is only that no ship refusal fired.
+for c in "[L0-PE] t|[A0] areas admiral" "[L0-CC] t|[A0] rear admiral"; do
+  IFS='|' read -r tgt by <<<"$c"
+  out=$(run_wake "$tgt" "$by")
+  case "$out" in *"$REFUSE_UNKNOWN"*|*"$REFUSE_REACH"*|*"$REFUSE_DV"*) r="$out" ;; *) r=admitted ;; esac
+  eq "wake: $by on \`$tgt\` passes the ship gate" "$r" admitted
+done
+# The admiral DEFINITION needs an [A0] name, as in promote-session (#80): a session that runs it under another name has no rank the script can read, and one under an [A0] name is an admiral (so it is not below a captain caller).
+mkdir -p "$T/jobs/zz000000"; printf '{"template":"admiral"}\n' > "$T/jobs/zz000000/state.json"
+out=$(run_wake "[L0-CC] t" "[C0-CC] captain test")
+has "wake: an admiral definition on a non-[A0] name has no readable rank" "$out" "cannot tell the target's rank"
+out=$(run_wake "[A0] rear admiral" "[C0-CC] captain test")
+has "wake: an admiral definition on an [A0] name is an admiral, not below a captain" "$out" "may only wake a session below its own rank"
+mv "$T/jobs/zz000000" "$T/gone.jobs.zz"
+# The default wake message follows the current rules (read the text, since a dry run shows it only past the reporting line, which these fixtures do not build).
+msg=$(sed -n '/^default_message_for() {/,/^}/p' "$BIN/wake-session.sh")
+case "$msg" in *"give every new entry a disposition"*|*"if nothing is left to do, say that"*) r=old ;; *) r=current ;; esac
+eq "the default wake message drops the old disposition and 'say that' lines" "$r" current
+case "$msg" in *"without restating"*) r=silent ;; *) r=missing ;; esac
+eq "the default wake message says to dispose of entries without restating them" "$r" silent
 
 # The count is asserted and is part of the summary line (tests/README.md rule 1). Pending cases count
 # toward it, so the total is the same before and after wake-session.sh is edited.
-EXPECTED=79
+EXPECTED=83
 [ $((n + pending)) = "$EXPECTED" ] || { fails=$((fails + 1)); echo "FAIL  the check count is $((n + pending)), expected $EXPECTED: a line was lost or added without updating EXPECTED"; }
 printf '\n%s checks (expected %s), %s pending, %s failed\n' "$n" "$EXPECTED" "$pending" "$fails"
 [ "$fails" = 0 ] || exit 1
