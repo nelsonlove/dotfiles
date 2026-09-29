@@ -7,9 +7,7 @@
 # line is one whole entry: its `## ` heading and its body, with the entry's newlines joined by " ⏎ ". So the
 # event IS the entry, and a session reads it without running anything.
 #
-# THE MONITOR COMMAND a session uses (Monitor lasts at most 30 minutes; it may expire sooner; re-arm with the
-# same command when it expires, and --state makes the new run print what arrived in between; timeout_ms below is
-# a ceiling, not a promise):
+# THE MONITOR COMMAND a session uses. Pass `timeout_ms: 1800000`, the Monitor tool's maximum: without it (or with a `timeout` key, which the tool does not read) the Monitor expires after its default of 5 minutes. It may still expire sooner; re-arm it with the same command when it expires. --state makes the new run print what arrived in between, or one notice line telling you to read the log from your last-read stamp (a gap over 16 KB, or a log rewritten or replaced while no Monitor ran).
 #
 #     Monitor({ command: "bash ~/.claude/bin/xlog-follow.sh --state ~/.local/state/xlog-follow/$CLAUDE_CODE_SESSION_ID",
 #               description: "new cross-session log entries",
@@ -46,7 +44,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --log) [ $# -ge 2 ] || { echo "xlog-follow: --log needs a path" >&2; exit 2; }; log="$2"; shift 2 ;;
     --state) [ $# -ge 2 ] || { echo "xlog-follow: --state needs a path" >&2; exit 2; }; state="$2"; shift 2 ;;
-    -h|--help) sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "xlog-follow: unknown argument '$1'" >&2; exit 2 ;;
   esac
 done
@@ -106,8 +104,7 @@ MAX_HEADS=10       # more stamped headings than this in one tick's growth is a n
 read -r inode size mtime <<< "$(fstat "$log")"
 offset=${size:-0}; fp=$(fingerprint "$log" "$offset")
 if [ -n "$state" ] && [ -f "$state" ]; then
-  # Resume where the last run stopped (a Monitor lasts at most 30 minutes, may expire sooner, and is re-armed), if it is the same file
-  # and the bytes before the saved end are unchanged. Otherwise start at the end, as without --state.
+  # Resume where the last run stopped (a Monitor expires, at most after 30 minutes, and is re-armed), if it is the same file and the bytes before the saved end are unchanged. Otherwise print one notice and start at the end.
   read -r s_inode s_offset s_fp < "$state"
   if [ "$s_inode" = "$inode" ] && [ "${s_offset:-x}" -le "$offset" ] 2>/dev/null && [ "$(fingerprint "$log" "$s_offset")" = "$s_fp" ]; then
     if [ $(( offset - s_offset )) -gt "$RESUME_MAX" ]; then
