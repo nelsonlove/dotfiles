@@ -202,13 +202,13 @@ NOTEBOOK_ROOTS_LIB="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)/../lib/noteboo
 bash -n "$NOTEBOOK_ROOTS_LIB" 2>/dev/null || die "the notebook-roots library at $NOTEBOOK_ROOTS_LIB does not parse; refusing rather than reading half a notebook"
 # shellcheck source=../lib/notebook-roots.sh
 . "$NOTEBOOK_ROOTS_LIB" || die "the notebook-roots library at $NOTEBOOK_ROOTS_LIB could not be sourced"
-# THE bg-id PARSER, the one reader of the new id in `claude --bg` output (shared by promote-session.sh and wake-session.sh). Guarded as the other libraries are: readable, parses, defines bg_id.
+# THE bg-id PARSER, the one reader of the new id in `claude --bg` output (shared by promote-session.sh and wake-session.sh). Guarded as the other libraries are: readable, parses, defines bg_id and bg_parse.
 BG_ID_LIB="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)/../lib/bg-id.sh"
 [ -r "$BG_ID_LIB" ] || die "the bg-id parser is missing or unreadable at $BG_ID_LIB"
 bash -n "$BG_ID_LIB" 2>/dev/null || die "the bg-id parser at $BG_ID_LIB does not parse; refusing"
 # shellcheck source=../lib/bg-id.sh
 . "$BG_ID_LIB" || die "the bg-id parser at $BG_ID_LIB could not be sourced"
-command -v bg_id >/dev/null 2>&1 || die "the bg-id parser at $BG_ID_LIB parsed but defined no bg_id; refusing"
+for fn in bg_id bg_parse; do command -v "$fn" >/dev/null 2>&1 || die "the bg-id parser at $BG_ID_LIB parsed but defined no $fn; refusing"; done
 for fn in notebook_roots_of entries_in_root notebook_dir_for archive_dir_for; do
   command -v "$fn" >/dev/null 2>&1 || die "the notebook-roots library at $NOTEBOOK_ROOTS_LIB parsed but defined no $fn; refusing"
 done
@@ -645,18 +645,18 @@ wake_stopped() {  # uses row_*; $1 = the message
   # as <id>" when it still held the session as running, and the id it backgrounded either way. A
   # copy is this script's own doing, so it stops the copy before refusing, rather than leaving a
   # second session running, which is the very hazard the live path exists to avoid.
-  out_clean=$(printf '%s' "$out" | tr -d '\r' | sed -E $'s/\x1b\\[[0-9;?]*[A-Za-z]//g')
-  copy_id=$(printf '%s\n' "$out_clean" | sed -n -E 's/.*started a copy as ([0-9a-f]{6,}).*/\1/p' | head -n 1)
-  # The id it backgrounded comes from the shared parser. No id, or two, is a refusal. The session may be running, so `woken_unlogged` stays set and the exit trap names it for a record by hand.
-  bg_id=$(printf '%s' "$out" | bg_id) || die "could not read the backgrounded id from the resume of $row_id (bg-id says why, above); $row_id may be running now, so check \`claude agents --json\` before anything else; nothing was logged. Resume output: $out"
-  forked_id="$copy_id"
-  if [ -z "$forked_id" ] && [ -n "$bg_id" ] && [ "$bg_id" != "$row_id" ]; then forked_id="$bg_id"; fi
+  # Both ids come from the shared parser (claude/lib/bg-id.sh): BG_COPY, the id a "started a copy as" note names, is read even when the backgrounded id cannot be, so a copy is stopped before any refusal.
+  if bg_parse <<<"$out"; then parsed=1; else parsed=0; fi
+  forked_id="$BG_COPY"
+  if [ -z "$forked_id" ] && [ "$parsed" = 1 ] && [ "$BG_NEW" != "$row_id" ]; then forked_id="$BG_NEW"; fi
   if [ -n "$forked_id" ]; then
     woken_unlogged=""
     stop_note="the copy was stopped by this script"
     claude stop "$forked_id" >/dev/null 2>&1 || stop_note="the copy could NOT be stopped; stop $forked_id yourself"
     die "the resume of $row_id started a copy ($forked_id) instead of continuing it, which means Claude Code still held $row_id as running; $stop_note, nothing was logged, and $row_id was not woken. This is what a wake issued in the seconds right after a 'claude stop' looks like: the pid leaves the listing before the session stops being held as running. Wait a few seconds and run this again, or reach a live session by SendMessage instead. Resume output: $out"
   fi
+  # No copy, and no id either, or two: a refusal, loudly. The resume did run, so $row_id may be running: `woken_unlogged` stays set, and the exit trap names it for a record by hand. A parser that cannot read the CLI's output is a change to check, not one to guess past.
+  [ "$parsed" = 1 ] || die "could not read the backgrounded id from the resume of $row_id: $BG_ERR. $row_id may be running now; check \`claude agents --json --all\` for it and for any new id before anything else. Nothing was logged."
 
   waited=0
   while :; do

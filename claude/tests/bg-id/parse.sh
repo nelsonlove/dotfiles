@@ -41,26 +41,39 @@ echo "=== 2. built forms"
 E=$'\033'
 gives "an ANSI-coloured line" abcdef12 < <(printf 'backgrounded · %s[36mabcdef12%s[39m · [L0-CC] x\n' "$E" "$E")
 gives "a CR form" abcdef12 < <(printf 'backgrounded · abcdef12 · [L0-CC] x\r\n  claude attach abcdef12\r\n')
-gives "a 'resumed as' note that agrees" 0badcafe < <(printf 'note: resumed as 0badcafe.\nbackgrounded · 0badcafe · [L0-CC] x\n')
+gives "a 'resumed as' phrase is not read (the CLI prints none)" 0badcafe < <(printf 'note: resumed as 11111111.\nbackgrounded · 0badcafe · [L0-CC] x\n')
+gives "a copy phrase inside the NAME is not read" 1234abcd < <(printf 'backgrounded · 1234abcd · [L0-CC] started a copy as deadbeef\n')
+gives "a 6-hex id is an id" abc123 < <(printf 'backgrounded · abc123 · [L0-CC] x\n')
+gives "a longer hex id is an id" 0123456789ab < <(printf 'backgrounded · 0123456789ab · [L0-CC] x\n')
 gives "a hex word in the name is not the id" 1234abcd < <(printf 'backgrounded · 1234abcd · [L0-CC] deadbeef\n')
 gives "no name after the id" 1234abcd < <(printf 'backgrounded · 1234abcd\n')
 refuses "a no-id form" "no id" < <(printf 'Error: something went wrong\n')
 refuses "empty output" "no id" < <(printf '')
 refuses "a copy note and a backgrounded line that disagree" "different ids" < <(printf 'note: this started a copy as 11111111.\nbackgrounded · 22222222 · [L0-CC] x\n')
 refuses "two backgrounded lines with two ids" "different ids" < <(printf 'backgrounded · 11111111 · a\nbackgrounded · 22222222 · b\n')
-refuses "a backgrounded line with no hex id" "no 8-hex id" < <(printf 'backgrounded · nothexid · [L0-CC] x\n')
-refuses "a short hex token" "no 8-hex id" < <(printf 'backgrounded · abc123 · [L0-CC] x\n')
+refuses "a backgrounded line with no hex id" "no hex id" < <(printf 'backgrounded · nothexid · [L0-CC] x\n')
+refuses "a 5-hex token" "no hex id" < <(printf 'backgrounded · abc12 · [L0-CC] x\n')
 
 echo
 echo "=== 3. sourced, and used by both scripts"
 got=$(bash -c '. "$1"; printf "backgrounded · 9abcdef0\n" | bg_id' _ "$LIB" 2>&1)
 if [ "$got" = 9abcdef0 ]; then pass "sourced, bg_id works as a function"; else fail "sourced, bg_id works as a function" "got '$got'"; fi
+probe() {  # probe <input>: run bg_parse sourced, print "rc NEW COPY ORIGINAL"
+  bash -c '. "$1"; bg_parse <<<"$2"; rc=$?; printf "%s %s %s %s" "$rc" "${BG_NEW:--}" "${BG_COPY:--}" "${BG_ORIGINAL:--}"' _ "$LIB" "$1"
+}
+got=$(probe "$(cat "$FIX/resume-running-copy.out")")
+if [ "$got" = "0 61efac93 61efac93 05ab1bf4" ]; then pass "bg_parse on a real copy: new, copy and original ids"; else fail "bg_parse on a real copy" "got '$got'"; fi
+got=$(probe "$(cat "$FIX/resume-flags-copy.out")")
+if [ "$got" = "0 236a4f0e 236a4f0e 05ab1bf4" ]; then pass "bg_parse on a real flags copy: new, copy and original ids"; else fail "bg_parse on a real flags copy" "got '$got'"; fi
+got=$(probe "$(printf 'note: session 05ab1bf4 is already running in the background, so this started a copy as 61efac93.\nbackgrounded • 61efac93\n')")
+if [ "$got" = "1 - 61efac93 05ab1bf4" ]; then pass "bg_parse gives the copy id even when the backgrounded line cannot be read"; else fail "bg_parse gives the copy id even when the backgrounded line cannot be read" "got '$got'"; fi
+if grep -q 'lib/bg-id.sh' "$BIN/promote-session.sh" && grep -q '| bg_id)' "$BIN/promote-session.sh"; then pass "promote-session.sh reads the id through bg_id"; else fail "promote-session.sh reads the id through bg_id" "no bg_id use"; fi
+if grep -q 'lib/bg-id.sh' "$BIN/wake-session.sh" && grep -q 'bg_parse <<<"$out"' "$BIN/wake-session.sh"; then pass "wake-session.sh reads the ids through bg_parse"; else fail "wake-session.sh reads the ids through bg_parse" "no bg_parse use"; fi
 for s in promote-session.sh wake-session.sh; do
-  if grep -q 'lib/bg-id.sh' "$BIN/$s" && grep -q '| bg_id' "$BIN/$s"; then pass "$s reads the id through bg_id"; else fail "$s reads the id through bg_id" "no bg_id use"; fi
-  if grep -qE "awk '/\^backgrounded/" "$BIN/$s"; then fail "$s has no parser of its own left" "an awk /^backgrounded/ parser remains"; else pass "$s has no parser of its own left"; fi
+  if grep -qE "awk '/\^backgrounded/|started a copy as \(" "$BIN/$s"; then fail "$s has no parser of its own left" "an own backgrounded or copy parser remains"; else pass "$s has no parser of its own left"; fi
 done
 
-EXPECTED=21
+EXPECTED=27
 [ "$n" = "$EXPECTED" ] || { fails=$((fails + 1)); echo "FAIL  the check count is $n, expected $EXPECTED"; }
 printf '\n%s checks (expected %s), %s failed\n' "$n" "$EXPECTED" "$fails"
 [ "$fails" = 0 ] || exit 1
