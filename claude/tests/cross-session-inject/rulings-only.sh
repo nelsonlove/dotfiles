@@ -232,7 +232,7 @@ mids=$(printf '%s' "$out" | grep -cE '^MID[0-9]')
 if [ "$mids" -lt 5 ]; then pass "a first run does not stretch the cap for an older tied group ($mids of 5 shown)"; else fail "a first run does not stretch the cap for an older tied group" "all 5 shown"; fi
 
 # A ruling stamped in the future (the harness clock runs a day ahead after 20:00 local) must not carry a first run's stamp past now.
-tomorrow=$(date -v+1d +%Y-%m-%d)
+tomorrow=$(python3 -c 'import datetime; print((datetime.date.today() + datetime.timedelta(days=1)).isoformat())')
 { printf -- '---\naudience: fleet\n---\n\n'
   printf '## %sT00:30 · [A0] rear admiral — ruling\nTODAY one.\n\n' "$day"
   printf '## %sT23:59 · [A0] rear admiral — ruling\nFUTURE one.\n\n' "$tomorrow"
@@ -241,8 +241,11 @@ job 77777777 lieutenant
 out=$(inject 77777777)
 st=$(state_of 77777777)
 if [ "$st" \< "${tomorrow}T00:00" ]; then pass "a future-stamped ruling does not carry a first run's stamp past now"; else fail "a future-stamped ruling does not carry a first run's stamp past now" "stamp $st"; fi
+out=$(inject 77777777)
+st=$(state_of 77777777)
+if [ "$st" \< "${tomorrow}T00:00" ]; then pass "nor a later run's stamp"; else fail "nor a later run's stamp" "stamp $st"; fi
 
-EXPECTED=42
+EXPECTED=43
 [ $((n)) = "$EXPECTED" ] || { fails=$((fails + 1)); echo "FAIL  the check count is $n, expected $EXPECTED"; }
 printf '\n%s checks (expected %s), %s failed, %s skipped\n' "$n" "$EXPECTED" "$fails" "$skips"
 [ "$fails" = 0 ] || exit 1

@@ -201,7 +201,7 @@ def main():
     rank = session_rank(session_id) if unread else None
     if rank is not None and rank >= 1:
         # BELOW CAPTAIN: rulings only. THE STAMP, on a later run: it advances past every ruling shown, and past the claims and releases around them, which are not meant to be read below captain; it never passes a ruling that was not shown. With rulings left over the cap, it stops just below the first of them, so that ruling (and anything tied with it) comes back next start.
-        # ON A FIRST RUN (no stamp file for this session id; the captain's word on the #99 follow-up) the rule differs ON PURPOSE: the NEWEST rulings are shown, newest first, up to the cap (the newest stamp group kept whole), and the stamp goes to the newest ruling, so the older rulings of the 48-hour window are passed and never paged later. The note says so. The stamp is clamped to now, so a ruling stamped in the future (a harness-clock stamp runs a day ahead after 20:00 local) cannot hide the rulings logged before it.
+        # ON A FIRST RUN (no stamp file for this session id; the captain's word on the #99 follow-up) the rule differs ON PURPOSE: the NEWEST rulings are shown, newest first, up to the cap (the newest stamp group kept whole), and the stamp goes to the newest ruling, so the older rulings of the 48-hour window are passed and never paged later. The note says so. On both runs the stamp is clamped to now, so a ruling stamped in the future (a harness-clock stamp runs a day ahead after 20:00 local) cannot hide the rulings logged before it.
         unread.sort(key=lambda pair: norm(pair[0]))
         rulings = [(s, e) for s, e in unread if is_ruling(e.split("\n", 1)[0])]
         if first_run and rulings:
@@ -214,7 +214,7 @@ def main():
             older = len(rulings) - len(shown)
             left = []
             note = (f"[This session's first start: the newest {plural(len(shown), 'ruling')} {'is' if len(shown) == 1 else 'are'} shown, newest first. {plural(older, 'older ruling')} from the last {FIRST_RUN_WINDOW_HOURS} hours {'is' if older == 1 else 'are'} not shown and will not come back; read them in the file if your work needs them.]\n\n" if older else "")
-            new_state = min(top, datetime.now().strftime("%Y-%m-%dT%H:%M"))
+            new_state = top
         else:
             shown, used = [], 0
             for s_, e_ in rulings:
@@ -232,6 +232,8 @@ def main():
             else:
                 new_state = max((norm(s_) for s_, _ in unread), default=last)
             note = (f"[{plural(len(left), 'more ruling')} not shown: read them in the file now; they will also come back at the next session start]\n\n" if left else "")
+        # On either run, the stamp is clamped to now: a ruling stamped in the future cannot carry it past the rulings logged before that moment. The future-stamped ruling itself is shown again at each start until its time comes, which errs toward more reading.
+        new_state = min(new_state, datetime.now().strftime("%Y-%m-%dT%H:%M"))
         chan_lines = "\n".join(f"- {c}" for c in channel_index()) or f"- {log}"
         if shown:
             context = (
