@@ -5,7 +5,7 @@
 # cross-session log monitor event. are other agents doing that too? can we change the monitor event so agents
 # don't have to run those shell commands?" Under Monitor, every stdout line of this script is one event, and each
 # line is one whole entry: its `## ` heading and its body, with the entry's newlines joined by " ⏎ ". So the
-# event IS the entry, and a session reads it without running anything.
+# event IS the entry, and a session reads it without running anything, unless the entry is long (see the cut below).
 #
 # THE MONITOR COMMAND a session uses. Always pass `timeout_ms: 1800000`, the Monitor tool's maximum: the default is 5 minutes, and no other key name sets it. It may still expire sooner; re-arm it with the same command when it expires. --state makes the new run print what arrived in between, or one notice line telling you to read the log from your last-read stamp (a gap over 16 KB, or a log rewritten or replaced while no Monitor ran, or while the last one was still re-syncing after a rewrite).
 #
@@ -14,6 +14,7 @@
 #               timeout_ms: 1800000 })
 #
 # WHAT IT DOES
+#   * A long entry arrives CUT. Claude Code (2.1.284) cuts each Monitor line at exactly 500 characters and adds `...(truncated)` to it, although this script printed the line whole. Lines printed within 200 ms arrive as one notification, each line cut on its own, and the whole notification is cut at 3000 characters with `...(truncated)` on a line of its own. Every entry line starts with its entry's stamp and heading; a notice line starts with `xlog-follow:`. On a mark at the end of a LINE, read that entry in full. On a mark on its own line at the end of a NOTIFICATION, read every entry from the last stamp shown, that one included: it may have been cut with no mark of its own, and the entries after it are not in the notification at all. Read them in the fleet log, the file every notice line names (`~/obsidian/00-09 System/03 Agents/03.16 Cross-session log/CROSS-SESSION.md` unless --log says otherwise).
 #   * It starts AT THE END of the log and never replays the entries already there. With --state <file> it saves
 #     where it is (the start of any entry still pending), and a later run on the same file resumes from there. A
 #     gap over 16 KB, or a state file that no longer fits the log, prints one notice line instead.
