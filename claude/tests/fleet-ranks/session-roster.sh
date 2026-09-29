@@ -28,7 +28,7 @@ TMP=$(mktemp -d -t session-roster) || exit 1
 trap 'rm -rf "$TMP"' EXIT
 n=0; fails=0; skips=0
 # Every check outside section 1, whose own count depends on whether the real notebook is on this machine.
-SUITE_BASE=103
+SUITE_BASE=120
 SECTION1_CHECKS=0
 eq() { n=$((n + 1)); if [ "$2" = "$3" ]; then printf 'PASS  %-56s %s\n' "$1" "$2"; else fails=$((fails + 1)); printf 'FAIL  %-56s got %s, want %s\n' "$1" "$2" "$3"; fi; }
 pass() { n=$((n + 1)); printf 'PASS  %-56s %s\n' "$1" "${2:-yes}"; }
@@ -50,7 +50,12 @@ lib() {  # lib <snippet> [args…]; inside the snippet the args are $1, $2, …
 }
 
 echo "=== 1. THE REAL NOTEBOOK, read-only, under the callers own shell options"
-REAL_AGENTS="$HOME/obsidian/00-09 System/03 Agents"
+# Pointable, so a MUTATION RUN can skip it. Section 1 reads every entry in the real notebook — 495 of them,
+# about two minutes — and the reviewer of this branch reported his mutation run stalling behind it and giving
+# up after two of six mutants. A discipline that costs two minutes a mutant is a discipline nobody completes,
+# so `ROSTER_REAL_AGENTS=/nonexistent` turns section 1 into its SKIP branch and the count guard adapts. The
+# default is the real notebook and no runner has to know this exists.
+REAL_AGENTS="${ROSTER_REAL_AGENTS:-$HOME/obsidian/00-09 System/03 Agents}"
 if [ -d "$REAL_AGENTS/03.04 Records/Agent notebook" ]; then
   real=$(bash -euo pipefail -c '
     . "$1"; . "$2"; . "$3"
@@ -140,6 +145,21 @@ eq "an unquoted value still drops its comment" "$(lib 'roster_read "$1"; printf 
 # one and started the session in the wrong directory.
 E_NEST=$(entry "Agent session 2026-09-29T0410.md" 'session: "[L0-CC] nested"' 'session-id: 22222222-3333-4444-5555-666666666666' 'agent: lieutenant' 'cwd: /tmp/real' 'meta:' '  cwd: /tmp/nested')
 eq "a nested cwd does not win"     "$(lib 'roster_read "$1"; printf "%s" "$roster_cwd"' "$E_NEST")" "/tmp/real"
+# AN UNCLOSED BLOCK IS NOT FRONTMATTER FOR THE READER EITHER. The writer has refused one since the review of
+# #71 while this read to the end of the file and handed back body PROSE as keys — enough to pass the sweeper's
+# four-key test, or to send a resume to a directory named in a paragraph. A reader more credulous than the
+# writer is where a broken record does its damage.
+E_OPEN="$NB/2026-09/Agent session 2026-09-29T0411.md"
+printf -- '---\nsession: "[L0-CC] unclosed"\nsession-id: 33333333-4444-5555-6666-777777777777\n\nagent: this is prose, not a key\ncwd: /tmp/from-the-body\n' > "$E_OPEN"
+eq "an unclosed block reads as nothing"  "$(lib 'roster_read "$1"; printf "[%s|%s|%s]" "$roster_id" "$roster_agent" "$roster_cwd"' "$E_OPEN")" "[||]"
+
+# A KEY STATED TWICE READS AS NOTHING, on both sides. The writer rewrites a key in place and this takes the
+# last, and while the writer rewrote the FIRST the two disagreed about which line held the value — a resume
+# went to a directory nobody wrote. The writer refuses such a record now, and so does this: empty is "not
+# known", which makes the sweeper skip and a resume refuse.
+E_DUP=$(entry "Agent session 2026-09-29T0412.md" 'session: "[L0-CC] doubled"' 'session-id: 55555555-6666-7777-8888-999999999999' 'agent: lieutenant' 'cwd: /tmp/first' 'cwd: /tmp/second')
+eq "a doubled cwd reads as nothing"      "$(lib 'roster_read "$1"; printf "[%s]" "$roster_cwd"' "$E_DUP")" "[]"
+eq "and the keys beside it still read"   "$(lib 'roster_read "$1"; printf "%s" "$roster_agent"' "$E_DUP")" "lieutenant"
 eq "a full id is accepted"         "$(lib 'roster_read "$1"; roster_id_is_full "$roster_id" && echo yes || echo no' "$E_FOUR")" yes
 eq "a short id is refused"         "$(lib 'roster_read "$1"; roster_id_is_full "$roster_id" && echo yes || echo no' "$E_SHORT")" no
 eq "junk in the id is refused"     "$(lib 'roster_id_is_full "vaultbridge" && echo yes || echo no')" no
@@ -358,6 +378,52 @@ has   "and the id still lands"                   "$body" "session-id: \"$SID\""
 eq    "the frontmatter is still one block"       "$(grep -c '^---$' "$HNB/2026-09/Agent session 2026-09-29T0500.md")" 2
 printf '{"sessionId":"%s","name":"[L0-CC] roster test","jobId":"abcd1234","cwd":"%s","agent":"lieutenant"}\n' "$SID" "$TMP/live" > "$TMP/sessions/1.json"
 
+# A FOREIGN ID FOLLOWED BY A BLANK ONE. This is the road around the identity guard: the writer takes the LAST
+# `session-id` as the entry's identity, the last value here is empty, so the entry counted as id-less, was
+# adopted — and the FOREIGN line, being the first, was the one overwritten. The record then claimed a live
+# session's id. A key stated twice is refused outright now.
+hook_raw '---' 'session: "[L0-CC] roster test"' "session-id: \"$FOREIGN\"" 'session-id:' 'status: draft/running' '---' '' 'body'
+run_hook
+body=$(hook_body)
+eq    "a foreign id then a blank one exits 0"    "$hook_rc" 0
+has   "the foreign id is untouched"              "$body" "$FOREIGN"
+hasnt "and ours is not written"                  "$body" "$SID"
+
+# A DOUBLED `cwd`: the writer rewrote the first and the reader took the last, so a resume went to a directory
+# nobody wrote. Neither line is touched now.
+hook_raw '---' 'session: "[L0-CC] roster test"' 'status: draft/running' 'cwd: /tmp/first' 'cwd: /tmp/second' '---' '' 'body'
+run_hook
+body=$(hook_body)
+eq    "a doubled cwd exits 0"                    "$hook_rc" 0
+has   "the first is left alone"                  "$body" "cwd: /tmp/first"
+has   "and so is the second"                     "$body" "cwd: /tmp/second"
+hasnt "and nothing is written"                   "$body" "session-id:"
+
+# A CONTROL CHARACTER NEVER REACHES THE RECORD. A backspace byte in a cwd went raw into the quoted scalar, and
+# YAML does not allow one there — the note's properties stop parsing. Only `"` and `\` were refused before.
+printf '{"sessionId":"%s","name":"[L0-CC] roster test","jobId":"abcd1234","cwd":"/tmp/a\\bb","agent":"lieutenant"}\n' "$SID" > "$TMP/sessions/1.json"
+hook_entry 'cwd: /tmp/the-old-place'; run_hook
+body=$(hook_body)
+eq    "a cwd holding a control byte exits 0"     "$hook_rc" 0
+has   "the stale value is blanked"               "$body" 'cwd: ""'
+eq    "and no control byte is in the file"       "$(LC_ALL=C tr -d '\n' < "$HNB/2026-09/Agent session 2026-09-29T0500.md" | LC_ALL=C grep -c '[[:cntrl:]]' || true)" 0
+has   "and the id still lands"                   "$body" "session-id: \"$SID\""
+printf '{"sessionId":"%s","name":"[L0-CC] roster test","jobId":"abcd1234","cwd":"%s","agent":"lieutenant"}\n' "$SID" "$TMP/live" > "$TMP/sessions/1.json"
+
+# THE NEWEST ENTRY OF THE NAME IS THE ONE WRITTEN TO. The candidate list came back in directory order and the
+# loop stopped at the first `running` entry, so a STALE running entry from an earlier session of the same name
+# won. An entry with no `session-id` is adopted by design — that is what an entry written before the roster
+# ruling looks like — so the stale one took today's id, agent and cwd while the live session's own entry got
+# nothing. Both entries here are id-less and running, which is exactly the shape that has no other tiebreak.
+rm -f "$HNB/2026-09/Agent session 2026-09-29T0500.md"
+for stamp in 2026-09-20T0100 2026-09-29T2300; do
+  printf -- '---\nsession: "[L0-CC] roster test"\nstatus: draft/running\n---\n\nbody\n' > "$HNB/2026-09/Agent session $stamp.md"
+done
+run_hook
+has   "the newest same-named entry is written"   "$(cat "$HNB/2026-09/Agent session 2026-09-29T2300.md")" "session-id: \"$SID\""
+hasnt "and the stale one is left alone"          "$(cat "$HNB/2026-09/Agent session 2026-09-20T0100.md")" "session-id:"
+rm -f "$HNB/2026-09/Agent session 2026-09-20T0100.md" "$HNB/2026-09/Agent session 2026-09-29T2300.md"
+
 echo
 echo "=== 7. the sweeper: all four keys, ended, and not alive — or it skips"
 SJOBS="$TMP/sjobs"; mkdir -p "$SJOBS"
@@ -391,6 +457,10 @@ has  "a live row carrying no status is alive"  "$(sweep)" "SKIP  eeeeeeee"
 # A DEAD PID IS NOT ALIVE: pid 1 is init, which this test cannot own; use an id no process has.
 printf '[{"sessionId":"eeeeeeee-1111-2222-3333-444444444444","pid":999999,"status":"idle"}]' > "$TMP/listing.json"
 has  "a row whose pid is gone is sweepable"    "$(sweep)" "WOULD REMOVE  eeeeeeee"
+# A DEAD ROW MUST NOT HIDE A LIVE ONE. The check took the FIRST row's pid for an id, so two rows sharing a
+# sessionId with the dead one first swept a live session's job. One live pid anywhere under that id is enough.
+printf '[{"sessionId":"eeeeeeee-1111-2222-3333-444444444444","pid":999999},{"sessionId":"eeeeeeee-1111-2222-3333-444444444444","pid":%s}]' "$$" > "$TMP/listing.json"
+has  "a dead row does not hide a live one"     "$(sweep)" "SKIP  eeeeeeee"
 printf '[]' > "$TMP/listing.json"
 
 # THE LISTING MUST BE READABLE AND AN ARRAY, or the sweeper REFUSES. Every one of these used to resolve to

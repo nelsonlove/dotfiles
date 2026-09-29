@@ -70,9 +70,15 @@
 roster_read() {  # $1 = the entry's path
   roster_session=""; roster_id=""; roster_agent=""; roster_cwd=""
   [ -n "${1:-}" ] && [ -f "$1" ] || return 0
-  roster_block=$(awk 'NR == 1 { if ($0 !~ /^---[ \t\r]*$/) exit 1; next }
-                      /^---[ \t\r]*$/ { exit }
-                      { gsub(/\r/, ""); print }' "$1" 2>/dev/null || true)
+  # THE BLOCK MUST BE CLOSED, the same requirement the writer has carried since the review of #71. Without a
+  # closing fence this read to the end of the file and handed back body PROSE as keys — `agent: this is not a
+  # key` in a paragraph came back as the agent, which is enough to satisfy the sweeper's four-key test or to
+  # drive a resume. The writer refused such a file while the reader trusted it, and a reader more credulous
+  # than the writer is where a broken record does its damage.
+  roster_block=$(awk 'NR == 1 { if ($0 !~ /^---[ \t\r]*$/) { bad = 1; exit } infm = 1; next }
+                      infm && /^---[ \t\r]*$/ { closed = 1; exit }
+                      infm { gsub(/\r/, ""); buf = buf $0 "\n" }
+                      END { if (!bad && closed) printf "%s", buf }' "$1" 2>/dev/null || true)
   [ -n "$roster_block" ] || return 0
   roster_session=$(roster_value "$roster_block" "session")
   roster_id=$(roster_value "$roster_block" "session-id")
@@ -92,7 +98,12 @@ roster_read() {  # $1 = the entry's path
 # every value it writes, and the first version of this stripped ` # …` before removing the quotes — so
 # `cwd: "/tmp/live #2"` became `"/tmp/live`, an unbalanced quote and a wrong directory. Inside quotes a hash
 # is part of the value; outside them it starts a comment. Order decides which, and this is the order.
+# A KEY STATED TWICE READS AS NOTHING. The writer refuses such a record; if this took the last one anyway the
+# two sides would disagree about a file neither should trust — the class of defect this pair has now produced
+# three times. Empty means "not known": the sweeper skips the job and a resume refuses, both of which are
+# safe, and a human settles the record.
 roster_value() {  # $1 = the block, $2 = the key
+  if [ "$(printf '%s\n' "$1" | grep -cE "^$2[[:space:]]*:" || true)" -gt 1 ]; then return 0; fi
   rv_raw=$(printf '%s\n' "$1" \
     | grep -E "^$2[[:space:]]*:" \
     | tail -n 1 \

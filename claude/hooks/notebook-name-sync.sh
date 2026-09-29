@@ -128,6 +128,23 @@ roster_write() {  # $1 = this session's running entry
        /^---[ \t\r]*$/ { found = 1; exit }
        END { exit (found ? 0 : 1) }' "$rw_entry" 2>/dev/null || return 0
 
+  # AND NO KEY MAY APPEAR TWICE AT COLUMN ZERO. The writer rewrites a key in place and the reader takes the
+  # LAST one, and this rewrote the FIRST — so an entry reading `session-id: <foreign>` and then a blank
+  # `session-id:` counted as id-less (the last value is empty), was adopted, and had the FOREIGN line
+  # overwritten with ours. The identity guard above was reached by a different road. The same split on `cwd`
+  # sent a resume to a directory nobody wrote. Rewriting the last instead leaves a stale duplicate standing,
+  # and deleting the earlier one makes the file shorter than the guard below allows. A record that states one
+  # key twice is a record a human must settle, and this hook leaves it alone.
+  if ! awk 'NR == 1 { if ($0 !~ /^---[ \t\r]*$/) { bad = 1; exit } infm = 1; next }
+            infm && /^---[ \t\r]*$/ { exit }
+            infm && /^session-id[ \t]*:/ { if (seen_id++)    bad = 1 }
+            infm && /^agent[ \t]*:/      { if (seen_agent++) bad = 1 }
+            infm && /^cwd[ \t]*:/        { if (seen_cwd++)   bad = 1 }
+            END { exit (bad ? 1 : 0) }' "$rw_entry" 2>/dev/null; then
+    printf 'notebook-name-sync: %s states session-id, agent or cwd twice; nothing written\n' "$rw_entry" >&2
+    return 0
+  fi
+
   # AND NONE OF THE THREE KEYS MAY BE A FOLDED OR BLOCK VALUE. `agent: >` with an indented line under it is one
   # value across two lines; replacing the first line leaves the second orphaned under the new scalar, and the
   # line-count guard below does not see it because the file did not shrink. Dropping the continuation was the
@@ -171,8 +188,12 @@ roster_write() {  # $1 = this session's running entry
   # backslashes, because inside single quotes a backslash is literal; a single one went through to `awk -v`,
   # which interprets escapes, and a value holding `\n` wrote a real line break inside a quoted scalar, `\t` a
   # tab, `\b` a backspace byte. `[\\]` says one backslash and cannot be read as anything else.
-  case "$rw_agent" in *[\\]*|*'"'*) rw_agent="" ;; esac
-  case "$rw_cwd"   in *[\\]*|*'"'*) rw_cwd="" ;; esac
+  # A CONTROL CHARACTER IS REFUSED TOO, not only a quote and a backslash. A backspace byte in a cwd went raw
+  # into the quoted scalar, and YAML does not allow a raw control character there — the note's properties stop
+  # parsing, which is the same damage by a quieter route. A real newline never reaches this: `awk -v` fails on
+  # it first and the whole write is lost, which is safe. Tabs and non-ASCII are fine and are kept.
+  case "$rw_agent" in *[\\]*|*'"'*|*[[:cntrl:]]*) rw_agent="" ;; esac
+  case "$rw_cwd"   in *[\\]*|*'"'*|*[[:cntrl:]]*) rw_cwd="" ;; esac
 
   rw_tmp="$rw_entry.roster.$$"
   if ! awk -v sid="$sid" -v agent="$rw_agent" -v cwd="$rw_cwd" '
@@ -212,6 +233,13 @@ roster_write() {  # $1 = this session's running entry
   return 0
 }
 
+# THE NEWEST CANDIDATE FIRST, not the first in directory order. The loop below stops at the first entry that
+# reads `running`, and an entry's filename is its stamp, so a reverse sort puts the newest first. Without it a
+# STALE running entry from an earlier session of the same name won — and an entry with no `session-id` is
+# adopted by design, because that is what an entry written before the roster ruling looks like, so the stale
+# one took today's id, agent and cwd while the live session's own entry got nothing. A name recurs: eleven
+# sessions shared one on 2026-09-26. This does not make a wrong entry right; it stops the oldest winning by
+# accident.
 in_step=0
 SESSION_STATUS_LIB="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)/../lib/session-status.sh"
 if [ -r "$SESSION_STATUS_LIB" ] && bash -n "$SESSION_STATUS_LIB" 2>/dev/null && . "$SESSION_STATUS_LIB" 2>/dev/null && command -v session_status_of >/dev/null 2>&1; then
@@ -238,7 +266,7 @@ if [ -r "$SESSION_STATUS_LIB" ] && bash -n "$SESSION_STATUS_LIB" 2>/dev/null && 
         in_step=1; break ;;
     esac
   done <<EOF
-$(grep -rlF --include='*.md' "session: \"$name\"" "$NOTEBOOK_DIR" 2>/dev/null || true)
+$(grep -rlF --include='*.md' "session: \"$name\"" "$NOTEBOOK_DIR" 2>/dev/null | sort -r || true)
 EOF
 else
   printf 'notebook-name-sync: the session-status rule at %s could not be read, so nothing was renamed this turn\n' "$SESSION_STATUS_LIB" >&2

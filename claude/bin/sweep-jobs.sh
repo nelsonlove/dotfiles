@@ -138,10 +138,19 @@ printf '%s' "$listing" | jq -e 'type == "array" and all(type == "object")' >/dev
 # ALIVE IS A LIVE PID, not a status string — the same test `wake-session.sh` uses, because two readers of one
 # listing disagreeing about who is alive is exactly how a live session gets swept. A row with a pid this
 # machine still answers for is alive whatever its `.status` says or does not say.
+# ANY LIVE ROW MAKES IT ALIVE. This took the FIRST row's pid, so two rows sharing a sessionId — a dead one
+# first — would hide a live session and its job would be removed. One live pid anywhere under that id is
+# enough to keep the job: the cost of keeping a dead job is a stale directory, and the cost of removing a live
+# one is a session nobody can bring back.
 session_is_alive() {  # $1 = full sessionId
-  sia_pid=$(printf '%s' "$listing" | jq -r --arg s "$1" '.[] | select(.sessionId == $s) | .pid // empty' 2>/dev/null | head -n 1 || true)
-  [ -n "$sia_pid" ] || return 1
-  kill -0 "$sia_pid" 2>/dev/null
+  sia_found=1
+  while IFS= read -r sia_pid; do
+    [ -n "$sia_pid" ] || continue
+    if kill -0 "$sia_pid" 2>/dev/null; then sia_found=0; break; fi
+  done <<EOF
+$(printf '%s' "$listing" | jq -r --arg s "$1" '.[] | select(.sessionId == $s) | .pid // empty' 2>/dev/null || true)
+EOF
+  return $sia_found
 }
 
 swept=0; skipped=0; failed=0
