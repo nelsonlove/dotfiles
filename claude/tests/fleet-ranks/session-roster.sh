@@ -28,7 +28,7 @@ TMP=$(mktemp -d -t session-roster) || exit 1
 trap 'rm -rf "$TMP"' EXIT
 n=0; fails=0; skips=0
 # Every check outside section 1, whose own count depends on whether the real notebook is on this machine.
-SUITE_BASE=173
+SUITE_BASE=175
 SECTION1_CHECKS=0
 SECTION1_SKIPPED=0
 eq() { n=$((n + 1)); if [ "$2" = "$3" ]; then printf 'PASS  %-56s %s\n' "$1" "$2"; else fails=$((fails + 1)); printf 'FAIL  %-56s got %s, want %s\n' "$1" "$2" "$3"; fi; }
@@ -748,6 +748,20 @@ mkjob 46464646 46464646-1111-2222-3333-444444444444 "[L0-CC] unclosed dup"
 out=$(sweep)
 hasnt "an unclosed block is not blamed on a key" "$(printf '%s' "$out" | grep 'SKIP  46464646' || true)" "twice"
 has  "and the job is skipped"                   "$out" "SKIP  46464646"
+
+# ONE UNSTAMPED NAME MUST NOT SWALLOW ANOTHER, and the shape that triggers it is narrower than either the
+# reviewer or I first thought. The old test compared `"<basename> carries no timestamp"` as a bare substring,
+# so `ab.md` and `b.md` do NOT collide — the compared text carries the fixed `Agent session ` prefix, and the
+# `a` breaks the match. The collision needs one basename to contain the WHOLE of another, and the longer one to
+# be read first. Measured both ways before this fixture was written, because the first version of it copied the
+# reviewer plausible example and passed against the broken code — the fourth fixture in this package to prove
+# nothing, and the first one I caught by measuring instead of by being told.
+entry "Agent session aa Agent session b.md" 'session: "[L0-CC] suffix pair"' 'session-id: 57575757-1111-2222-3333-444444444444' 'agent: lieutenant' 'cwd: /tmp/sp' 'status: archived/ended' >/dev/null
+entry "Agent session b.md" 'session: "[L0-CC] suffix pair"' 'session-id: 57575757-1111-2222-3333-444444444444' 'agent: lieutenant' 'cwd: /tmp/sp' 'status: archived/ended' >/dev/null
+mkjob 57575757 57575757-1111-2222-3333-444444444444 "[L0-CC] suffix pair"
+out=$(printf '%s' "$(sweep)" | grep -A1 'SKIP  57575757' || true)
+has "the containing name is named"             "$out" "Agent session aa Agent session b.md carries no timestamp"
+has "and the contained one is named too"       "$out" "; the filename Agent session b.md carries no timestamp"
 
 # THE ARCHIVE ROOT IS READ IN PRODUCTION. An ended entry MOVES there, so a sweeper that reads only the
 # notebook skips exactly the population it exists for — which is what the first version did, with

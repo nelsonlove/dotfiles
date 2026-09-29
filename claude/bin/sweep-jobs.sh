@@ -131,8 +131,8 @@ roster_state_for_id() {  # $1 = full id; sets `roster_pick_state` and `roster_pi
   # rests on reading the newest entry. Undefined is not a reason to guess.
   [ "${roster_entry_ambiguous:-0}" = 0 ] || return 0
   # A BACKSTOP, NOT A LIVE CHECK, and the difference matters enough to state exactly. The reason chain below
-  # re-checks these same two flags to choose its words, and it reaches them first, so WITH THE CHAIN AS
-  # WRITTEN these two lines never change an outcome: removing both of them leaves every fixture and every
+  # re-checks these same two flags to choose its words, and it decides every case these lines would, so WITH
+  # THE CHAIN AS WRITTEN these two lines never change an outcome: removing both leaves every fixture and every
   # verdict identical. They earn their place only if the chain's flag branches are ever removed or reordered —
   # with those gone AND these gone, the fork fixture becomes `WOULD REMOVE`, which is the outcome this whole
   # package exists to prevent.

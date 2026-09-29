@@ -165,6 +165,17 @@ rep("""  grep -qE "^session-id[[:space:]]*:.*$2" "$1" 2>/dev/null""",
               """  grep -qE "^session-id[[:space:]]*:[[:space:]]*[\\"\x27]?$2[\\"\x27]?[[:space:]]*$" "$1" 2>/dev/null""")
 '
 
+# THE WHOLE-CAUSE COMPARISON. The de-duplication used to test a bare substring, so a filename that is a SUFFIX
+# of another suppressed it and one name silently vanished from the reason. Fixed, and then pinned by nothing at
+# all — which is the shape of mistake this whole runner exists to stop, made once more in the commit that
+# corrected it.
+mutant order-reason-substring claude/lib/session-roster.sh '
+rep("""      case "; $roster_order_reason" in *"; $ros_cause"*) ;; *) roster_order_reason="${roster_order_reason:+$roster_order_reason; }$ros_cause" ;; esac
+    elif""",
+    """      case "$roster_order_reason" in *"${ros_f##*/} carries no timestamp"*) ;; *) roster_order_reason="${roster_order_reason:+$roster_order_reason; }$ros_cause" ;; esac
+    elif""")
+'
+
 # --- the sweeper: what it would remove, and what it says about why ----------------------------------------
 # BOTH LAYERS AT ONCE. `roster_state_for_id` guards the VERDICT and the reason chain guards the WORDS, and
 # each alone is enough to stop the removal — so killing either one changes no output and a single-layer mutant
