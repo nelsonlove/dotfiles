@@ -27,12 +27,13 @@
 #            the rule is checked against, and its ship code is the ship the new name carries.
 #   --ship   the ship code for the new name when --by does not carry one, or FL to make the session
 #            float on purpose. The ships are CC (claude code), OB (obsidian) and HS (home server,
-#            captain `[C0-HS] orange`), all three ruled 2026-09-26; FL is not a ship but the marker
+#            captain `[C0-HS] orange`), all three ruled 2026-09-26, and MA (macOS, captain
+#            `[C0-MA] macos`), ruled 2026-09-29 on Nelson's "A, MA"; FL is not a ship but the marker
 #            of a floating session, shared across captains, and it is accepted here as a code
 #            because it is what such a name carries. Never guessed: a wrong code files a session
 #            under the wrong captain, and only Nelson can rename it back.
-#            (The refusal when --by carries no ship code names all four codes, in the captain's own
-#            wording, corrected by him on 2026-09-26 once HS existed.)
+#            (The refusal when --by carries no ship code names every code, in the captain's own
+#            wording, corrected by him on 2026-09-26 once HS existed; MA added 2026-09-29.)
 #   --log    the cross-session log to append the record to (default: the fleet log).
 #   --jobs-dir  where Claude Code's job state lives, which is where the TARGET's rank is read from
 #              (`<id>/state.json`, key `template`). For testing only, and REFUSED unless it resolves under
@@ -195,7 +196,7 @@ by_rank=$(rank_of_caller "$by"); [ "$by_rank" != 9 ] || die "--by must start wit
 # THE ACCEPT VERBS' WRITE PATH NOTIFIES; IT DOES NOT PROMOTE. It reaches this script only because
 # `rank_of_caller` is one seam shared with wake-session.sh, which package 5 widened for the notifier. Before
 # package 5 it was refused here as a caller with no rank code, and it stays refused — but with its own
-# sentence, because the ship block below would otherwise refuse it with "pass --ship CC, OB or HS", which
+# sentence, because the ship block below would otherwise refuse it with "pass --ship CC, OB, HS or MA", which
 # names the wrong problem and invites a caller to pass one. Nothing was ruled about the verb path promoting
 # anybody, and a rank change nobody can attribute to a session is worse than one refused.
 [ "$by_rank" -ge -1 ] || die "refused: '$by' is the accept verbs' write path; it notifies a session, it does not promote or demote one"
@@ -227,8 +228,9 @@ elif [ -n "$ship" ]; then
   fi
   new_ship="$ship"
 else
-  # The captain's wording, corrected by him on 2026-09-26 once HS existed: the sentence is byte-exact.
-  [ -n "$by_ship" ] || die "--by has no ship code; pass --ship CC, OB or HS (FL for a floating session)"
+  # The captain's wording, corrected by him on 2026-09-26 once HS existed, with MA added on 2026-09-29
+  # (Nelson's "A, MA"): the sentence is byte-exact.
+  [ -n "$by_ship" ] || die "--by has no ship code; pass --ship CC, OB, HS or MA (FL for a floating session)"
   ship_is_known "$by_ship" || die "--by carries the ship code '$by_ship', which is not one of: $KNOWN_SHIPS; pass --ship to say which ship"
   new_ship="$by_ship"
 fi
@@ -265,7 +267,7 @@ ship_note=""
 # The rear admiral's new name takes the target's own ship when no --ship was given: A0 leaves a session
 # where it is. A bare-named target has no ship to take, so it must be said rather than guessed.
 if [ "$ship_from_target" = 1 ]; then
-  [ -n "$old_ship" ] || die "refused: \`$old_name\` carries no ship code and $by has none either, so the new name's ship cannot be read from anywhere; pass --ship CC, OB or HS (FL for a floating session)"
+  [ -n "$old_ship" ] || die "refused: \`$old_name\` carries no ship code and $by has none either, so the new name's ship cannot be read from anywhere; pass --ship CC, OB, HS or MA (FL for a floating session)"
   ship_is_known "$old_ship" || die "refused: \`$old_name\` carries the ship code '$old_ship', which is not one of: $KNOWN_SHIPS; pass --ship to say which ship"
   new_ship="$old_ship"
   ship_note="the ship comes from the target, because the rear admiral carries none"

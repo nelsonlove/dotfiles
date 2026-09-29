@@ -123,13 +123,14 @@ code_of_rank() {  # $1 = rank, $2 = ship code
 
 # --- the ships -------------------------------------------------------------------------------------
 # CC is the Claude Code ship, OB the obsidian ship, HS the home server (captain `[C0-HS] orange`), all
-# three ruled 2026-09-26. FL is not a ship but the marker of a floating session shared across captains,
+# three ruled 2026-09-26, and MA the macOS ship (captain `[C0-MA] macos`), ruled 2026-09-29 on Nelson's
+# "A, MA". FL is not a ship but the marker of a floating session shared across captains,
 # and it is listed beside them because it is what such a name carries.
 #
 # ADD A SHIP HERE AND NOWHERE ELSE. `FLOATING_SHIP` sits directly below on purpose: `FL` appears both in
 # the list and as the floating marker, and the survey in `docs/fleet-machinery/` flags that separating the
 # two is how they drift apart.
-KNOWN_SHIPS="CC OB HS FL"
+KNOWN_SHIPS="CC OB HS MA FL"
 FLOATING_SHIP="FL"
 
 # The ship a name declares — `CC` in `[L0-CC] dotfiles` — and empty for a bare `[L0] dotfiles`, which is

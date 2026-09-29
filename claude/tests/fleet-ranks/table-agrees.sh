@@ -92,19 +92,23 @@ eq "coded 9 CC"   "$(code_of_rank 9 CC)"    "[??-CC]"
 eq "coded 0 CC"   "$(code_of_rank 0 CC)"    "[C0-CC]"
 eq "coded 2 OB"   "$(code_of_rank 2 OB)"    "[C2-OB]"
 eq "coded 3 FL"   "$(code_of_rank 3 FL)"    "[L0-FL]"
+eq "coded 0 MA"   "$(code_of_rank 0 MA)"    "[C0-MA]"
 
 echo
 echo "=== the ships"
-eq "KNOWN_SHIPS"          "$KNOWN_SHIPS"               "CC OB HS FL"
+# MA, the macOS ship (captain `[C0-MA] macos`), on Nelson's "A, MA" of 2026-09-29.
+eq "KNOWN_SHIPS"          "$KNOWN_SHIPS"               "CC OB HS MA FL"
 eq "FLOATING_SHIP"        "$FLOATING_SHIP"             "FL"
 eq "FL is in the list"    "$(ship_is_known FL && echo yes)" yes
 eq "CC is known"          "$(ship_is_known CC && echo yes)" yes
 eq "OB is known"          "$(ship_is_known OB && echo yes)" yes
 eq "HS is known"          "$(ship_is_known HS && echo yes)" yes
+eq "MA is known"          "$(ship_is_known MA && echo yes)" yes
 eq "XX is not"            "$(ship_is_known XX || echo no)"  no
 eq "an empty code is not" "$(ship_is_known '' || echo no)"  no
 eq "ship of [L0-CC]"      "$(ship_of_name '[L0-CC] dotfiles')" CC
 eq "ship of [C0-HS]"      "$(ship_of_name '[C0-HS] orange')"   HS
+eq "ship of [C0-MA]"      "$(ship_of_name '[C0-MA] macos')"    MA
 eq "ship of [L0-FL]"      "$(ship_of_name '[L0-FL] dotfiles')" FL
 eq "ship of a bare name"  "$(ship_of_name '[L0] dotfiles')"    ""
 eq "ship of [A0]"         "$(ship_of_name '[A0] rear admiral')" ""
@@ -128,5 +132,9 @@ for f in wake-session.sh promote-session.sh; do
   if [ "$c" -ge 1 ]; then eq "$f sources the table" yes yes; else eq "$f sources the table" no yes; fi
 done
 
+# The count is asserted, not only printed (tests/README.md rule 1): 84 before the MA cases, 87 with them.
+# Change EXPECTED only in the same commit that adds or removes a check, and say which.
+EXPECTED=87
 printf '\n%s checks, %s failed\n' "$n" "$fails"
+[ "$n" = "$EXPECTED" ] || { echo "FAIL  the check count is $n, expected $EXPECTED: a line was lost or added without updating EXPECTED"; exit 1; }
 [ "$fails" = 0 ] || exit 1
