@@ -19,14 +19,19 @@ eq() {  # eq <label> <got> <want>
 T=$(mktemp -d "${TMPDIR:-/tmp}/xlog-follow-test.XXXXXX") || exit 1
 PID=""
 stop() { [ -n "$PID" ] && { kill "$PID" 2>/dev/null; wait "$PID" 2>/dev/null; }; PID=""; }
-trap 'stop; /usr/bin/trash "$T" 2>/dev/null || true' EXIT
+# Every follower this suite started, whatever wrapped it: a subshell's PID is not the follower's (review 1 of #77).
+killall_followers() { pkill -f "xlog-follow.sh --log $T" 2>/dev/null; true; }
+trap 'stop; killall_followers; /usr/bin/trash "$T" 2>/dev/null || true' EXIT
 
 LOG="$T/CROSS-SESSION.md"; OUT="$T/out"
 seed() {  # a log with two old entries, the shape of the real one
   printf -- '---\naudience: fleet\n---\n\n# Cross-session log\n\n## 2026-09-01T10:00 · [L0-CC] old — claim\nOld one.\n\n## 2026-09-01T10:01 · [L0-CC] old — release\nOld two.\n' > "$LOG"
 }
-start() { : > "$OUT"; bash "$FOLLOW" --log "$LOG" > "$OUT" 2>"$T/err" & PID=$!; sleep 1.5; }
+start() { : > "$OUT"; bash "$FOLLOW" --log "$LOG" "$@" > "$OUT" 2>"$T/err" & PID=$!; sleep 1.5; }
 lines() { wc -l < "$OUT" | tr -d ' '; }
+# Wait until the follower has printed at least N lines (up to 20 s), then one more second for any extra line.
+# Fixed sleeps were too tight when the machine's load reached 45; a wait on the output is not.
+waitfor() { local t=0; while [ "$(lines)" -lt "$1" ] && [ "$t" -lt 40 ]; do sleep 0.5; t=$((t + 1)); done; sleep 1; }
 entry() {  # entry <stamp> <text>: append one whole entry, the way the fleet appends
   printf '\n## %s · [L0-CC] test — claim\n%s\n' "$1" "$2" >> "$LOG"
 }
@@ -39,7 +44,7 @@ stop
 echo "=== 2. one append gives one line, the whole entry"
 seed; start
 entry "2026-09-29T05:00" $'Line one.\nLine two.'
-sleep 5
+waitfor 1
 eq "one line" "$(lines)" 1
 eq "the line is the whole entry, newlines joined" "$(head -1 "$OUT")" "## 2026-09-29T05:00 · [L0-CC] test — claim ⏎ Line one. ⏎ Line two."
 stop
@@ -47,7 +52,7 @@ stop
 echo "=== 3. two quick appends give two lines"
 seed; start
 entry "2026-09-29T05:01" "First."; entry "2026-09-29T05:02" "Second."
-sleep 5
+waitfor 2
 eq "two lines" "$(lines)" 2
 eq "in order, first" "$(sed -n 1p "$OUT")" "## 2026-09-29T05:01 · [L0-CC] test — claim ⏎ First."
 eq "in order, second" "$(sed -n 2p "$OUT")" "## 2026-09-29T05:02 · [L0-CC] test — claim ⏎ Second."
@@ -61,7 +66,7 @@ printf -- '---\naudience: fleet\n---\n\n# Cross-session log\n\n## 2026-09-29T05:
 sleep 5
 eq "the cut prints nothing" "$(lines)" 0
 entry "2026-09-29T05:04" "After the cut."
-sleep 5
+waitfor 1
 eq "an entry after the cut prints once" "$(lines)" 1
 eq "and it is that entry" "$(head -1 "$OUT")" "## 2026-09-29T05:04 · [L0-CC] test — claim ⏎ After the cut."
 stop
@@ -72,14 +77,16 @@ printf '\n## 2026-09-29T05:05 · [L0-CC] test — claim\nHalf' >> "$LOG"
 sleep 1.5
 eq "a partial entry is not printed at once" "$(lines)" 0
 printf ' and whole.\n' >> "$LOG"
-sleep 5
+waitfor 1
 eq "after 3 s of quiet it is printed, whole" "$(head -1 "$OUT")" "## 2026-09-29T05:05 · [L0-CC] test — claim ⏎ Half and whole."
 stop
 seed; start
 printf '\n## 2026-09-29T05:06 · [L0-CC] test — claim\nBody' >> "$LOG"
 sleep 1.2
 printf ' end.\n\n## 2026-09-29T05:07 · [L0-CC] test — claim\nNext' >> "$LOG"
-sleep 1.5
+# The first entry is closed by the heading; the second waits for 3 s of quiet. If the heading did not close
+# the first, both would print in the same tick, after the quiet, and the count below would be 2.
+t=0; while [ "$(lines)" -lt 1 ] && [ "$t" -lt 40 ]; do sleep 0.25; t=$((t + 1)); done
 eq "the next heading completes the first entry at once" "$(head -1 "$OUT")" "## 2026-09-29T05:06 · [L0-CC] test — claim ⏎ Body end."
 eq "and the second still waits" "$(lines)" 1
 stop
@@ -92,7 +99,7 @@ mv "$T/new" "$LOG"
 sleep 5
 eq "a rename that grows the file prints nothing" "$(lines)" 0
 entry "2026-09-29T05:10" "After the rename."
-sleep 5
+waitfor 1
 eq "an entry after the rename prints once" "$(lines)" 1
 eq "and it is that entry" "$(head -1 "$OUT")" "## 2026-09-29T05:10 · [L0-CC] test — claim ⏎ After the rename."
 stop
@@ -109,6 +116,68 @@ sleep 5
 eq "the rewrite prints nothing" "$(lines)" 0
 stop
 
+echo "=== 9. review 1 of #77: split writes, headings, rewrites, resume, GNU stat"
+# 9a. An append with no leading blank line, then another in the next poll: two entries, not one glued line.
+seed; start
+printf '## 2026-09-29T06:00 · [L0-CC] test — claim\nBody a.\n' >> "$LOG"; sleep 1.5
+printf '## 2026-09-29T06:01 · [L0-CC] test — claim\nBody b.\n' >> "$LOG"; waitfor 2
+eq "no leading blank line, two polls: two lines" "$(lines)" 2
+eq "and the first is whole, not glued" "$(sed -n 1p "$OUT")" "## 2026-09-29T06:00 · [L0-CC] test — claim ⏎ Body a."
+stop
+# 9b. A body line that arrives a poll later keeps its line break.
+seed; start
+printf '\n## 2026-09-29T06:02 · [L0-CC] test — claim\nline1\n' >> "$LOG"; sleep 1.5
+printf 'line2\n' >> "$LOG"; waitfor 1
+eq "a body split across polls keeps its line break" "$(head -1 "$OUT")" "## 2026-09-29T06:02 · [L0-CC] test — claim ⏎ line1 ⏎ line2"
+stop
+# 9c. A `## ` line inside a body that is not a stamped heading does not split the entry.
+seed; start
+printf '\n## 2026-09-29T06:03 · [A0] rear admiral — ruling\nQuoted:\n## Decision\nText.\n' >> "$LOG"; waitfor 1
+eq "a sub-heading in a body stays in its entry" "$(lines)|$(head -1 "$OUT")" "1|## 2026-09-29T06:03 · [A0] rear admiral — ruling ⏎ Quoted: ⏎ ## Decision ⏎ Text."
+stop
+# 9d. A truncate-then-rewrite in place, caught half written, is not read as an append.
+seed; for i in $(seq 1 30); do entry "2026-09-28T0$((i % 10)):00" "Filler $i."; done
+cp "$LOG" "$T/full"; start
+: > "$LOG"; sleep 1.3                       # the poll sees the file at size 0
+head -c 200 "$T/full" >> "$LOG"; sleep 1.3  # then part-written
+tail -c +201 "$T/full" >> "$LOG"; sleep 5   # then whole again
+eq "a slow rewrite in place prints nothing" "$(lines)" 0
+entry "2026-09-29T06:04" "After the slow rewrite."; waitfor 1
+eq "and the next append prints once" "$(lines)|$(head -1 "$OUT")" "1|## 2026-09-29T06:04 · [L0-CC] test — claim ⏎ After the slow rewrite."
+stop
+# 9e. A same-size rewrite near the end does not make the next real append look like a rewrite.
+seed; start
+python3 - "$LOG" <<'PYX'
+import sys; p=sys.argv[1]; b=open(p,'rb').read(); open(p,'wb').write(b[:-5]+b'TWO.\n')
+PYX
+sleep 8     # past the two polls of settling, which the header documents (slow polls under load)
+entry "2026-09-29T06:05" "After a same-size edit."; waitfor 1
+eq "an append after a same-size edit still prints" "$(lines)|$(head -1 "$OUT")" "1|## 2026-09-29T06:05 · [L0-CC] test — claim ⏎ After a same-size edit."
+stop
+# 9f. --state: a re-armed follower resumes where the last one stopped, and prints what came in between.
+seed; ST="$T/state"; start --state "$ST"; stop
+entry "2026-09-29T06:06" "While nobody was watching."
+start --state "$ST"; waitfor 1
+eq "--state resumes and prints the gap" "$(lines)|$(head -1 "$OUT")" "1|## 2026-09-29T06:06 · [L0-CC] test — claim ⏎ While nobody was watching."
+stop
+# 9g. --state after a big gap prints one notice, never a flood.
+for i in $(seq 1 90); do entry "2026-09-29T07:$((10 + i % 50))" "Gap $i $(printf '%0200d' 0)"; done   # about 23 KB, over the 16 KB cap
+start --state "$ST"; waitfor 1; sleep 2
+eq "a big gap gives one notice line" "$(lines)" 1
+case "$(head -1 "$OUT")" in *"read the log"*) r=notice ;; *) r="$(head -1 "$OUT")" ;; esac
+eq "and the line says to read the log" "$r" notice
+stop
+# 9h. GNU stat: with a GNU `stat` first on PATH, it still follows (tested with gstat where it exists).
+if command -v gstat >/dev/null 2>&1; then
+  mkdir -p "$T/gnu"; ln -sf "$(command -v gstat)" "$T/gnu/stat"
+  seed; : > "$OUT"; PATH="$T/gnu:$PATH" bash "$FOLLOW" --log "$LOG" > "$OUT" 2>"$T/err" & PID=$!; sleep 1.5
+  entry "2026-09-29T06:07" "Under GNU stat."; waitfor 1
+  eq "GNU stat: one append, one line" "$(lines)|$(head -1 "$OUT")" "1|## 2026-09-29T06:07 · [L0-CC] test — claim ⏎ Under GNU stat."
+  stop
+else
+  eq "GNU stat: one append, one line" "skipped: no gstat on this host" "skipped: no gstat on this host"; printf '      (counted as a pass only because gstat is missing; install coreutils to run it)\n'
+fi
+
 echo "=== 8. it stops cleanly"
 seed; start
 kill -TERM "$PID"; sleep 1.5
@@ -117,11 +186,11 @@ wait "$PID" 2>/dev/null; PID=""
 seed; ( bash "$FOLLOW" --log "$LOG" | head -1 >/dev/null ) & HP=$!
 sleep 1.5; entry "2026-09-29T05:12" "One."; entry "2026-09-29T05:13" "Two."
 sleep 5
-if kill -0 "$HP" 2>/dev/null; then eq "a closed pipe ends it" alive gone; kill "$HP" 2>/dev/null; else eq "a closed pipe ends it" gone gone; fi
+if kill -0 "$HP" 2>/dev/null; then eq "a closed pipe ends it" alive gone; killall_followers; else eq "a closed pipe ends it" gone gone; fi
 left=$(pgrep -f "xlog-follow.sh --log $LOG" | wc -l | tr -d ' ')
 eq "no follower is left running" "$left" 0
 
-EXPECTED=20
+EXPECTED=31
 printf '\n%s checks (expected %s), %s failed\n' "$n" "$EXPECTED" "$fails"
 [ "$n" = "$EXPECTED" ] || { echo "FAIL  the check count is $n, expected $EXPECTED"; exit 1; }
 [ "$fails" = 0 ] || exit 1

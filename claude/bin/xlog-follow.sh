@@ -7,116 +7,172 @@
 # line is one whole entry: its `## ` heading and its body, with the entry's newlines joined by " ⏎ ". So the
 # event IS the entry, and a session reads it without running anything.
 #
-# THE MONITOR COMMAND a session uses (Monitor lasts at most 30 minutes; re-arm it when it expires):
+# THE MONITOR COMMAND a session uses (Monitor lasts at most 30 minutes; re-arm it with the SAME command when
+# it expires, and --state makes the new run print what arrived in between):
 #
-#     Monitor({ command: "bash ~/.claude/bin/xlog-follow.sh",
+#     Monitor({ command: "bash ~/.claude/bin/xlog-follow.sh --state ~/.local/state/xlog-follow/$CLAUDE_CODE_SESSION_ID",
 #               description: "new cross-session log entries",
 #               timeout_ms: 1800000 })
 #
 # WHAT IT DOES
-#   * It starts AT THE END of the log and never replays the entries already there.
-#   * An entry is printed only when it is complete: when the next `## ` heading arrives, or after 3 seconds with
-#     no new bytes. Text that arrives after an entry was printed, with no heading of its own, is dropped.
-#   * If the log is cut or rewritten, it re-syncs to the new end and prints nothing for that change: the size went
-#     down, the inode changed (an atomic save by rename), or the bytes just before the old end are no longer the
-#     same (a rewrite in place that grew the file). Only entries appended after that are printed.
+#   * It starts AT THE END of the log and never replays the entries already there. With --state <file> it saves
+#     where it is, and a later run on the same file resumes from there (a gap over 16 KB prints one notice line
+#     instead of the entries).
+#   * An entry starts at a stamped heading, `## YYYY-...`; a plain `## x` line in a body is part of the body.
+#     An entry is printed only when it is complete: at the next stamped heading, or after 3 seconds with no new
+#     bytes. Text that arrives after an entry was printed, with no heading of its own, is dropped.
+#   * If the log is cut or rewritten, it re-syncs and prints nothing for that change: the size went down, the
+#     inode changed (an atomic save by rename), or the bytes before the known end changed (a rewrite in place,
+#     of any size). It then waits until the file has not changed for two polls, so a save caught half written
+#     is not read as an append, and takes that end as its new start. An entry pending at that moment is printed
+#     first. Entries appended in the two seconds of settling are not printed.
 #   * It polls once a second. It uses no network and no API. Its memory is one pending entry at most. Every child
-#     it starts (stat, tail, head, cksum, sleep) ends before the next tick. It exits on SIGTERM, SIGINT and
+#     it starts (stat, tail, head, cksum, sleep, mv) ends before the next tick. It exits on SIGTERM, SIGINT and
 #     SIGHUP, and when its output pipe is closed.
 #
-# USAGE   xlog-follow.sh [--log <path>]      (--log is for tests; the default is the fleet log, found by name
-#                                            under ~/obsidian the way claude/hooks/cross-session-inject.py finds it)
+# USAGE   xlog-follow.sh [--log <path>] [--state <file>]
+#         --log is for tests; the default is the fleet log, found by name under ~/obsidian exactly the way
+#         claude/hooks/cross-session-inject.py finds it. --state is where a run saves its place for the next one.
 #
-# Plain bash (3.2 is enough) and the BSD tools of macOS; GNU `stat` is used where BSD `stat` is missing.
+# Plain bash (3.2 is enough), with the BSD tools of macOS or the GNU ones; the `stat` form is picked once.
 
 set -u
 LC_ALL=C; export LC_ALL   # byte counts, not characters: the offsets below are bytes
 
-log=""
+log=""; state=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --log) [ $# -ge 2 ] || { echo "xlog-follow: --log needs a path" >&2; exit 2; }; log="$2"; shift 2 ;;
-    -h|--help) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --state) [ $# -ge 2 ] || { echo "xlog-follow: --state needs a path" >&2; exit 2; }; state="$2"; shift 2 ;;
+    -h|--help) sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "xlog-follow: unknown argument '$1'" >&2; exit 2 ;;
   esac
 done
 
 if [ -z "$log" ]; then
-  # The fleet log's home since 2026-08-18; if it has moved, find it by name the way the start hook does
-  # (the first CROSS-SESSION.md under ~/obsidian, sorted, outside .trash).
-  log="$HOME/obsidian/00-09 System/03 Agents/03.16 Cross-session log/CROSS-SESSION.md"
-  if [ ! -f "$log" ]; then
-    log=$(find "$HOME/obsidian" -name CROSS-SESSION.md -not -path '*/.trash/*' 2>/dev/null | sort | head -n 1)
-  fi
+  # The same lookup as claude/hooks/cross-session-inject.py's find_log(): the first CROSS-SESSION.md under
+  # ~/obsidian, sorted by path, outside .trash. Never a hardcoded path, so the two tools always agree on which
+  # file is the fleet log (review 1 of #77).
+  log=$(find "$HOME/obsidian" -name CROSS-SESSION.md -not -path '*/.trash/*' 2>/dev/null | sort | head -n 1)
 fi
 [ -n "$log" ] && [ -f "$log" ] || { echo "xlog-follow: no cross-session log found" >&2; exit 1; }
 
-trap 'exit 0' TERM INT HUP
-trap 'exit 0' PIPE
+trap 'save_state; exit 0' TERM INT HUP
+trap 'save_state; exit 0' PIPE
 
-# inode and size, BSD first, GNU as the fallback; empty when the file is missing for a moment (mid-rename).
-fstat() { stat -f '%i %z' "$1" 2>/dev/null || stat -c '%i %s' "$1" 2>/dev/null; }
-# the bytes [from, from+count) of the file, byte-exact (a sentinel keeps trailing newlines)
-slice() { local s; s=$(tail -c +"$(( $2 + 1 ))" "$1" 2>/dev/null | head -c "$3"; printf x); printf '%s' "${s%x}"; }
-FP=64   # how many bytes before the old end must still match for growth to count as an append
+# inode, size and mtime. The form is chosen ONCE: GNU `stat -f` means --file-system and prints junk, so an
+# `a || b` fallback is wrong on Linux (review 1 of #77). GNU first, because BSD `stat` rejects -c outright.
+if stat -c '%i %s %Y' "$log" >/dev/null 2>&1; then
+  fstat() { stat -c '%i %s %Y' "$1" 2>/dev/null; }
+else
+  fstat() { stat -f '%i %z %m' "$1" 2>/dev/null; }
+fi
+FP=64   # how many bytes before the known end must still match for growth to count as an append
 fingerprint() { [ "$2" -gt 0 ] || { echo 0; return; }; local from=$(( $2 > FP ? $2 - FP : 0 )); tail -c +"$(( from + 1 ))" "$1" 2>/dev/null | head -c "$(( $2 - from ))" | cksum; }
 
 NL=$'\n'
+HEAD_GLOB='## [0-9][0-9][0-9][0-9]-'   # the fleet's entry heading: `## YYYY-...`; a plain `## x` in a body is text
 emit() {  # print one entry as one line, trailing blank lines trimmed; exit if nobody is reading any more
   local e="$1"
   while [ "${e%"$NL"}" != "$e" ]; do e="${e%"$NL"}"; done
   e="${e//$NL/ ⏎ }"
   [ -n "$e" ] || return 0
-  printf '%s\n' "$e" || exit 0
+  printf '%s\n' "$e" || { save_state; exit 0; }
 }
+is_entry() { case "$1" in $HEAD_GLOB*) return 0 ;; *) return 1 ;; esac; }
 
-read -r inode size <<< "$(fstat "$log")"
-offset=${size:-0}
-fp=$(fingerprint "$log" "$offset")
-buf=""          # the entry being collected: empty, or text that starts with "## "
+inode=""; offset=0; mtime=""; fp=0
+save_state() { [ -n "$state" ] && [ -n "$inode" ] && [ "$settle" = 0 ] && { mkdir -p "$(dirname "$state")" 2>/dev/null; printf '%s %s %s\n' "$inode" "$offset" "$fp" > "$state.tmp" && mv -f "$state.tmp" "$state"; }; return 0; }
+settle=0        # >0 while waiting for a cut or rewrite to finish: polls with no change still needed
+buf=""          # the entry being collected: empty, or text that starts with a stamped heading
 last_new=$SECONDS
+RESUME_MAX=16384   # a resume gap bigger than this prints one notice instead of every entry
+
+read -r inode size mtime <<< "$(fstat "$log")"
+offset=${size:-0}; fp=$(fingerprint "$log" "$offset")
+if [ -n "$state" ] && [ -f "$state" ]; then
+  # Resume where the last run stopped (a Monitor lasts 30 minutes and is re-armed), if it is the same file
+  # and the bytes before the saved end are unchanged. Otherwise start at the end, as without --state.
+  read -r s_inode s_offset s_fp < "$state"
+  if [ "$s_inode" = "$inode" ] && [ "${s_offset:-x}" -le "$offset" ] 2>/dev/null && [ "$(fingerprint "$log" "$s_offset")" = "$s_fp" ]; then
+    if [ $(( offset - s_offset )) -gt "$RESUME_MAX" ]; then
+      printf 'xlog-follow: %s bytes of new entries arrived since the last run, too many to print here; read the log from your last-read stamp: %s\n' "$(( offset - s_offset ))" "$log" || exit 0
+    else
+      offset=$s_offset; fp=$s_fp   # the loop reads the gap on its first tick
+    fi
+  fi
+fi
+save_state
 
 while :; do
   sleep 1
   st=$(fstat "$log")
   if [ -z "$st" ]; then continue; fi          # missing for a moment, as during an atomic save
-  read -r n_inode n_size <<< "$st"
+  read -r n_inode n_size n_mtime <<< "$st"
 
-  if [ "$n_inode" != "$inode" ] || [ "$n_size" -lt "$offset" ]; then
-    # Cut or replaced: re-sync to the new end, print nothing for it.
-    inode=$n_inode; offset=$n_size; fp=$(fingerprint "$log" "$offset"); buf=""; continue
+  if [ "$settle" -gt 0 ]; then
+    # After a cut or rewrite, wait until the file stops changing, then take its end as the new start. A save
+    # that truncates and rewrites in place can be caught empty or half written; its remaining bytes are not
+    # an append (review 1 of #77).
+    if [ "$n_inode" = "$inode" ] && [ "$n_size" = "$offset" ] && [ "$n_mtime" = "$mtime" ]; then
+      settle=$(( settle - 1 ))
+      if [ "$settle" = 0 ]; then fp=$(fingerprint "$log" "$offset"); save_state; fi
+    else
+      inode=$n_inode; offset=$n_size; mtime=$n_mtime; settle=2
+    fi
+    continue
   fi
 
-  if [ "$n_size" -gt "$offset" ]; then
-    if [ "$(fingerprint "$log" "$offset")" != "$fp" ]; then
-      # Grown, but the bytes before the old end changed: a rewrite in place, not an append.
-      offset=$n_size; fp=$(fingerprint "$log" "$offset"); buf=""; continue
-    fi
-    buf="$buf$(slice "$log" "$offset" "$(( n_size - offset ))")"
-    offset=$n_size; fp=$(fingerprint "$log" "$offset"); last_new=$SECONDS
+  resync=0
+  if [ "$n_inode" != "$inode" ] || [ "$n_size" -lt "$offset" ]; then
+    resync=1                                   # replaced, or cut
+  elif [ "$n_mtime" != "$mtime" ] && [ "$(fingerprint "$log" "$offset")" != "$fp" ]; then
+    resync=1                                   # the bytes before the known end changed: a rewrite, whatever the size
+  fi
+  if [ "$resync" = 1 ]; then
+    # A pending entry was appended before this change; print it rather than lose it (review 1 of #77).
+    if is_entry "$buf"; then emit "$buf"; fi
+    buf=""; inode=$n_inode; offset=$n_size; mtime=$n_mtime; settle=2
+    continue
+  fi
+  mtime=$n_mtime
 
-    # Anything before the first heading belongs to no entry we print (the gap between entries, or the tail of
-    # an entry already printed). Keep only an unfinished last line, which may be a heading being written.
-    if [ "${buf#"## "}" = "$buf" ]; then
+  if [ "$n_size" -gt "$offset" ]; then
+    # Read the new bytes with a sentinel, IN THIS SHELL: a `$( )` around a helper would strip the chunk's
+    # trailing newlines and glue the next chunk to it (review 1 of #77).
+    chunk=$(tail -c +"$(( offset + 1 ))" "$log" 2>/dev/null | head -c "$(( n_size - offset ))"; printf x)
+    buf="$buf${chunk%x}"
+    offset=$n_size; fp=$(fingerprint "$log" "$offset"); last_new=$SECONDS; save_state
+
+    # Anything before the first stamped heading belongs to no entry we print (the gap between entries, or the
+    # tail of an entry already printed). Keep only an unfinished last line, which may be a heading being written.
+    if ! is_entry "$buf"; then
       case "$buf" in
-        *"$NL## "*) buf="## ${buf#*"$NL## "}" ;;
+        *"$NL"$HEAD_GLOB*) buf="${buf#*"$NL"}"; while ! is_entry "$buf"; do buf="${buf#*"$NL"}"; done ;;
         *"$NL"*) buf="${buf##*"$NL"}" ;;
       esac
     fi
-    # Every heading after the first closes the entry before it.
-    while [ "${buf#"## "}" != "$buf" ]; do
-      case "$buf" in
-        *"$NL## "*)
-          emit "${buf%%"$NL## "*}"
-          buf="## ${buf#*"$NL## "}" ;;
-        *) break ;;
-      esac
+    # Every stamped heading after the first closes the entry before it.
+    while is_entry "$buf"; do
+      rest="${buf#*"$NL"}"
+      [ "$rest" != "$buf" ] || break
+      # find the next line that is a stamped heading
+      head="${buf%%"$NL"*}"; body=""; found=0
+      while [ -n "$rest" ]; do
+        if is_entry "$rest"; then found=1; break; fi
+        line="${rest%%"$NL"*}"
+        if [ "$line" = "$rest" ]; then break; fi   # an unfinished last line
+        body="$body$NL$line"; rest="${rest#*"$NL"}"
+      done
+      [ "$found" = 1 ] || break
+      emit "$head$body"
+      buf="$rest"
     done
   fi
 
   # Quiet for 3 seconds: the pending entry is complete.
   if [ -n "$buf" ] && [ $(( SECONDS - last_new )) -ge 3 ]; then
-    if [ "${buf#"## "}" != "$buf" ]; then emit "$buf"; fi
+    if is_entry "$buf"; then emit "$buf"; fi
     buf=""
   fi
 done
