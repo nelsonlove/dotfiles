@@ -28,7 +28,7 @@ TMP=$(mktemp -d -t session-roster) || exit 1
 trap 'rm -rf "$TMP"' EXIT
 n=0; fails=0; skips=0
 # Every check outside section 1, whose own count depends on whether the real notebook is on this machine.
-SUITE_BASE=149
+SUITE_BASE=161
 SECTION1_CHECKS=0
 SECTION1_SKIPPED=0
 eq() { n=$((n + 1)); if [ "$2" = "$3" ]; then printf 'PASS  %-56s %s\n' "$1" "$2"; else fails=$((fails + 1)); printf 'FAIL  %-56s got %s, want %s\n' "$1" "$2" "$3"; fi; }
@@ -199,6 +199,16 @@ eq "and the reader agrees it is unreadable" "$(lib 'roster_read "$1"; printf "[%
 E_QC=$(entry "Agent session 2026-09-29T0423.md" 'session: "[L0-CC] quoted comment"' 'session-id: "dddddddd-1111-2222-3333-444444444444" # "a note"' 'agent: lieutenant' 'cwd: /tmp/q')
 eq "the reader stops at the first quote"     "$(lib 'roster_read "$1"; printf "%s" "$roster_id"' "$E_QC")" "dddddddd-1111-2222-3333-444444444444"
 eq "and the shared parse agrees"             "$(lib 'printf "%s" "$(roster_id_in_frontmatter "$1")"' "$E_QC")" "dddddddd-1111-2222-3333-444444444444"
+# THE SAME SHAPE IN SINGLE QUOTES, which nothing covered — so when the double-quote arm was fixed to stop at
+# its first closing quote, the single-quote arm stayed greedy and the two parsers went on disagreeing under a
+# comment that now claimed they agreed. A fix applied to one of two symmetrical branches is half a fix.
+# THE COMMENT MUST CARRY A SECOND QUOTE, or the case proves nothing: a greedy match to the LAST quote and a
+# match to the FIRST give the same answer when there is only one closing quote. The first version of this
+# fixture wrote a comment with no apostrophe in it and passed against the greedy code — the mutation run
+# caught it, as it caught the same mistake in the ownership case two rounds ago.
+E_SQ=$(entry "Agent session 2026-09-29T0424.md" 'session: "[L0-CC] single quoted"' "session-id: 'eeee1111-2222-3333-4444-555555555555' # don't" 'agent: lieutenant' 'cwd: /tmp/sq')
+eq "a single-quoted id stops at its quote"   "$(lib 'roster_read "$1"; printf "%s" "$roster_id"' "$E_SQ")" "eeee1111-2222-3333-4444-555555555555"
+eq "and the shared parse agrees there too"   "$(lib 'printf "%s" "$(roster_id_in_frontmatter "$1")"' "$E_SQ")" "eeee1111-2222-3333-4444-555555555555"
 # THE TWO COPIES OF THE SHARED PARSE MUST NOT DRIFT. The hook cannot source the library — it runs before
 # anything sets a library path and must never fail a turn — so the awk program that reads `session-id` exists
 # twice. Two parsers of one line disagreeing is the defect this package produced twice over five review
@@ -284,6 +294,16 @@ eq  "two entries for one id: the newest decides" "$(ended_line 77777777-1111-222
 entry "Agent session 2026-09-27T0101.md" 'session: "[L0-CC] newer ended"' 'session-id: 44444444-1111-2222-3333-444444444444' 'agent: lieutenant' 'cwd: /tmp/ne' 'status: draft/running' >/dev/null
 entry "Agent session 2026-09-29T0408.md" 'session: "[L0-CC] newer ended"' 'session-id: 44444444-1111-2222-3333-444444444444' 'agent: lieutenant' 'cwd: /tmp/ne' 'status: archived/ended' >/dev/null
 has "an older running entry does not hide a newer ended one" "$(ended_line 44444444-1111-2222-3333-444444444444)" "2026-09-29T0408"
+
+# THE WAKE'S AMBIGUITY GUARD, which the seventh reviewer proved was untested by deleting it and watching the
+# suite still print "0 failed". Only the sweeper's half was covered. This guard stops a wake telling a session
+# "your entry was ended, do not reopen it" while naming an entry it cannot show is the newest.
+AMB="$TMP/amb"; mkdir -p "$AMB/2026-09" "$AMB/2026-10"
+for d in 2026-09 2026-10; do
+  printf -- '---\nsession: "[L0-CC] tied for the wake"\nsession-id: 90909090-1111-2222-3333-444444444444\nagent: lieutenant\ncwd: /tmp/tw\nstatus: archived/ended\n---\n\nbody\n' \
+    > "$AMB/$d/Agent session 2026-09-26T0100.md"
+done
+eq "a tie gives the wake no ended line" "$(lib 'roster_ended_line_for "90909090-1111-2222-3333-444444444444" "$1" 1 "" 0 >/dev/null 2>&1; printf "[%s]" "${roster_ended_line:-}"' "$AMB")" "[]"
 
 echo
 echo "=== 5. where the conversation is: four outcomes, and two of them refuse"
@@ -633,6 +653,34 @@ mkdir -p "$NB/2026-10"
 printf -- '---\nsession: "[L0-CC] tied"\nsession-id: 56565656-1111-2222-3333-444444444444\nagent: lieutenant\ncwd: /tmp/tie\nstatus: archived/ended\n---\n\nbody\n' > "$NB/2026-10/Agent session 2026-09-25T0100.md"
 mkjob 56565656 56565656-1111-2222-3333-444444444444 "[L0-CC] tied"
 has  "two entries at the same stamp block it"  "$(sweep)" "SKIP  56565656"
+
+# THE EVIDENCE MUST BE TRUE, because a week of it is the case for restoring the delete path. One reason and one
+# `newest-status` used to cover five different findings: a tie between two COMPLETE entries printed "no entry
+# carries all four roster keys", a complete-but-running newest entry printed the same, and a job with no entry
+# at all printed a status for the entry it did not have. The verdict was safe every time and the stated cause
+# was wrong, which is the half a reader would have relied on.
+out=$(sweep)
+has "a tie says a tie, not missing keys"       "$out" "none can be called the newest"
+has "and does not claim a status it never read" "$out" "newest-status=not-read"
+hasnt "and never says four keys about a tie"   "$(printf '%s' "$out" | grep -A1 'SKIP  56565656' || true)" "does not carry all four"
+has "a fork-comment winner says it decides nothing" "$out" "does not state that id when parsed"
+has "and the listing status is in the evidence" "$out" "listing-status="
+# A JOB WITH NO ENTRY AT ALL says so, and claims no status for an entry it does not have.
+mkjob 41414141 41414141-1111-2222-3333-444444444444 "[L0-CC] no entry anywhere"
+out=$(sweep)
+has "no entry says no entry"                   "$out" "no notebook entry states that id"
+has "and its evidence says the status is n/a"  "$out" "newest-status=n/a"
+
+# A NESTED `status:` IS NOT THE RECORD'S STATUS. The status reader took the last match at any indentation, so
+# an entry reading `status: draft/running` with a `meta:` block holding an indented `status: archived/ended`
+# read as ENDED and the job was listed for removal. `roster_read` was fixed for exactly this shape in the third
+# review round and the reader that decides whether a session is RUNNING was not — the two disagreed about the
+# same note for four more rounds, which is the disagreement class this package keeps producing.
+entry "Agent session 2026-09-26T0300.md" 'session: "[L0-CC] nested status"' 'session-id: 13131313-1111-2222-3333-444444444444' 'agent: lieutenant' 'cwd: /tmp/nst' 'status: draft/running' 'meta:' '  status: archived/ended' >/dev/null
+mkjob 13131313 13131313-1111-2222-3333-444444444444 "[L0-CC] nested status"
+out=$(sweep)
+has  "a nested status does not end a session" "$out" "SKIP  13131313"
+hasnt "and the job is not listed for removal" "$out" "WOULD REMOVE  13131313"
 
 # THE ARCHIVE ROOT IS READ IN PRODUCTION. An ended entry MOVES there, so a sweeper that reads only the
 # notebook skips exactly the population it exists for — which is what the first version did, with

@@ -22,6 +22,9 @@
 #
 # IT RUNS ON NELSON'S WORD AND NEVER ON A SCHEDULE. There is no tickle job for this and there must not be:
 # a sweep is a deletion, and a deletion that runs while nobody is watching is how a fleet loses a session it
+# meant to keep. My own edit cut that sentence in half when the dry-run block was inserted, and `-h` printed
+# the fragment for a whole review round before it was read.
+#
 # A DRY RUN, AND ONLY A DRY RUN. On the captain's word this ships with no delete path at all: `--go` is
 # refused, `claude rm` is never called, and no file is removed by any flag or input — a test asserts that with
 # a recording stub on PATH rather than trusting the reading. The delete path returns as its own PR after a
@@ -32,9 +35,11 @@
 # of that reads as a case for or against the delete path. A week of "WOULD REMOVE abc12345" would not.
 #
 # Usage:
-#   sweep-jobs.sh [--jobs-dir <path>] [--notebook-dir <path>]
+#   sweep-jobs.sh [--jobs-dir <path>] [--notebook-dir <path>] [--archive-dir <path>] [--agents-dir <path>]
+#                 [--claude-bin <path>]
 #                 [--archive-dir <path>] [--log <path>] [--claude-bin <path>]
 #
+#   --log         REFUSED, with --go and --by: all three belonged to the delete path.
 #   --go          REFUSED. It names issue #78, which holds the delete path and the week of evidence it waits on.
 #   --jobs-dir    where the jobs live (default `~/.claude/jobs`). For testing only.
 #   --agents-dir  the parent both notebook roots are derived from. For testing only, and it was an accepted
@@ -42,7 +47,7 @@
 #                 accepts and ignores is worse than one it refuses.
 #   --notebook-dir, --archive-dir   the two notebook roots; same meaning as in `wake-session.sh`, and
 #                 `--notebook-dir` alone reads no archive, so a test stays sealed. For testing only.
-#   --claude-bin  the `claude` binary to call for the listing and the removal. For testing only — a suite
+#   --claude-bin  the `claude` binary to call for the listing; nothing else is called. For testing only — a suite
 #                 points it at a recorder and nothing is removed for real.
 #
 # Exit: 0 whatever it decided (a sweep that finds nothing to do is a success); 2 refused, before anything.
@@ -187,7 +192,11 @@ for job in "$JOBS_DIR"/*; do
   else
     ev_rows=$(printf '%s' "$listing" | jq -r --arg s "$full" '[.[] | select(.sessionId == $s)] | length' 2>/dev/null || echo "?")
     ev_pids=$(printf '%s' "$listing" | jq -r --arg s "$full" '[.[] | select(.sessionId == $s) | .pid // empty] | join(",")' 2>/dev/null || echo "?")
-    evidence="$evidence listing-rows=$ev_rows pids=${ev_pids:-none}"
+    # THE ROW'S OWN `.status` IS PRINTED even though nothing decides on it, because a reader of this evidence
+    # needs to see the case where the listing calls a session running and it has no pid — that reads as not
+    # alive here, deliberately, and a week of output should show how often that happens rather than hide it.
+    ev_stat=$(printf '%s' "$listing" | jq -r --arg s "$full" '[.[] | select(.sessionId == $s) | .status // "none"] | join(",")' 2>/dev/null || echo "?")
+    evidence="$evidence listing-rows=$ev_rows pids=${ev_pids:-none} listing-status=${ev_stat:-none}"
     if session_is_alive "$full"; then
       evidence="$evidence live-pid=yes"
       reason="the session is in the listing with a live pid"
@@ -195,11 +204,24 @@ for job in "$JOBS_DIR"/*; do
       evidence="$evidence live-pid=no"
       roster_state_for_id "$full"
       entry_path="$roster_pick_entry"
-      evidence="$evidence entries-for-id=${roster_entry_count:-0} newest=${roster_entry:-none}"
-      [ "${roster_entry_ambiguous:-0}" = 0 ] || evidence="$evidence order=UNDECIDABLE"
-      if [ -z "$roster_pick_state" ]; then
-        evidence="$evidence newest-status=unreadable-or-incomplete"
-        reason="no notebook entry carries all four roster keys with that full id"
+      evidence="$evidence entries-mentioning-id=${roster_entry_count:-0} newest=${roster_entry:-none}"
+      # ONE REASON FOR FIVE DIFFERENT FINDINGS IS A REASON FOR NONE OF THEM. Every empty `roster_pick_state`
+      # printed "no notebook entry carries all four roster keys" and `newest-status=unreadable-or-incomplete`,
+      # which was false for a tie between two complete entries, false when the newest entry was complete and
+      # merely running, and meaningless when there was no entry at all. The verdict was safe every time and the
+      # stated cause was wrong — and the stated cause is the whole of what a week of this output is worth.
+      if [ -z "$roster_entry" ]; then
+        evidence="$evidence newest-status=n/a"
+        reason="no notebook entry states that id"
+      elif [ "${roster_entry_ambiguous:-0}" != 0 ]; then
+        evidence="$evidence order=UNDECIDABLE newest-status=not-read"
+        reason="two or more entries state that id and none can be called the newest (a tie, or a filename with no stamp), so nothing was read"
+      elif [ "${roster_entry_unreadable:-0}" != 0 ]; then
+        evidence="$evidence newest-status=not-read"
+        reason="its newest entry $roster_entry does not state that id when parsed, so it decides nothing"
+      elif [ -z "$roster_pick_state" ]; then
+        evidence="$evidence newest-status=incomplete"
+        reason="its newest entry $roster_entry does not carry all four roster keys"
       else
         evidence="$evidence newest-status=$roster_pick_state"
         case "$roster_pick_state" in

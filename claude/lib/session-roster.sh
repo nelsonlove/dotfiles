@@ -115,7 +115,7 @@ roster_value() {  # $1 = the block, $2 = the key
     | sed -E 's/[[:space:]]+$//' || true)
   case "$rv_raw" in
     '"'*'"'*)  printf '%s' "$rv_raw" | sed -E 's/^"([^"]*)".*$/\1/' ;;
-    "'"*"'"*)  printf '%s' "$rv_raw" | sed -E "s/^'(.*)'.*\$/\1/" ;;
+    "'"*"'"*)  printf '%s' "$rv_raw" | sed -E "s/^'([^']*)'.*\$/\1/" ;;
     *)         printf '%s' "$rv_raw" | sed -E 's/[[:space:]]+#.*$//' | sed -E 's/[[:space:]]+$//' ;;
   esac
   return 0
