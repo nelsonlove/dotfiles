@@ -78,8 +78,8 @@ mk() {  # mk <dir> <file stem> <session> <status> <reports-to>
 }
 
 printf -- '=== 2. the whole line only in the archive\n'
-NB="$TMP/c2/notebook"; AR="$TMP/c2/03.09 Archive for 03 Agents"; mkdir -p "$NB"
-sub="$AR/Old agent notebook records/2026-09"   # an arbitrary subfolder, two levels deep: its name must not matter
+NB="$TMP/c2/notebook"; AR="$TMP/c2/archive/Agent notebook"; mkdir -p "$NB"
+sub="$AR/2026-09"   # the real shape: <root>/YYYY-MM/Agent session *.md
 mk "$sub" "Agent session 2026-09-27T0101" "$TARGET" archived/ended "$HOP"
 mk "$sub" "Agent session 2026-09-27T0102" "$HOP"    archived/ended "$TOP"
 mk "$sub" "Agent session 2026-09-27T0103" "$TOP"    archived/ended "[A0] rear admiral"
@@ -92,7 +92,7 @@ refused_because "without the archive root the same wake refuses on the missing r
 
 printf -- '=== 3. a line that crosses the roots\n'
 NB="$TMP/c3/notebook"; AR="$TMP/c3/archive"
-mk "$AR/x/2026-09" "Agent session 2026-09-27T0101" "$TARGET" archived/ended "$HOP"
+mk "$AR/2026-09" "Agent session 2026-09-27T0101" "$TARGET" archived/ended "$HOP"
 mk "$NB/2026-09"   "Agent session 2026-09-27T0102" "$HOP"    draft/running  "$TOP"
 mk "$NB/2026-09"   "Agent session 2026-09-27T0103" "$TOP"    draft/running  "[A0] rear admiral"
 allowed "the stopped target's ended entry in the archive, its superiors' running entries in the notebook" -- \
@@ -101,13 +101,13 @@ allowed "the stopped target's ended entry in the archive, its superiors' running
 printf -- '=== 4. the newest entry wins, whichever root it sits in\n'
 NB="$TMP/c4a/notebook"; AR="$TMP/c4a/archive"
 mk "$NB/2026-09" "Agent session 2026-09-26T0900" "$TARGET" draft/running  "$STRANGER"
-mk "$AR/x/2026-09" "Agent session 2026-09-27T0101" "$TARGET" archived/ended "$HOP"
+mk "$AR/2026-09" "Agent session 2026-09-27T0101" "$TARGET" archived/ended "$HOP"
 mk "$NB/2026-09" "Agent session 2026-09-27T0102" "$HOP" draft/running "$TOP"
 mk "$NB/2026-09" "Agent session 2026-09-27T0103" "$TOP" draft/running "[A0] rear admiral"
 allowed "a newer entry in the archive outranks an older one in the notebook" -- \
   "$W" --session "$LT" --by "$HOP" --why "two roots test" --notebook-dir "$NB" --archive-dir "$AR" --jobs-dir "$JOBS" --log "$LOG" --dry-run
 NB="$TMP/c4b/notebook"; AR="$TMP/c4b/archive"
-mk "$AR/x/2026-09" "Agent session 2026-09-26T0900" "$TARGET" archived/ended "$HOP"
+mk "$AR/2026-09" "Agent session 2026-09-26T0900" "$TARGET" archived/ended "$HOP"
 mk "$NB/2026-09" "Agent session 2026-09-27T0101" "$TARGET" draft/running  "$STRANGER"
 mk "$NB/2026-09" "Agent session 2026-09-27T0102" "$HOP" draft/running "$TOP"
 mk "$NB/2026-09" "Agent session 2026-09-27T0103" "$TOP" draft/running "[A0] rear admiral"
@@ -118,14 +118,32 @@ refused_because "a newer entry in the notebook outranks an older one in the arch
 
 printf -- '=== 5. only "Agent session *.md" is taken from the archive\n'
 NB="$TMP/c5/notebook"; AR="$TMP/c5/archive"; mkdir -p "$NB"
-mk "$AR/x/2026-09" "Rollup W39" "$TARGET" archived/ended "$HOP"
+mk "$AR/2026-09" "Rollup W39" "$TARGET" archived/ended "$HOP"
 refused_because "a non-entry note carrying the session key is not an entry" "no notebook entry for" -- \
   "$W" --session "$LT" --by "$HOP" --why "two roots test" --notebook-dir "$NB" --archive-dir "$AR" --jobs-dir "$JOBS" --log "$LOG" --dry-run
+
+printf -- '=== 6. the DEFAULT archive root is exactly `03.09 Archive/Agent notebook`, one YYYY-MM level down\n'
+# Nelson, 2026-09-29, on this PR: "narrow it" — other folders in 03.09 hold other archived things, so the
+# lookup must not read everything under the archive. These cases give no --notebook-dir and no --archive-dir,
+# only --agents-dir, so they test the DEFAULT roots. The three differ from each other in the folder only.
+A6() { A="$TMP/c6$1"
+  mk "$A/03.04 Records/Agent notebook/2026-09" "Agent session 2026-09-27T0102" "$HOP" draft/running "$TOP"
+  mk "$A/03.04 Records/Agent notebook/2026-09" "Agent session 2026-09-27T0103" "$TOP" draft/running "[A0] rear admiral"
+  mk "$A/03.09 Archive/$2" "Agent session 2026-09-27T0101" "$TARGET" archived/ended "$HOP"; }
+A6 a "Agent notebook/2026-09"
+allowed "an entry in 03.09 Archive/Agent notebook/YYYY-MM is read by default" -- \
+  "$W" --session "$LT" --by "$HOP" --why "two roots test" --agents-dir "$A" --jobs-dir "$JOBS" --log "$LOG" --dry-run
+A6 b "Old records/2026-09"
+refused_because "an entry elsewhere under 03.09 Archive is NOT read" "no notebook entry for" -- \
+  "$W" --session "$LT" --by "$HOP" --why "two roots test" --agents-dir "$A" --jobs-dir "$JOBS" --log "$LOG" --dry-run
+A6 c "Agent notebook/stray/2026-09"
+refused_because "an entry deeper than YYYY-MM under the archive root is NOT read" "no notebook entry for" -- \
+  "$W" --session "$LT" --by "$HOP" --why "two roots test" --agents-dir "$A" --jobs-dir "$JOBS" --log "$LOG" --dry-run
 
 printf -- '=== nothing reached a real log\n'
 if [ ! -s "$LOG" ]; then pass "the temp log is empty: every case was a dry run"; else fail "the temp log is empty" "$(wc -l < "$LOG") lines written"; fi
 
-EXPECTED=9
+EXPECTED=12
 printf '\n%s checks, %s failed (expected %s checks)\n' "$n" "$fails" "$EXPECTED"
 [ "$n" = "$EXPECTED" ] || { printf 'FAIL  the check count is %s, not %s: a broken line swallowed a section\n' "$n" "$EXPECTED"; exit 1; }
 [ "$fails" = 0 ]
