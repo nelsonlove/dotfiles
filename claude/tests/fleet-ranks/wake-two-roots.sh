@@ -37,11 +37,15 @@ refused_because() {  # refused_because <label> <text the refusal must carry> -- 
     *) fail "$label" "refused, but on another rail: $(printf '%s' "$out" | grep -m 1 'refused:')" ;;
   esac
 }
-allowed() {  # allowed <label> -- cmd...   (the gate let it through; it is a dry run)
-  label="$1"; shift 2
+allowed() {  # allowed <label> [<text the output must carry>] -- cmd...   (the gate let it through; it is a dry run)
+  # Only 0 (a dry run) and 3 (the target is live) are a pass. `die` is the only exit 2, so "not 2" would
+  # also pass a crash under set -e (rc 1, 123, 127) that prints no refusal: the abort this suite exists to see.
+  label="$1"; want=""; [ "$2" != -- ] && { want="$2"; shift; }; shift 2
   out=$("$@" 2>&1); rc=$?
-  if [ "$rc" != 2 ] && ! printf '%s' "$out" | grep -q 'refused:'; then pass "$label"
-  else fail "$label" "rc=$rc; $(printf '%s' "$out" | grep -m 1 'refused:')"; fi
+  case "$rc" in 0|3) ;; *) fail "$label" "rc=$rc; $(printf '%s' "$out" | grep -m 1 'refused:')"; return ;; esac
+  if printf '%s' "$out" | grep -q 'refused:'; then fail "$label" "rc=$rc but refused: $(printf '%s' "$out" | grep -m 1 'refused:')"; return; fi
+  if [ -n "$want" ] && ! printf '%s' "$out" | grep -qE "$want"; then fail "$label" "rc=$rc, but the output never reached: $want"; return; fi
+  pass "$label"
 }
 
 TARGET="[L0-CC] two-roots test"
@@ -63,7 +67,9 @@ printf 'COUNT entries named "Agent session *.md": %s in both roots, %s of them i
 if [ "$real_entries" -gt 0 ]; then pass "the real population is real: entries exist to index"; else fail "the real population is real" "no entries found; the rest of this suite would prove nothing about the live notebook"; fi
 # The survey reads the real listing and the real roots, resumes nothing without --resume-stopped, and is a
 # dry run besides. It must complete — an index that died on some real file would show here and nowhere else.
-allowed "the survey completes over the real notebook and archive" -- \
+# It must reach one of its two closing lines, so a survey that stopped partway cannot pass on rc alone.
+allowed "the survey completes over the real notebook and archive" \
+  'nothing stopped in your line|to resume every stopped session above' -- \
   "$W" --all --by "[A0] rear admiral" --log "$LOG" --dry-run
 
 mk() {  # mk <dir> <file stem> <session> <status> <reports-to>
