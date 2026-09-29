@@ -6,7 +6,7 @@ status: disabled
 # Ruled by Nelson 2026-09-29: "alright go for it" (cross-session log 02:56). Owned by [L0-MA] tickle (log 03:21).
 # SHIPS DISABLED: it starts a `claude --bg` lieutenant, and nothing that runs claude is scheduled until Nelson says
 # credits are back ("we'll have to have agents handle those jobs until i can add credits"). Until then the obsidian
-# captain dispatches `[L0-OB] weekly rollups` by hand on Mondays. Before `status: active`: one watched run by hand for
+# captain dispatches `[L0-OB] weekly rollups YYYY-Www` by hand on Mondays. Before `status: active`: one watched run by hand for
 # the week just ended, on Nelson's word.
 #
 # Every guard (pause, load, no overwrite, live lieutenant, previous week, brief markers, placeholder, the Claude

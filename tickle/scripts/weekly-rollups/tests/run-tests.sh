@@ -51,8 +51,8 @@ case "$1" in
     pwd > "$S/bg_cwd"
     shift; while [ "$#" -gt 1 ]; do shift; done; printf '%s' "$1" > "$S/bg_prompt"
     case "$(cat "$S/bg_registers")" in
-      1) echo '[{"id":"deadbeef","name":"[L0-OB] weekly rollups","pid":1,"status":"busy","state":"working"}]' > "$S/agents.json" ;;
-      other) echo '[{"id":"cafef00d","name":"[L0-OB] weekly rollups","pid":2,"status":"busy","state":"working"}]' > "$S/agents.json" ;;
+      1) echo '[{"id":"deadbeef","name":"[L0-OB] weekly rollups 2026-W40","pid":1,"status":"busy","state":"working"}]' > "$S/agents.json" ;;
+      other) echo '[{"id":"cafef00d","name":"[L0-OB] weekly rollups 2026-W40","pid":2,"status":"busy","state":"working"}]' > "$S/agents.json" ;;
     esac
     if [ "$(cat "$S/bg_registers")" = noid ]; then printf 'started\n\033[31msecond line\033[0m\n'; else echo "backgrounded session deadbeef"; fi
     exit "$(cat "$S/bg_rc")" ;;
@@ -82,7 +82,7 @@ out_has() { printf '%s' "$OUT" | grep -qF -- "$1"; }
 dated_count() { n=0; for f in "$Q/Weekly rollup not started 2026-W40 (again "*").md"; do [ -f "$f" ] && n=$((n + 1)); done; echo "$n"; }
 queue_count() { ls "$Q" | wc -l | tr -d ' '; }
 
-# 1. Happy path: dispatch, substitution, angle forms untouched, key unset, trusted cwd, claim line.
+# 1. Happy path: dispatch, substitution, angle forms untouched, key unset, trusted cwd, nothing in the log.
 new_case; go --week 2026-W40
 check "happy: exit 0" [ "$RC" = 0 ]
 check "happy: dispatched" dispatched
@@ -94,10 +94,9 @@ check "subst: <n> untouched" grep -qF 'Report `<n> spec notes read`' "$S/bg_prom
 check "subst: --- body line kept" grep -qx -- '---' "$S/bg_prompt"
 check "subst: markers not in brief" bash -c "! grep -qF 'weekly-rollups brief:' '$S/bg_prompt'"
 check "every claude call: API key unset" bash -c "! grep -qF KEY_LEAKED '$S/calls'"
-check "dispatch: agent, name, --" grep -qF -- "--bg --agent lieutenant --name [L0-OB] weekly rollups -- " "$S/calls"
+check "dispatch: agent, name with week, --" grep -qF -- "--bg --agent lieutenant --name [L0-OB] weekly rollups 2026-W40 -- " "$S/calls"
 check "dispatch: from trusted cwd" [ "$(cat "$S/bg_cwd")" = "$C/dotfiles" ]
-check "claim: one claim-and-release entry" [ "$(grep -c 'tickle weekly-rollups — claim and release' "$XLOG")" = 1 ]
-check "claim: names the ruling" grep -qF 'alright go for it' "$XLOG"
+check "log: nothing written" [ ! -s "$XLOG" ]
 check "happy: no queue item" [ "$(queue_count)" = 0 ]
 
 # 2. Dry run: every guard, prints the command, writes and dispatches nothing.
@@ -112,7 +111,7 @@ check "dry: would file queue item" out_has "would file queue item"
 check "dry: prints command" out_has "env -u ANTHROPIC_API_KEY"
 check "dry: reports auth and trust" out_has "dispatch directory trusted = true"
 check "dry: complete" out_has "DRY RUN complete"
-check "dry: command has --" out_has "weekly\\ rollups -- "
+check "dry: command has --" out_has "weekly\\ rollups\\ 2026-W40 -- "
 
 # 3. Paused: skip, record, no dispatch.
 new_case; printf -- '---\npaused: true\npaused-by: test\n---\n' > "$C/Pause.md"; go --week 2026-W40
@@ -161,22 +160,25 @@ new_case; printf -- '---\n---\n<!-- weekly-rollups brief: end -->\nx\n<!-- weekl
 check "marker order: exit 3" [ "$RC" = 3 ]; check "marker order: no dispatch" not_dispatched
 
 # 9. Live lieutenant: no second one.
-new_case; echo '[{"name":"[L0-OB] weekly rollups","pid":42,"status":"busy","state":"working"}]' > "$S/agents.json"; go --week 2026-W40
+new_case; echo '[{"name":"[L0-OB] weekly rollups 2026-W40","pid":42,"status":"busy","state":"working"}]' > "$S/agents.json"; go --week 2026-W40
 check "live busy: exit 0" [ "$RC" = 0 ]; check "live busy: reason" out_has "live and at work"; check "live busy: no dispatch" not_dispatched
-new_case; echo '[{"name":"[L0-OB] weekly rollups","pid":42,"status":"idle","state":"blocked"}]' > "$S/agents.json"; go --week 2026-W40
+new_case; echo '[{"name":"[L0-OB] weekly rollups 2026-W40","pid":42,"status":"idle","state":"blocked"}]' > "$S/agents.json"; go --week 2026-W40
 check "live blocked: exit 0" [ "$RC" = 0 ]; check "live blocked: no dispatch" not_dispatched; check "live blocked: no item" [ "$(queue_count)" = 0 ]
-new_case; echo '[{"name":"[L0-OB] weekly rollups","pid":42,"status":"idle","state":"done"}]' > "$S/agents.json"; go --week 2026-W40
+new_case; echo '[{"name":"[L0-OB] weekly rollups 2026-W40","pid":42,"status":"idle","state":"done"}]' > "$S/agents.json"; go --week 2026-W40
 check "live idle: exit 5" [ "$RC" = 5 ]; check "live idle: no dispatch" not_dispatched
 check "live idle: queue item" grep -qF 'claude stop' "$Q/Weekly rollup not started 2026-W40.md"
 check "item session is the job" grep -qxF 'session: "tickle weekly-rollups"' "$Q/Weekly rollup not started 2026-W40.md"
-new_case; /usr/bin/trash "$NB/Agent rollup for 2026-W39.md"; echo '[{"name":"[L0-OB] weekly rollups","pid":42,"status":"busy","state":"working"}]' > "$S/agents.json"; go --week 2026-W40
+new_case; /usr/bin/trash "$NB/Agent rollup for 2026-W39.md"; echo '[{"name":"[L0-OB] weekly rollups 2026-W39","pid":42,"status":"busy","state":"working"}]' > "$S/agents.json"; go --week 2026-W40
+check "last week at work: W40 dispatched" dispatched
 check "live busy: no false missed item" [ "$(queue_count)" = 0 ]
 new_case; echo '[{"name":"[L0-OB] monthly rollups","pid":42,"status":"busy","state":"working"}]' > "$S/agents.json"; go --week 2026-W40
 check "live: other name does not block" dispatched
-new_case; echo '[{"name":"[L0-OB] weekly rollups 2026-W40","pid":42,"status":"busy","state":"working"}]' > "$S/agents.json"; go --week 2026-W40
+new_case; echo '[{"name":"[L0-OB] weekly rollups 2026-W40 (renamed)","pid":42,"status":"busy","state":"working"}]' > "$S/agents.json"; go --week 2026-W40
 check "live: renamed session still blocks" not_dispatched
+new_case; echo '[{"name":"[L0-OB] weekly rollups 2026-W39","pid":42,"status":"idle","state":"done"}]' > "$S/agents.json"; go --week 2026-W40
+check "last week finished: does not block" dispatched; check "last week finished: exit 0" [ "$RC" = 0 ]
 old=$(( ($(date +%s) - 90000) * 1000 ))
-new_case; echo "[{\"name\":\"[L0-OB] weekly rollups\",\"pid\":42,\"status\":\"idle\",\"state\":\"blocked\",\"startedAt\":$old}]" > "$S/agents.json"; go --week 2026-W40
+new_case; echo "[{\"name\":\"[L0-OB] weekly rollups 2026-W40\",\"pid\":42,\"status\":\"idle\",\"state\":\"blocked\",\"startedAt\":$old}]" > "$S/agents.json"; go --week 2026-W40
 check "stuck: exit 5" [ "$RC" = 5 ]; check "stuck: no dispatch" not_dispatched; check "stuck: queue item" grep -qF '24 hours' "$Q/Weekly rollup not started 2026-W40.md"
 new_case; echo '' > "$S/agents.json"; go --week 2026-W40
 check "empty listing: exit 2" [ "$RC" = 2 ]; check "empty listing: no dispatch" not_dispatched; check "empty listing: no item" [ "$(queue_count)" = 0 ]
@@ -192,7 +194,7 @@ check "daemon key dry: reported" out_has "REFUSES to dispatch"
 new_case; echo 1 > "$S/agents_rc"; go --week 2026-W40
 check "agents fail: exit 2" [ "$RC" = 2 ]; check "agents fail: no dispatch" not_dispatched
 new_case; echo 1 > "$S/bg_rc"; go --week 2026-W40
-check "bg fail: exit 4" [ "$RC" = 4 ]; check "bg fail: no claim" [ ! -s "$XLOG" ]
+check "bg fail: exit 4" [ "$RC" = 4 ]
 check "bg fail: queue item" grep -qx 'needs: ruling' "$Q/Weekly rollup not started 2026-W40.md"
 echo 0 > "$S/bg_rc"; echo '[]' > "$S/agents.json"; /usr/bin/trash "$S/bg_prompt"; go --week 2026-W40
 check "rerun ok: exit 0" [ "$RC" = 0 ]; check "rerun ok: dispatched" dispatched
@@ -224,14 +226,14 @@ sed -i '' 's/^  by: "tickle weekly-rollups"$/  by: tickle weekly-rollups/' "$Q/W
 echo 0 > "$S/bg_rc"; echo '[]' > "$S/agents.json"; go --week 2026-W40
 check "unquoted by: still settled" grep -qx 'needs: nothing' "$Q/Weekly rollup not started 2026-W40.md"
 new_case; echo 0 > "$S/bg_registers"; go --week 2026-W40
-check "bg silent: exit 4" [ "$RC" = 4 ]; check "bg silent: no claim" [ ! -s "$XLOG" ]
+check "bg silent: exit 4" [ "$RC" = 4 ]
 check "bg silent: queue item" [ -f "$Q/Weekly rollup not started 2026-W40.md" ]
 new_case; echo '{"projects":{}}' > "$C/claude.json"; go --week 2026-W40
 check "untrusted: exit 2" [ "$RC" = 2 ]; check "untrusted: no dispatch" not_dispatched
 
 # 10e. Confirm by id: a same-name session with another id does not confirm; no id printed is a failure.
 new_case; echo other > "$S/bg_registers"; go --week 2026-W40
-check "other id: exit 4" [ "$RC" = 4 ]; check "other id: no claim" [ ! -s "$XLOG" ]
+check "other id: exit 4" [ "$RC" = 4 ]
 new_case; echo noid > "$S/bg_registers"; go --week 2026-W40
 check "no id: exit 4" [ "$RC" = 4 ]; check "no id: queue item" grep -qF 'backgrounded <id>' "$Q/Weekly rollup not started 2026-W40.md"
 
