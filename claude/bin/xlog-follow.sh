@@ -14,7 +14,7 @@
 #               timeout_ms: 1800000 })
 #
 # WHAT IT DOES
-#   * A long entry arrives CUT: Claude Code (2.1.284) cuts each Monitor line at exactly 500 characters and adds `...(truncated)`, although this script printed it whole; lines printed within 200 ms arrive as one notification, each line cut on its own, and the batch is capped at 3000 characters. Every line starts with its entry's stamp and heading, so on the mark read that entry in full in the fleet log, the file every notice line names (`~/obsidian/00-09 System/03 Agents/03.16 Cross-session log/CROSS-SESSION.md` unless --log says otherwise).
+#   * A long entry arrives CUT: Claude Code (2.1.284) cuts each Monitor line at exactly 500 characters and adds `...(truncated)`, although this script printed it whole; lines printed within 200 ms arrive as one notification, each line cut on its own, and the batch is capped at 3000 characters. Every entry line starts with its entry's stamp and heading (a notice line starts with `xlog-follow:`), so on a mark at the end of a LINE read that entry in full, and on a mark at the end of a whole NOTIFICATION (the 3000 cap) read every entry after the last stamp shown, because the entries past the cut are gone entirely, in the fleet log, the file every notice line names (`~/obsidian/00-09 System/03 Agents/03.16 Cross-session log/CROSS-SESSION.md` unless --log says otherwise).
 #   * It starts AT THE END of the log and never replays the entries already there. With --state <file> it saves
 #     where it is (the start of any entry still pending), and a later run on the same file resumes from there. A
 #     gap over 16 KB, or a state file that no longer fits the log, prints one notice line instead.
