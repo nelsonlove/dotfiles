@@ -28,8 +28,9 @@ TMP=$(mktemp -d -t session-roster) || exit 1
 trap 'rm -rf "$TMP"' EXIT
 n=0; fails=0; skips=0
 # Every check outside section 1, whose own count depends on whether the real notebook is on this machine.
-SUITE_BASE=120
+SUITE_BASE=125
 SECTION1_CHECKS=0
+SECTION1_SKIPPED=0
 eq() { n=$((n + 1)); if [ "$2" = "$3" ]; then printf 'PASS  %-56s %s\n' "$1" "$2"; else fails=$((fails + 1)); printf 'FAIL  %-56s got %s, want %s\n' "$1" "$2" "$3"; fi; }
 pass() { n=$((n + 1)); printf 'PASS  %-56s %s\n' "$1" "${2:-yes}"; }
 fail() { n=$((n + 1)); fails=$((fails + 1)); printf 'FAIL  %-56s %s\n' "$1" "${2:-}"; }
@@ -109,6 +110,13 @@ EOF
 else
   n=$((n + 1)); skips=$((skips + 1))
   printf 'SKIP  %-56s the notebook is not at %s\n' "the real-notebook population case" "$REAL_AGENTS"
+  # AND IT SAYS WHAT THIS RUN NO LONGER PROVES. A suite that skips a section and still ends "0 failed" reads
+  # as a pass to anyone who looks at the last line — which is the same failure as a suite that prints a happy
+  # total while its assertions never ran, the one the count guard exists for. The properties lost here are the
+  # ones only the real corpus can show: that no four-key entry carries a short id, and that 495 real entries
+  # do not abort a caller running under `set -euo pipefail`.
+  printf 'WARN  this run does NOT prove the real-notebook properties: no four-key entry with a short id, and no abort across the live corpus\n'
+  SECTION1_SKIPPED=1
   SECTION1_CHECKS=1
 fi
 
@@ -423,6 +431,26 @@ run_hook
 has   "the newest same-named entry is written"   "$(cat "$HNB/2026-09/Agent session 2026-09-29T2300.md")" "session-id: \"$SID\""
 hasnt "and the stale one is left alone"          "$(cat "$HNB/2026-09/Agent session 2026-09-20T0100.md")" "session-id:"
 rm -f "$HNB/2026-09/Agent session 2026-09-20T0100.md" "$HNB/2026-09/Agent session 2026-09-29T2300.md"
+# AND AGAIN WITH THE FILES CREATED IN THE OTHER ORDER. The check above depends on what `grep -rl` hands back,
+# which on this filesystem is alphabetical — so on a filesystem that returns creation order it could pass
+# without the sort at all. Creating the newest FIRST means one of the two runs contradicts creation order
+# whatever the filesystem does, and only a real sort passes both.
+for stamp in 2026-09-29T2300 2026-09-20T0100; do
+  printf -- '---\nsession: "[L0-CC] roster test"\nstatus: draft/running\n---\n\nbody\n' > "$HNB/2026-09/Agent session $stamp.md"
+done
+run_hook
+has   "newest wins whatever order they were made in" "$(cat "$HNB/2026-09/Agent session 2026-09-29T2300.md")" "session-id: \"$SID\""
+rm -f "$HNB/2026-09/Agent session 2026-09-20T0100.md" "$HNB/2026-09/Agent session 2026-09-29T2300.md"
+
+# OUR OWN ENTRY BEATS A NEWER ONE THAT IS NOT OURS. A plain newest-first sort put a later same-named session's
+# entry ahead of ours; the write refused on its foreign id and this session's own entry got nothing. An entry
+# carrying our id is unambiguously ours, so it is tried first.
+printf -- '---\nsession: "[L0-CC] roster test"\nsession-id: "%s"\nstatus: draft/running\n---\n\nbody\n' "$SID" > "$HNB/2026-09/Agent session 2026-09-20T0200.md"
+printf -- '---\nsession: "[L0-CC] roster test"\nsession-id: "%s"\nstatus: draft/running\n---\n\nbody\n' "$FOREIGN" > "$HNB/2026-09/Agent session 2026-09-29T2200.md"
+run_hook
+has   "our own older entry is written, not the newer foreign one" "$(cat "$HNB/2026-09/Agent session 2026-09-20T0200.md")" "cwd: \"$TMP/live\""
+hasnt "and the foreign entry is untouched"       "$(cat "$HNB/2026-09/Agent session 2026-09-29T2200.md")" "cwd:"
+rm -f "$HNB/2026-09/Agent session 2026-09-20T0200.md" "$HNB/2026-09/Agent session 2026-09-29T2200.md"
 
 echo
 echo "=== 7. the sweeper: all four keys, ended, and not alive — or it skips"
@@ -493,6 +521,18 @@ out=$(sweep)
 has  "the newest entry decides, not the first" "$out" "SKIP  66666666"
 has  "and the skip quotes the newest state"    "$out" "reads 'running'"
 
+# AN UNREADABLE NEWEST ENTRY MUST NOT LET AN OLDER ONE DECIDE. The round-three rule made a record that states
+# a key twice parse as nothing — safe for one entry, and dangerous here: the newest entry vanished from the
+# comparison, an older `archived/ended` entry became "the newest", and the job of a session whose newest record
+# says running was removed. The broken entry competes on its stamp now and then fails the four-key test, so the
+# sweeper skips and a human settles the record.
+entry "Agent session 2026-09-21T0100.md" 'session: "[L0-CC] unreadable newest"' 'session-id: 99999999-aaaa-bbbb-cccc-dddddddddddd' 'agent: lieutenant' 'cwd: /tmp/un' 'status: archived/ended' >/dev/null
+entry "Agent session 2026-09-29T2100.md" 'session: "[L0-CC] unreadable newest"' 'session-id: 99999999-aaaa-bbbb-cccc-dddddddddddd' 'session-id: 99999999-aaaa-bbbb-cccc-dddddddddddd' 'agent: lieutenant' 'cwd: /tmp/un' 'status: draft/running' >/dev/null
+mkjob 99999999 99999999-aaaa-bbbb-cccc-dddddddddddd "[L0-CC] unreadable newest"
+out=$(sweep)
+has  "an unreadable newest entry blocks the sweep" "$out" "SKIP  99999999"
+hasnt "and the older ended entry does not decide"  "$out" "WOULD REMOVE  99999999"
+
 # THE ARCHIVE ROOT IS READ IN PRODUCTION. An ended entry MOVES there, so a sweeper that reads only the
 # notebook skips exactly the population it exists for — which is what the first version did, with
 # `--agents-dir` accepted and ignored.
@@ -523,6 +563,7 @@ has  "naming the entry it read"                "$(cat "$TMP/sweeplog.md" 2>/dev/
 # a machine that is behaving correctly — and a guard that cries wolf is a guard someone deletes. Each branch
 # says how many checks it is worth, and the total is derived.
 EXPECTED=$((SUITE_BASE + SECTION1_CHECKS))
-printf '\n%s checks, %s failed, %s skipped (expected %s checks)\n' "$n" "$fails" "$skips" "$EXPECTED"
+printf '\n%s checks, %s failed, %s skipped (expected %s checks)%s\n' "$n" "$fails" "$skips" "$EXPECTED" \
+  "$([ "${SECTION1_SKIPPED:-0}" = 1 ] && printf ' — REAL-NOTEBOOK SECTION SKIPPED, this run proves less' || true)"
 [ "$n" = "$EXPECTED" ] || { printf 'FAIL  the suite ran %s checks, not the %s it expects — a section did not run\n' "$n" "$EXPECTED"; exit 1; }
 [ "$fails" = 0 ] || exit 1

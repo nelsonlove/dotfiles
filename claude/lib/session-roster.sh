@@ -144,8 +144,14 @@ roster_newest_entry_for_id() {  # $1 = full session id, $2… = the FOUR root ar
   ros_best_stamp=""
   while IFS= read -r ros_f; do
     [ -n "$ros_f" ] || continue
-    roster_read "$ros_f"
-    [ "$roster_id" = "$ros_id" ] || continue
+    # THE ID IS MATCHED RAW, NOT THROUGH `roster_read`. This used the parsed id, and since the round-three
+    # rule an entry that states a key twice or has no closing fence PARSES AS NOTHING — so the newest entry
+    # dropped out of this comparison entirely and an OLDER `archived/ended` entry became "the newest". The
+    # sweeper then read `ended` and removed the job of a session whose newest record says running. Making an
+    # unreadable record invisible is safe for one entry and dangerous the moment entries are compared: the
+    # broken one must still COMPETE, win on its stamp, and then fail the caller's own four-key test, which is
+    # what makes the sweeper skip. Matched at column zero, with the quotes the writer may have put on.
+    grep -qE "^session-id[[:space:]]*:[[:space:]]*[\"']?$ros_id[\"']?[[:space:]]*\$" "$ros_f" 2>/dev/null || continue
     roster_entry_count=$((roster_entry_count + 1))
     ros_stamp=$(printf '%s' "${ros_f##*/}" | sed -E 's/.*([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{4}).*/\1/')
     case "$ros_stamp" in
@@ -159,6 +165,13 @@ roster_newest_entry_for_id() {  # $1 = full session id, $2… = the FOUR root ar
   done <<EOF
 $(notebook_entry_files_of "$@")
 EOF
+  # AND THE WINNER IS READ BACK, so a caller can tell "no entry" from "an entry nobody can read". Both mean
+  # do nothing, but only one of them is worth a line on stderr to the human who must fix the record.
+  roster_entry_unreadable=0
+  if [ -n "$roster_entry" ]; then
+    roster_read "$roster_entry"
+    [ "$roster_id" = "$ros_id" ] || roster_entry_unreadable=1
+  fi
   return 0
 }
 
@@ -177,6 +190,13 @@ roster_ended_line_for() {  # $1 = full session id, $2… = the FOUR root argumen
   roster_id_is_full "$ros_eid" || return 0
   roster_newest_entry_for_id "$@"
   [ -n "$roster_entry" ] || return 0
+  # AN UNREADABLE NEWEST ENTRY SAYS NOTHING. Telling a session "your entry was ended" on the strength of a
+  # record this cannot parse is worse than silence: the line tells it not to reopen the entry, and the entry
+  # it means may be the wrong one.
+  if [ "${roster_entry_unreadable:-0}" = 1 ]; then
+    printf 'session-roster: %s is the newest entry for that id but cannot be read; no ended-entry line was added\n' "$roster_entry" >&2
+    return 0
+  fi
   # A MISSING LIBRARY IS NOT A MISSING RECORD. Silence is right when the entry is running, when there is no
   # entry, or when the id is short — but when the status rule itself cannot be read, a silent "no line" is
   # indistinguishable from "the entry is running", and the line exists to stop a woken session reopening a

@@ -233,7 +233,33 @@ roster_write() {  # $1 = this session's running entry
   return 0
 }
 
-# THE NEWEST CANDIDATE FIRST, not the first in directory order. The loop below stops at the first entry that
+# OUR OWN ENTRY FIRST, THEN THE NEWEST. A plain reverse sort put the newest same-named entry first, and the
+# loop stops at the first one it can use — so a LATER-started session of the same name, whose entry carries
+# its own id, sorted ahead of this session's own older entry and the write refused on the foreign id. It fails
+# safe (nothing is written), but it fails where the old arbitrary order would sometimes have succeeded. An
+# entry carrying OUR id is unambiguously ours, so it goes first; everything else follows newest-first, which
+# is what stops a stale id-less entry from winning by being alphabetically early.
+roster_candidates_for() {  # $1 = display name, $2 = this session's id, $3 = the notebook root
+  rc_all=$(grep -rlF --include='*.md' "session: \"$1\"" "$3" 2>/dev/null || true)
+  [ -n "$rc_all" ] || return 0
+  rc_mine=""; rc_rest=""
+  while IFS= read -r rc_f; do
+    [ -n "$rc_f" ] || continue
+    if grep -qE "^session-id[[:space:]]*:[[:space:]]*[\"']?$2[\"']?[[:space:]]*\$" "$rc_f" 2>/dev/null; then
+      rc_mine="$rc_mine$rc_f
+"
+    else
+      rc_rest="$rc_rest$rc_f
+"
+    fi
+  done <<EOF
+$rc_all
+EOF
+  printf '%s' "$rc_mine"
+  printf '%s' "$rc_rest" | sort -r
+}
+
+# THE NEWEST CANDIDATE FIRST among the rest, not the first in directory order. The loop below stops at the first entry that
 # reads `running`, and an entry's filename is its stamp, so a reverse sort puts the newest first. Without it a
 # STALE running entry from an earlier session of the same name won — and an entry with no `session-id` is
 # adopted by design, because that is what an entry written before the roster ruling looks like, so the stale
@@ -266,7 +292,7 @@ if [ -r "$SESSION_STATUS_LIB" ] && bash -n "$SESSION_STATUS_LIB" 2>/dev/null && 
         in_step=1; break ;;
     esac
   done <<EOF
-$(grep -rlF --include='*.md' "session: \"$name\"" "$NOTEBOOK_DIR" 2>/dev/null | sort -r || true)
+$(roster_candidates_for "$name" "$sid" "$NOTEBOOK_DIR")
 EOF
 else
   printf 'notebook-name-sync: the session-status rule at %s could not be read, so nothing was renamed this turn\n' "$SESSION_STATUS_LIB" >&2
