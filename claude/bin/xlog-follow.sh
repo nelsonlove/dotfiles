@@ -61,7 +61,7 @@ fi
 [ -n "$log" ] && [ -f "$log" ] || { echo "xlog-follow: no cross-session log found" >&2; exit 1; }
 
 trap 'save_state; exit 0' TERM INT HUP
-trap 'save_state; exit 0' PIPE
+trap 'closed' PIPE   # where SIGPIPE is not ignored; where it is, the failed printf's `|| closed` does the same
 
 # inode, size and mtime. The form is chosen ONCE: GNU `stat -f` means --file-system and prints junk, so an
 # `a || b` fallback is wrong on Linux (review 1 of #77). GNU first, because BSD `stat` rejects -c outright.
@@ -80,7 +80,7 @@ emit() {  # print one entry as one line, trailing blank lines trimmed; exit if n
   while [ "${e%"$NL"}" != "$e" ]; do e="${e%"$NL"}"; done
   e="${e//$NL/ ⏎ }"
   [ -n "$e" ] || return 0
-  printf '%s\n' "$e" || { save_state; exit 0; }
+  printf '%s\n' "$e" || closed
 }
 is_entry() { case "$1" in $HEAD_GLOB*) return 0 ;; *) return 1 ;; esac; }
 
@@ -93,13 +93,12 @@ save_state() {
   local so=$(( offset - ${#buf} )) sfp=$fp
   [ "$so" = "$offset" ] || sfp=$(fingerprint "$log" "$so")
   mkdir -p "$(dirname "$state")" 2>/dev/null
-  # The EXTERNAL printf (through env), never the builtin: after a builtin printf fails on a closed pipe, bash keeps the unsent
-  # text in its output buffer, and the next builtin printf (this one, redirected to the file) flushes it into the
-  # state file, which the next run then cannot read (found by the test of a notice lost to a closed pipe).
-  env printf '%s %s %s\n' "$inode" "$so" "$sfp" > "$state.tmp" && mv -f "$state.tmp" "$state"
+  printf '%s %s %s\n' "$inode" "$so" "$sfp" > "$state.tmp" && mv -f "$state.tmp" "$state"
   return 0
 }
-notice() { printf 'xlog-follow: %s; read the log from your last-read stamp: %s\n' "$1" "$log" || { save_state; exit 0; }; }
+# closed: the reader is gone. After a builtin printf fails, bash keeps the unsent text in its output buffer, and any later builtin printf, or any $( ) child, flushes it into ITS output (found by the test of a notice lost to a closed pipe: the text landed in the state file). So stdout goes to /dev/null and one echo flushes the leftover there, and only then is the place saved. Every failed write, and the PIPE trap, comes here.
+closed() { exec >/dev/null 2>&1; echo; save_state; exit 0; }
+notice() { printf 'xlog-follow: %s; read the log from your last-read stamp: %s\n' "$1" "$log" || closed; }
 settle=0        # >0 while waiting for a cut or rewrite to finish: polls with no change still needed
 buf=""          # the entry being collected: empty, or text that starts with a stamped heading
 last_new=$SECONDS
@@ -112,8 +111,10 @@ offset=${size:-0}; fp=$(fingerprint "$log" "$offset")
 if [ -n "$state" ] && [ -f "$state" ]; then
   # Resume where the last run stopped (a Monitor expires, at most after 30 minutes, and is re-armed), if it is the same file and the bytes before the saved end are unchanged. Otherwise print one notice and start at the end.
   read -r s_inode s_offset s_fp < "$state"
-  case "$s_inode$s_offset" in ""|*[!0-9]*) s_inode=x ;; esac   # not three fields of numbers: unusable, so a notice below
-  if [ "$s_inode" = "$inode" ] && [ "${s_offset:-x}" -le "$offset" ] 2>/dev/null && [ "$(fingerprint "$log" "$s_offset")" = "$s_fp" ]; then
+  # The line is `inode offset fingerprint`, and the fingerprint is `0` or cksum's `crc size`. Anything else is unusable, so a notice below.
+  case "$s_inode$s_offset" in ""|*[!0-9]*) s_inode=x ;; esac
+  case "$s_fp" in 0) ;; [0-9]*" "[0-9]*) case "$s_fp" in *[!0-9\ ]*|*" "*" "*) s_inode=x ;; esac ;; *) s_inode=x ;; esac
+  if [ "$s_inode" = "$inode" ] && [ "$s_offset" -le "$offset" ] && [ "$(fingerprint "$log" "$s_offset")" = "$s_fp" ]; then
     if [ $(( offset - s_offset )) -gt "$RESUME_MAX" ]; then
       notice "$(( offset - s_offset )) bytes of new entries arrived since the last run, too many to print here"
     else
@@ -183,8 +184,7 @@ while :; do
       if is_entry "$buf"; then emit "$buf"; fi
       if [ "$heads" -gt "$MAX_HEADS" ]; then msg="more than $MAX_HEADS entries arrived at once, too many to be appends"
       else msg="$(( n_size - offset )) bytes arrived at once, too many to be appends"; fi
-      # Move and save the place BEFORE the notice: if the pipe is closed, the notice exits through the PIPE trap's
-      # save_state, which must not save the place before the burst, or the next run repeats the notice.
+      # Move and save the place BEFORE the notice: if the pipe is closed, the notice exits through `closed`, whose save_state must not save the place before the burst, or the next run repeats the notice.
       buf=""; offset=$n_size; fp=$(fingerprint "$log" "$offset"); last_new=$SECONDS; save_state
       notice "$msg"
       continue
