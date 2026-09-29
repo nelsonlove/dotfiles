@@ -51,6 +51,7 @@
 #   --log      the cross-session log to append the record to (default: the fleet log).
 #   --notebook-dir  where the agent notebook lives. For testing only.
 #   --archive-dir   where ended notebook entries live (default: every `03 Agents/03.09*` folder). For testing only.
+#   --agents-dir    the `03 Agents` folder both default roots are found under. For testing only.
 #   --jobs-dir  where Claude Code's job state lives, which is where a target's RANK is read from
 #              (`<id>/state.json`, key `template`, through the rank definitions). For testing only, and
 #              REFUSED unless it resolves under /tmp or the system temp directory — see the leash below. It
@@ -126,6 +127,7 @@ AGENTS_DIR="$HOME/obsidian/00-09 System/03 Agents"
 ARCHIVE_DIR=""
 ARCHIVE_DIR_SET=0
 NOTEBOOK_DIR_SET=0
+AGENTS_DIR_SET=0
 # The frontmatter key that records a session's superior. Confirmed by [C0] obsidian, 2026-09-26,
 # and carried by the Session lifecycle block of ~/.claude/CLAUDE.md. One variable, so a rename of
 # the key is one line here and one line in promote-session.sh.
@@ -182,6 +184,7 @@ while [ $# -gt 0 ]; do
     --log)          [ $# -ge 2 ] || die "--log needs a value"; log="$2"; shift 2 ;;
     --notebook-dir) [ $# -ge 2 ] && [ -n "$2" ] || die "--notebook-dir needs a path"; NOTEBOOK_DIR="$2"; NOTEBOOK_DIR_SET=1; shift 2 ;;
     --archive-dir) [ $# -ge 2 ] && [ -n "$2" ] || die "--archive-dir needs a path"; ARCHIVE_DIR="$2"; ARCHIVE_DIR_SET=1; shift 2 ;;
+    --agents-dir)  [ $# -ge 2 ] && [ -n "$2" ] || die "--agents-dir needs a path"; AGENTS_DIR="$2"; AGENTS_DIR_SET=1; shift 2 ;;
     --jobs-dir) [ $# -ge 2 ] && [ -n "$2" ] || die "--jobs-dir needs a path"; JOBS_DIR=$(check_jobs_dir "$2"); shift 2 ;;
     --pause-note)   [ $# -ge 2 ] && [ -n "$2" ] || die "--pause-note needs a path"; pause_note="$2"; shift 2 ;;
     --all)          all_mode=1; shift ;;
@@ -191,6 +194,9 @@ while [ $# -gt 0 ]; do
     *) die "unknown argument: $1" ;;
   esac
 done
+
+# --agents-dir moves the parent both default roots are found under; an explicit --notebook-dir still wins.
+if [ "$AGENTS_DIR_SET" = 1 ] && [ "$NOTEBOOK_DIR_SET" = 0 ]; then NOTEBOOK_DIR="$AGENTS_DIR/03.04 Records/Agent notebook"; fi
 
 [ -n "$by" ] || die "--by is required"
 command -v jq >/dev/null     || die "jq is required"
