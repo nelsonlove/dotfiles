@@ -124,17 +124,20 @@ code_of_rank() {  # $1 = rank, $2 = ship code
 # --- the ships -------------------------------------------------------------------------------------
 # CC is the Claude Code ship, OB the obsidian ship, HS the home server (captain `[C0-HS] orange`), all
 # three ruled 2026-09-26; MA is the macOS ship (captain `[C0-MA] macos`), ruled 2026-09-29 on Nelson's
-# "A, MA". FL is not a ship but the marker of a floating session shared across captains, and it is listed
+# "A, MA". The eight area ships were ruled the same day (log 2026-09-29T03:35), one per life area, under
+# `[A0] areas admiral`: PE 10-19 Personal, PP 20-29 People, HH 30-39 Household, FN 40-49 Financial, ED 50-59
+# Education & research, WK 60-69 Work, HB 70-79 Hobbies & media, DV 80-89 Divorce (guarded: its captain
+# starts only when Nelson starts it). FL is not a ship but the marker of a floating session shared across captains, and it is listed
 # beside them because it is what such a name carries.
 #
 # ADD A SHIP HERE AND NOWHERE ELSE. `FLOATING_SHIP` sits directly below on purpose: `FL` appears both in
 # the list and as the floating marker, and the survey in `docs/fleet-machinery/` flags that separating the
 # two is how they drift apart. A refusal that names the ships builds the words with `ships_in_words`, so
 # no sentence types the list out by hand (it did until 2026-09-29, and adding MA had to edit it).
-KNOWN_SHIPS="CC OB HS MA FL"
+KNOWN_SHIPS="CC OB HS MA PE PP HH FN ED WK HB DV FL"
 FLOATING_SHIP="FL"
 
-# The real ships in words, for a refusal: "CC, OB, HS or MA". FL is left out, because the sentences that
+# The real ships in words, for a refusal: "CC, OB, … or DV", read from KNOWN_SHIPS. FL is left out, because the sentences that
 # use this name it on its own ("FL for a floating session").
 ships_in_words() {
   local out="" last="" c

@@ -96,20 +96,30 @@ eq "coded 0 MA"   "$(code_of_rank 0 MA)"    "[C0-MA]"
 
 echo
 echo "=== the ships"
-# MA, the macOS ship (captain `[C0-MA] macos`), on Nelson's "A, MA" of 2026-09-29.
-eq "KNOWN_SHIPS"          "$KNOWN_SHIPS"               "CC OB HS MA FL"
+# MA, the macOS ship (captain `[C0-MA] macos`), on Nelson's "A, MA" of 2026-09-29; the eight area ships
+# PE PP HH FN ED WK HB DV on the areas ruling of the same day (log 2026-09-29T03:35).
+eq "KNOWN_SHIPS"          "$KNOWN_SHIPS"               "CC OB HS MA PE PP HH FN ED WK HB DV FL"
 eq "FLOATING_SHIP"        "$FLOATING_SHIP"             "FL"
 eq "FL is in the list"    "$(ship_is_known FL && echo yes)" yes
 eq "CC is known"          "$(ship_is_known CC && echo yes)" yes
 eq "OB is known"          "$(ship_is_known OB && echo yes)" yes
 eq "HS is known"          "$(ship_is_known HS && echo yes)" yes
 eq "MA is known"          "$(ship_is_known MA && echo yes)" yes
+eq "PE is known"          "$(ship_is_known PE && echo yes)" yes
+eq "PP is known"          "$(ship_is_known PP && echo yes)" yes
+eq "HH is known"          "$(ship_is_known HH && echo yes)" yes
+eq "FN is known"          "$(ship_is_known FN && echo yes)" yes
+eq "ED is known"          "$(ship_is_known ED && echo yes)" yes
+eq "WK is known"          "$(ship_is_known WK && echo yes)" yes
+eq "HB is known"          "$(ship_is_known HB && echo yes)" yes
+eq "DV is known"          "$(ship_is_known DV && echo yes)" yes
 eq "XX is not"            "$(ship_is_known XX || echo no)"  no
 eq "an empty code is not" "$(ship_is_known '' || echo no)"  no
 eq "ship of [L0-CC]"      "$(ship_of_name '[L0-CC] dotfiles')" CC
 eq "ship of [C0-HS]"      "$(ship_of_name '[C0-HS] orange')"   HS
 eq "ship of [C0-MA]"      "$(ship_of_name '[C0-MA] macos')"    MA
-eq "ships in words"       "$(ships_in_words)"          "CC, OB, HS or MA"
+eq "ship of [C0-DV]"      "$(ship_of_name '[C0-DV] divorce')"  DV
+eq "ships in words"       "$(ships_in_words)"          "CC, OB, HS, MA, PE, PP, HH, FN, ED, WK, HB or DV"
 eq "ship of [L0-FL]"      "$(ship_of_name '[L0-FL] dotfiles')" FL
 eq "ship of a bare name"  "$(ship_of_name '[L0] dotfiles')"    ""
 eq "ship of [A0]"         "$(ship_of_name '[A0] rear admiral')" ""
@@ -136,9 +146,9 @@ pr() { HOME="$PTMP/home" PATH="$PTMP/stubbin:$PATH" bash "$BIN/promote-session.s
 skipped=0
 if command -v jq >/dev/null 2>&1; then
   out=$(pr --name "[L0] x" --by "[C0] ship words test")
-  eq "no ship on --by: the refusal names every ship" "$out" "promote-session: --by has no ship code; pass --ship CC, OB, HS or MA (FL for a floating session)"
+  eq "no ship on --by: the refusal names every ship" "$out" "promote-session: --by has no ship code; pass --ship CC, OB, HS, MA, PE, PP, HH, FN, ED, WK, HB or DV (FL for a floating session)"
   out=$(pr --name "[L0-CC] x" --by "[A0] rear admiral")
-  eq "no ship on the target: the refusal names every ship" "$out" "promote-session: refused: \`[C1] ship words target\` carries no ship code and [A0] rear admiral has none either, so the new name's ship cannot be read from anywhere; pass --ship CC, OB, HS or MA (FL for a floating session)"
+  eq "no ship on the target: the refusal names every ship" "$out" "promote-session: refused: \`[C1] ship words target\` carries no ship code and [A0] rear admiral has none either, so the new name's ship cannot be read from anywhere; pass --ship CC, OB, HS, MA, PE, PP, HH, FN, ED, WK, HB or DV (FL for a floating session)"
   out=$(pr --name "[L0-MA] x" --by "[C0] ship words test" --ship MA)
   # Passing means the dry run reaches its end and names MA as the new ship; any refusal stops it earlier.
   case "$out" in *"ship MA (from --ship)"*"dry run: nothing touched"*) r=past-the-ship-gates ;; *) r="$out" ;; esac
@@ -168,10 +178,11 @@ done
 
 # The count is asserted, not only printed (tests/README.md rule 1): 84 before the MA cases, 92 after
 # the review of #72 (three MA table cases, `ships_in_words`, two promote-session cases, and the two new
-# negative checks), then 93 with the rear admiral's refusal.
+# negative checks), 93 with the rear admiral's refusal, and 102 with the eight area ships (one
+# known-check each, and the ship of a [C0-DV] name).
 # Change EXPECTED only in the commit that adds or removes a check, and say which.
 # The count is part of the summary line, so a run that lost checks can never print a green summary.
-EXPECTED=93
+EXPECTED=102
 [ $((n + skipped)) = "$EXPECTED" ] || { fails=$((fails + 1)); echo "FAIL  the check count is $n, expected $EXPECTED: a line was lost or added without updating EXPECTED"; }
 printf '\n%s checks (expected %s), %s skipped, %s failed\n' "$n" "$EXPECTED" "$skipped" "$fails"
 [ "$fails" = 0 ] || exit 1

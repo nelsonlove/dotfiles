@@ -196,7 +196,7 @@ by_rank=$(rank_of_caller "$by"); [ "$by_rank" != 9 ] || die "--by must start wit
 # THE ACCEPT VERBS' WRITE PATH NOTIFIES; IT DOES NOT PROMOTE. It reaches this script only because
 # `rank_of_caller` is one seam shared with wake-session.sh, which package 5 widened for the notifier. Before
 # package 5 it was refused here as a caller with no rank code, and it stays refused — but with its own
-# sentence, because the ship block below would otherwise refuse it with "pass --ship CC, OB, HS or MA", which
+# sentence, because the ship block below would otherwise refuse it with "pass --ship <every ship>", which
 # names the wrong problem and invites a caller to pass one. Nothing was ruled about the verb path promoting
 # anybody, and a rank change nobody can attribute to a session is worse than one refused.
 [ "$by_rank" -ge -1 ] || die "refused: '$by' is the accept verbs' write path; it notifies a session, it does not promote or demote one"
@@ -229,7 +229,7 @@ elif [ -n "$ship" ]; then
   new_ship="$ship"
 else
   # The captain's wording, corrected by him on 2026-09-26 once HS existed: the sentence is byte-exact,
-  # and its list of codes is `ships_in_words` (today "CC, OB, HS or MA").
+  # and its list of codes is `ships_in_words`, read from KNOWN_SHIPS.
   [ -n "$by_ship" ] || die "--by has no ship code; pass --ship $(ships_in_words) (FL for a floating session)"
   ship_is_known "$by_ship" || die "--by carries the ship code '$by_ship', which is not one of: $KNOWN_SHIPS; pass --ship to say which ship"
   new_ship="$by_ship"
