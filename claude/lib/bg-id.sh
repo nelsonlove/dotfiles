@@ -5,7 +5,7 @@
 #
 #   SOURCED:  . claude/lib/bg-id.sh
 #             new_id=$(printf '%s' "$out" | bg_id) || die "..."        the id, or a loud failure
-#             bg_parse <<<"$out"                                       sets BG_NEW, BG_COPY, BG_ORIGINAL, BG_ERR in the caller's shell
+#             bg_parse <<<"$out"                                       sets BG_NEW, BG_COPY, BG_ERR in the caller's shell
 #   RUN:      claude --bg … 2>&1 | bash claude/lib/bg-id.sh
 #
 # IN   `claude --bg` output (stdout and stderr together) on stdin.
@@ -13,7 +13,6 @@
 # bg_parse    returns 0 or 1 as bg_id does, and sets, whatever the result:
 #   BG_NEW       the new id, or empty on failure
 #   BG_COPY      the id a note says a COPY was started as ("… started a copy as 61efac93"), or empty. Set even when BG_NEW fails, so a caller can stop a copy before it refuses.
-#   BG_ORIGINAL  the id a copy note names as the ORIGINAL ("session 05ab1bf4 is already running", "background session 05ab1bf4 keeps its own saved options"), or empty
 #   BG_ERR       the failure message, or empty
 #
 # THE OUTPUT, measured 2026-09-29 on throwaways (the fixtures in claude/tests/bg-id/fixtures are those raw bytes):
@@ -31,12 +30,11 @@
 
 bg_parse() {
   local raw clean cands n
-  BG_NEW=""; BG_COPY=""; BG_ORIGINAL=""; BG_ERR=""
+  BG_NEW=""; BG_COPY=""; BG_ERR=""
   raw=$(cat)
   # A backspace erases the character before it (a tty echoes ^D and then two backspaces before the first line), so backspaces are applied before the other control characters go.
   clean=$(printf '%s\n' "$raw" | tr -d '\r' | sed -E $'s/\x1b\\[[0-9;?]*[A-Za-z]//g' | LC_ALL=C sed -e $':a\ns/[^\x08]\x08//\nta' | LC_ALL=C tr -d '\000-\010\013\014\016-\037')
   BG_COPY=$(printf '%s\n' "$clean" | LC_ALL=C sed -n -E 's/^[[:space:]]*note:.*started a copy as ([0-9a-f]{6,})([^0-9A-Za-z].*)?$/\1/p' | head -n 1)
-  BG_ORIGINAL=$(printf '%s\n' "$clean" | LC_ALL=C sed -n -E 's/^[[:space:]]*note:.*session ([0-9a-f]{6,}) (is already running|keeps its own saved options).*$/\1/p' | head -n 1)
   cands=$(printf '%s\n' "$clean" | LC_ALL=C awk '
     /^[[:space:]]*backgrounded[[:space:]]/ {
       line = $0; sub(/^[[:space:]]*backgrounded[[:space:]]*/, "", line)

@@ -58,15 +58,15 @@ echo
 echo "=== 3. sourced, and used by both scripts"
 got=$(bash -c '. "$1"; printf "backgrounded · 9abcdef0\n" | bg_id' _ "$LIB" 2>&1)
 if [ "$got" = 9abcdef0 ]; then pass "sourced, bg_id works as a function"; else fail "sourced, bg_id works as a function" "got '$got'"; fi
-probe() {  # probe <input>: run bg_parse sourced, print "rc NEW COPY ORIGINAL"
-  bash -c '. "$1"; bg_parse <<<"$2"; rc=$?; printf "%s %s %s %s" "$rc" "${BG_NEW:--}" "${BG_COPY:--}" "${BG_ORIGINAL:--}"' _ "$LIB" "$1"
+probe() {  # probe <input>: run bg_parse sourced, print "rc NEW COPY"
+  bash -c '. "$1"; bg_parse <<<"$2"; rc=$?; printf "%s %s %s" "$rc" "${BG_NEW:--}" "${BG_COPY:--}"' _ "$LIB" "$1"
 }
 got=$(probe "$(cat "$FIX/resume-running-copy.out")")
-if [ "$got" = "0 61efac93 61efac93 05ab1bf4" ]; then pass "bg_parse on a real copy: new, copy and original ids"; else fail "bg_parse on a real copy" "got '$got'"; fi
+if [ "$got" = "0 61efac93 61efac93" ]; then pass "bg_parse on a real copy: new and copy ids"; else fail "bg_parse on a real copy" "got '$got'"; fi
 got=$(probe "$(cat "$FIX/resume-flags-copy.out")")
-if [ "$got" = "0 236a4f0e 236a4f0e 05ab1bf4" ]; then pass "bg_parse on a real flags copy: new, copy and original ids"; else fail "bg_parse on a real flags copy" "got '$got'"; fi
+if [ "$got" = "0 236a4f0e 236a4f0e" ]; then pass "bg_parse on a real flags copy: new and copy ids"; else fail "bg_parse on a real flags copy" "got '$got'"; fi
 got=$(probe "$(printf 'note: session 05ab1bf4 is already running in the background, so this started a copy as 61efac93.\nbackgrounded • 61efac93\n')")
-if [ "$got" = "1 - 61efac93 05ab1bf4" ]; then pass "bg_parse gives the copy id even when the backgrounded line cannot be read"; else fail "bg_parse gives the copy id even when the backgrounded line cannot be read" "got '$got'"; fi
+if [ "$got" = "1 - 61efac93" ]; then pass "bg_parse gives the copy id even when the backgrounded line cannot be read"; else fail "bg_parse gives the copy id even when the backgrounded line cannot be read" "got '$got'"; fi
 if grep -q 'lib/bg-id.sh' "$BIN/promote-session.sh" && grep -q '| bg_id)' "$BIN/promote-session.sh"; then pass "promote-session.sh reads the id through bg_id"; else fail "promote-session.sh reads the id through bg_id" "no bg_id use"; fi
 if grep -q 'lib/bg-id.sh' "$BIN/wake-session.sh" && grep -q 'bg_parse <<<"$out"' "$BIN/wake-session.sh"; then pass "wake-session.sh reads the ids through bg_parse"; else fail "wake-session.sh reads the ids through bg_parse" "no bg_parse use"; fi
 for s in promote-session.sh wake-session.sh; do

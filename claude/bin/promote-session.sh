@@ -190,13 +190,13 @@ bash -n "$FLEET_RANKS" 2>/dev/null || die "the rank table at $FLEET_RANKS does n
 # AND THAT IT DEFINED WHAT IT PROMISES: a table that parses but defines nothing left the script to fail
 # later with 127, not with a refusal. One probe is enough — they all come from the same file.
 command -v rank_of_name >/dev/null 2>&1 || die "the rank table at $FLEET_RANKS parsed but defined no rank line; refusing"
-# THE bg-id PARSER, the one reader of the new id in `claude --bg` output (shared with wake-session.sh). Guarded as the other libraries are: readable, parses, defines bg_id and bg_parse.
+# THE bg-id PARSER, the one reader of the new id in `claude --bg` output (shared with wake-session.sh). Guarded as the other libraries are: readable, parses, defines bg_id.
 BG_ID_LIB="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)/../lib/bg-id.sh"
 [ -r "$BG_ID_LIB" ] || die "the bg-id parser is missing or unreadable at $BG_ID_LIB"
 bash -n "$BG_ID_LIB" 2>/dev/null || die "the bg-id parser at $BG_ID_LIB does not parse; refusing"
 # shellcheck source=../lib/bg-id.sh
 . "$BG_ID_LIB" || die "the bg-id parser at $BG_ID_LIB could not be sourced"
-for fn in bg_id bg_parse; do command -v "$fn" >/dev/null 2>&1 || die "the bg-id parser at $BG_ID_LIB parsed but defined no $fn; refusing"; done
+command -v bg_id >/dev/null 2>&1 || die "the bg-id parser at $BG_ID_LIB parsed but defined no bg_id; refusing"
 
 [ "$to" != "captain" ] || die "refused: only Nelson makes captains"
 # `rank_of_agent admiral` is -1 since 2026-09-29, so --to admiral is refused here, outright, the way --to captain
