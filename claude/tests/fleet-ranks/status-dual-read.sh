@@ -73,8 +73,18 @@ echo "=== 1. THE REAL NOTEBOOK, under the callers own shell options"
 strict_state() {  # the library under the callers own options
   bash -euo pipefail -c '. "$1" && session_status_of "$2" && printf "%s" "$sess_state"' _ "$LIB" "$1" 2>/dev/null
 }
+# BOTH ROOTS. Since 2026-09-29 an ended entry moves from the notebook to the archive's notebook, so the notebook alone went from 517 entries to 71 and this section fell below its own bound. The entries are read through `claude/lib/notebook-roots.sh`, the same roots and the same depth (`<root>/YYYY-MM/Agent session *.md`) the wake reads, and each root's count is printed.
 REAL_NB="$HOME/obsidian/00-09 System/03 Agents/03.04 Records/Agent notebook"
+REAL_ARCH="$HOME/obsidian/00-09 System/03 Agents/03.09 Archive/Agent notebook"
+ROOTS_LIB="$ROOT/claude/lib/notebook-roots.sh"
 if [ -d "$REAL_NB" ]; then
+  # shellcheck source=../../lib/notebook-roots.sh
+  . "$ROOTS_LIB" || { fail "the roots library loads" "could not source $ROOTS_LIB"; }
+  real_files=()
+  while IFS= read -r f; do [ -n "$f" ] && real_files+=("$f"); done < <(notebook_entry_files_of "$REAL_NB" 1 "$REAL_ARCH" 1)
+  nb_n=$(entries_in_root "$REAL_NB" | grep -c . || true)
+  arch_n=$( { [ -d "$REAL_ARCH" ] && entries_in_root "$REAL_ARCH"; } | grep -c . || true)
+  printf '      roots: %s in the notebook, %s in the archive\n' "$nb_n" "$arch_n"
   # READ-ONLY, and the population that matters: every entry in the live notebook, in one strict shell. What is
   # asserted is that the run SURVIVES — a non-zero exit means some real entry aborts a caller — and that no
   # entry reads as a conflict, because a single conflict refuses the renamer for every session.
@@ -82,7 +92,7 @@ if [ -d "$REAL_NB" ]; then
     . "$1" || exit 9
     shift
     for f in "$@"; do session_status_of "$f"; printf "%s\n" "$sess_state"; done
-  ' _ "$LIB" "$REAL_NB"/*/*.md 2>/dev/null)
+  ' _ "$LIB" ${real_files[@]+"${real_files[@]}"} 2>/dev/null)
   real_rc=$?
   eq "the live notebook does not abort a strict caller" "$real_rc" 0
   # THE POPULATION MUST NOT BE EMPTY, or the conflict check below passes by reading nothing: `grep -c` over one
