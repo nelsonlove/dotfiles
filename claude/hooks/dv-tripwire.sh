@@ -150,10 +150,17 @@ def substitutions(line, quotes=True):
         if sq:
             i += 1; continue
         if line.startswith("$(", i):
-            depth, j = 1, i + 2
+            # Quotes and escapes inside the span are tracked, so a quoted `)` does not end it (review 5).
+            depth, j, isq, idq = 1, i + 2, False, False
             while j < n and depth:
-                if line[j] == "(": depth += 1
-                elif line[j] == ")": depth -= 1
+                c2 = line[j]
+                if c2 == "\\" and not isq:
+                    j += 2; continue
+                if c2 == "'" and not idq: isq = not isq
+                elif c2 == '"' and not isq: idq = not idq
+                elif not isq and not idq:
+                    if c2 == "(": depth += 1
+                    elif c2 == ")": depth -= 1
                 j += 1
             out.append(line[i + 2:j - 1] if depth == 0 else line[i + 2:])
             i = j

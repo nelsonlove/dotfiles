@@ -84,6 +84,8 @@ case_ deny  "env -S'claude --bg --name [C0-DV]x y'"
 # Review 4 of #73: quotes are plain text in a heredoc body, and `#` starts a comment.
 case_ deny  $'cat <<EOF >> n.md\nNelson\'s note: $(claude --bg --name "[C0-DV] x" y)\nEOF'
 case_ deny  $'echo hi # it\'s fine\necho "$(claude --bg --name \'[C0-DV] x\' y)"'
+# Review 5 of #73: a quoted `)` inside `$( )` does not end it.
+case_ deny  'echo "$(printf ")"; claude --bg --name "[C0-DV] x" y)"'
 echo
 echo "=== refused: a DV session reached through the id it resumes"
 case_ deny  "claude --resume $DVID"
@@ -116,6 +118,6 @@ case_ allow $'cat <<\'EOF\' > x.md\n$(claude --bg --name "[C0-DV] x" y)\nEOF'
 case_ allow ''
 
 printf '\n%s checks, %s failed\n' "$n" "$fails"
-EXPECTED=64
+EXPECTED=65
 [ "$n" = "$EXPECTED" ] || { echo "FAIL  the check count is $n, expected $EXPECTED"; exit 1; }
 [ "$fails" = 0 ] || exit 1
