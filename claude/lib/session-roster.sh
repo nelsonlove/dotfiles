@@ -84,13 +84,17 @@ roster_read() {  # $1 = the entry's path
 # One key out of a frontmatter block. The LAST occurrence wins, matching `claude/lib/session-status.sh` and the
 # awk index in wake-session.sh; quotes come off after trailing whitespace, and a trailing ` # comment` goes,
 # for the same reason and in the same order as that library — two readers of one note must not disagree.
+# COLUMN ZERO ONLY, the same as the writer. This accepted an INDENTED key and took the last match, so a `cwd:`
+# nested under a parent mapping beat the real one and a post-rm resume would have gone to a directory the
+# writer never wrote. The writer touches column zero; the reader now reads it.
+#
 # A QUOTED VALUE IS TAKEN WHOLE, and only an UNQUOTED one can carry a trailing comment. The writer quotes
 # every value it writes, and the first version of this stripped ` # …` before removing the quotes — so
 # `cwd: "/tmp/live #2"` became `"/tmp/live`, an unbalanced quote and a wrong directory. Inside quotes a hash
 # is part of the value; outside them it starts a comment. Order decides which, and this is the order.
 roster_value() {  # $1 = the block, $2 = the key
   rv_raw=$(printf '%s\n' "$1" \
-    | grep -E "^[[:space:]]*$2[[:space:]]*:" \
+    | grep -E "^$2[[:space:]]*:" \
     | tail -n 1 \
     | sed -E "s/^[[:space:]]*$2[[:space:]]*:[[:space:]]*//" \
     | sed -E 's/[[:space:]]+$//' || true)

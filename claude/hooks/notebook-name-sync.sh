@@ -97,6 +97,10 @@ done
 roster_write() {  # $1 = this session's running entry
   rw_entry="$1"
   [ -n "$rw_entry" ] && [ -f "$rw_entry" ] && [ -w "$rw_entry" ] || return 0
+  # NO ID, NO WRITE. Blanking an unwritable value (below) must never be able to reach `session-id` itself —
+  # that key is the record's identity and the thing the post-rm resume needs most. If this session has no id
+  # there is nothing to record, so the whole write stands down.
+  [ -n "$sid" ] || return 0
 
   # IT MUST BE OUR ENTRY, AND THE TEST IS THE ID — NOT THE NAME. The loop that found this file matched on the
   # DISPLAY NAME and took the first entry reading `running`, in directory order. A name recurs: eleven sessions
@@ -105,9 +109,13 @@ roster_write() {  # $1 = this session's running entry
   # left with nothing. So: an entry that already carries a DIFFERENT `session-id` is never touched. An entry
   # with no id is adopted, because that is what an entry written before this ruling looks like, and an entry
   # carrying our own id is ours to keep current.
+  # THE LAST `session-id` WINS, because that is what the reader takes. They disagreed: this read the FIRST and
+  # `roster_value` the LAST, so an entry carrying ours first and a foreign id second was written to here and
+  # read as somebody else's there. Two readers of one record must not pick different lines.
   rw_existing=$(awk 'NR == 1 { if ($0 !~ /^---[ \t\r]*$/) exit 1; next }
                      /^---[ \t\r]*$/ { exit }
-                     /^session-id[ \t]*:/ { sub(/^session-id[ \t]*:[ \t]*/, ""); gsub(/\r/, ""); gsub(/^["\047]|["\047][ \t]*$/, ""); print; exit }' "$rw_entry" 2>/dev/null || true)
+                     /^session-id[ \t]*:/ { sub(/^session-id[ \t]*:[ \t]*/, ""); gsub(/\r/, ""); gsub(/^["\047]|["\047][ \t]*$/, ""); sub(/[ \t]+$/, ""); last = $0 }
+                     END { if (last != "") print last }' "$rw_entry" 2>/dev/null || true)
   if [ -n "$rw_existing" ] && [ "$rw_existing" != "$sid" ]; then
     printf 'notebook-name-sync: %s carries session-id %s, not this session; nothing written\n' "$rw_entry" "$rw_existing" >&2
     return 0
@@ -119,6 +127,26 @@ roster_write() {  # $1 = this session's running entry
   awk 'NR == 1 { if ($0 !~ /^---[ \t\r]*$/) exit 1; next }
        /^---[ \t\r]*$/ { found = 1; exit }
        END { exit (found ? 0 : 1) }' "$rw_entry" 2>/dev/null || return 0
+
+  # AND NONE OF THE THREE KEYS MAY BE A FOLDED OR BLOCK VALUE. `agent: >` with an indented line under it is one
+  # value across two lines; replacing the first line leaves the second orphaned under the new scalar, and the
+  # line-count guard below does not see it because the file did not shrink. Dropping the continuation was the
+  # other road, and it makes the file SHORTER than the guard allows — so the guard would have to be loosened
+  # to let a shrinking write through, which is the one thing it exists to stop. A shape this cannot rewrite
+  # safely is a shape it does not rewrite: it says so and leaves the record alone.
+  #
+  # `exit 1` HERE WOULD NOT BE THE EXIT STATUS. In awk, `exit` in a main rule jumps to END, and an `exit` in
+  # END replaces the status — so a first version that ended `END { exit 0 }` found the folded value, exited 1,
+  # ran END, and reported success. The whole guard was dead on arrival and the suite caught it on the first
+  # run. The verdict lives in a flag; END is the only place that decides the status.
+  if ! awk 'NR == 1 { if ($0 !~ /^---[ \t\r]*$/) { bad = 1; exit } infm = 1; next }
+            infm && /^---[ \t\r]*$/ { exit }
+            infm && k && /^[ \t]+[^ \t]/ { bad = 1; exit }
+            infm { k = ($0 ~ /^(session-id|agent|cwd)[ \t]*:/) }
+            END { exit (bad ? 1 : 0) }' "$rw_entry" 2>/dev/null; then
+    printf 'notebook-name-sync: %s holds a multi-line session-id, agent or cwd; nothing written\n' "$rw_entry" >&2
+    return 0
+  fi
 
   # The agent: job state first, registry second, nothing if neither says.
   rw_job_id=$(jq -r '.jobId // ""' "$reg_file" 2>/dev/null || echo "")
@@ -132,16 +160,19 @@ roster_write() {  # $1 = this session's running entry
 
   # A VALUE GOES IN QUOTED, OR NOT AT ALL. Unquoted, a trailing space or a ` #` was lost on the round trip —
   # and the reader strips exactly those — so a post-rm resume would have started in the wrong directory. A
-  # value carrying a newline, a double quote or a backslash is REFUSED rather than escaped: nothing in a cwd
-  # or an agent name legitimately holds one, and a quoting bug in a vault note breaks the note's properties.
-  # ONE CHARACTER PER ALTERNATIVE, no nested quoting. The first version built this class through two layers of
-  # shell quoting and came out matching a plain `n`, so every path containing one — every real path — was
-  # thrown away and `cwd` was silently never written. The suite caught it within the minute: two keys landed
-  # and the third did not. A quoting trick that needs explaining is a bug waiting for a reader.
-  case "$rw_agent" in *'"'*) rw_agent="" ;; esac
-  case "$rw_agent" in *'\\'*) rw_agent="" ;; esac
-  case "$rw_cwd" in *'"'*) rw_cwd="" ;; esac
-  case "$rw_cwd" in *'\\'*) rw_cwd="" ;; esac
+  # value carrying a double quote or a backslash is REFUSED rather than escaped: nothing in a cwd or an agent
+  # name legitimately holds one, and a quoting bug in a vault note breaks the note's properties. A value
+  # carrying a NEWLINE is not refused here — `awk -v` rejects it first and the whole write is lost, including
+  # `session-id`. That is safe and it is not what this test does, so the comment says so rather than claiming
+  # a guard that lives somewhere else.
+  # ONE CHARACTER PER ALTERNATIVE, IN A BRACKET EXPRESSION. This class has now been wrong twice, both times
+  # through quoting. Built through two layers of shell quoting it matched a plain `n`, so every path holding
+  # one — every real path — was thrown away and `cwd` was never written. Rewritten as `*'\\'*` it matched TWO
+  # backslashes, because inside single quotes a backslash is literal; a single one went through to `awk -v`,
+  # which interprets escapes, and a value holding `\n` wrote a real line break inside a quoted scalar, `\t` a
+  # tab, `\b` a backspace byte. `[\\]` says one backslash and cannot be read as anything else.
+  case "$rw_agent" in *[\\]*|*'"'*) rw_agent="" ;; esac
+  case "$rw_cwd"   in *[\\]*|*'"'*) rw_cwd="" ;; esac
 
   rw_tmp="$rw_entry.roster.$$"
   if ! awk -v sid="$sid" -v agent="$rw_agent" -v cwd="$rw_cwd" '
@@ -156,9 +187,13 @@ roster_write() {  # $1 = this session's running entry
       if (!seen_cwd && cwd != "")     print "cwd: " q(cwd)
       infm = 0; print; next
     }
-    infm && /^session-id[ \t]*:/ { if (!seen_id)    { seen_id = 1;    if (sid   != "") { print "session-id: " q(sid); next } } }
-    infm && /^agent[ \t]*:/      { if (!seen_agent) { seen_agent = 1; if (agent != "") { print "agent: " q(agent);    next } } }
-    infm && /^cwd[ \t]*:/        { if (!seen_cwd)   { seen_cwd = 1;   if (cwd   != "") { print "cwd: " q(cwd);        next } } }
+    # A KEY WHOSE VALUE WE CANNOT WRITE IS BLANKED, NOT LEFT. Dropping the value and leaving the old line
+    # meant the record kept a STALE directory — the session had moved somewhere this cannot express, and the
+    # entry went on naming the old one, which a post-rm resume would have believed. An empty value says "not
+    # known" honestly; the old one lies.
+    infm && /^session-id[ \t]*:/ { if (!seen_id)    { seen_id = 1;    print "session-id: " (sid   != "" ? q(sid)   : "\"\""); next } }
+    infm && /^agent[ \t]*:/      { if (!seen_agent) { seen_agent = 1; print "agent: "      (agent != "" ? q(agent) : "\"\""); next } }
+    infm && /^cwd[ \t]*:/        { if (!seen_cwd)   { seen_cwd = 1;   print "cwd: "        (cwd   != "" ? q(cwd)   : "\"\""); next } }
     { print }
   ' "$rw_entry" > "$rw_tmp" 2>/dev/null; then
     rm -f "$rw_tmp" 2>/dev/null || true

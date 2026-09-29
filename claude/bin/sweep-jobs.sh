@@ -131,7 +131,9 @@ roster_state_for_id() {  # $1 = full id; sets `roster_pick_state` and `roster_pi
 # agents` that exited 1, a listing that was an object, or a live row carrying no `.status` all read as dead and
 # the job was removed. `wake-session.sh` has guarded both since #50; this one deletes and had neither.
 listing=$("$CLAUDE_BIN" agents --json --all 2>/dev/null) || die "\`$CLAUDE_BIN agents --json --all\` failed; refusing to sweep without knowing which sessions are alive"
-printf '%s' "$listing" | jq -e 'type == "array"' >/dev/null 2>&1 || die "the session listing is not a JSON array; refusing to sweep on something this script cannot read"
+# AN ARRAY OF OBJECTS, not just an array. `[1]`, `["x"]` and `[null]` passed a bare type check; the pid lookup
+# then errored, the error was swallowed, and the job was removed — the unsafe direction again, one layer in.
+printf '%s' "$listing" | jq -e 'type == "array" and all(type == "object")' >/dev/null 2>&1 || die "the session listing is not an array of objects; refusing to sweep on something this script cannot read"
 
 # ALIVE IS A LIVE PID, not a status string — the same test `wake-session.sh` uses, because two readers of one
 # listing disagreeing about who is alive is exactly how a live session gets swept. A row with a pid this

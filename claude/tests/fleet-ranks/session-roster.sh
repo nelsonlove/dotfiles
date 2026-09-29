@@ -27,6 +27,9 @@ SWEEP="$ROOT/claude/bin/sweep-jobs.sh"
 TMP=$(mktemp -d -t session-roster) || exit 1
 trap 'rm -rf "$TMP"' EXIT
 n=0; fails=0; skips=0
+# Every check outside section 1, whose own count depends on whether the real notebook is on this machine.
+SUITE_BASE=103
+SECTION1_CHECKS=0
 eq() { n=$((n + 1)); if [ "$2" = "$3" ]; then printf 'PASS  %-56s %s\n' "$1" "$2"; else fails=$((fails + 1)); printf 'FAIL  %-56s got %s, want %s\n' "$1" "$2" "$3"; fi; }
 pass() { n=$((n + 1)); printf 'PASS  %-56s %s\n' "$1" "${2:-yes}"; }
 fail() { n=$((n + 1)); fails=$((fails + 1)); printf 'FAIL  %-56s %s\n' "$1" "${2:-}"; }
@@ -97,9 +100,11 @@ EOF
   eq "and the short ids are the historical bulk" "$([ "$live_short" -gt "$live_full" ] && echo yes || echo no)" yes
   printf '      live counts: %s entries, %s with a full id, %s with all four keys, %s short or junk\n' \
     "$live_total" "$live_full" "$live_four" "$live_short"
+  SECTION1_CHECKS=4
 else
   n=$((n + 1)); skips=$((skips + 1))
   printf 'SKIP  %-56s the notebook is not at %s\n' "the real-notebook population case" "$REAL_AGENTS"
+  SECTION1_CHECKS=1
 fi
 
 echo
@@ -129,6 +134,12 @@ eq "a missing cwd reads empty"     "$(lib 'roster_read "$1"; printf "[%s]" "$ros
 E_HASH=$(entry "Agent session 2026-09-29T0409.md" 'session: "[L0-CC] hashy"' 'session-id: 11111111-2222-3333-4444-555555555555' 'agent: "lieutenant"' 'cwd: "/tmp/live #2"')
 eq "a quoted value with a hash survives" "$(lib 'roster_read "$1"; printf "%s" "$roster_cwd"' "$E_HASH")" "/tmp/live #2"
 eq "an unquoted value still drops its comment" "$(lib 'roster_read "$1"; printf "%s" "$roster_agent"' "$E_FOUR")" "lieutenant"
+# AN INDENTED KEY IS NOT THE RECORD'S KEY. The reader used to accept any indentation and take the last
+# match, so a `cwd:` nested under a parent mapping beat the real one — and the writer only ever touches column
+# zero, so the two disagreed about which line holds the value. A post-rm resume would have believed the nested
+# one and started the session in the wrong directory.
+E_NEST=$(entry "Agent session 2026-09-29T0410.md" 'session: "[L0-CC] nested"' 'session-id: 22222222-3333-4444-5555-666666666666' 'agent: lieutenant' 'cwd: /tmp/real' 'meta:' '  cwd: /tmp/nested')
+eq "a nested cwd does not win"     "$(lib 'roster_read "$1"; printf "%s" "$roster_cwd"' "$E_NEST")" "/tmp/real"
 eq "a full id is accepted"         "$(lib 'roster_read "$1"; roster_id_is_full "$roster_id" && echo yes || echo no' "$E_FOUR")" yes
 eq "a short id is refused"         "$(lib 'roster_read "$1"; roster_id_is_full "$roster_id" && echo yes || echo no' "$E_SHORT")" no
 eq "junk in the id is refused"     "$(lib 'roster_id_is_full "vaultbridge" && echo yes || echo no')" no
@@ -165,6 +176,12 @@ eq   "agent claude under a lieutenant name either"         "$(rank_lib 'roster_a
 # `|| true` ON EVERY ONE: six of the seven states return 1, which is the ordinary answer here.
 eq "a real disagreement says disagree"     "$(rank_lib 'roster_agent_disagrees "[C1-CC] x" "lieutenant" || true; printf "%s" "$roster_agree_state"')" disagree
 eq "agreement says agree"                  "$(rank_lib 'roster_agent_disagrees "[L0-CC] x" "lieutenant" || true; printf "%s" "$roster_agree_state"')" agree
+# THE TWO STATES NOTHING CALLED FOR. Both return the same rc as `agree` and as each other, so only the state
+# tells them apart — and an agent name the table does not know must not read as "they agree", which is how an
+# entry naming a rank that no longer exists would resume as something real.
+eq "an agent the table never heard of"     "$(rank_lib 'roster_agent_disagrees "[L0-CC] x" "wizard" || true; printf "%s" "$roster_agree_state"')" unknown-agent
+eq "nothing to compare says no-input"      "$(rank_lib 'roster_agent_disagrees "" "" || true; printf "%s" "$roster_agree_state"')" no-input
+eq "a name with no agent says no-input"    "$(rank_lib 'roster_agent_disagrees "[L0-CC] x" "" || true; printf "%s" "$roster_agree_state"')" no-input
 eq "claude says not-a-rank"                "$(rank_lib 'roster_agent_disagrees "[C0-OB] x" "claude" || true; printf "%s" "$roster_agree_state"')" not-a-rank
 eq "no rank table says no-table"           "$(lib 'roster_agent_disagrees "[C1-CC] x" "lieutenant" || true; printf "%s" "$roster_agree_state"')" no-table
 eq "an unreadable name says unknown-name"  "$(rank_lib 'roster_agent_disagrees "no code here" "lieutenant" || true; printf "%s" "$roster_agree_state"')" unknown-name
@@ -272,6 +289,75 @@ hasnt "and writes nothing"        "$body" "session-id:"
 hook_entry; run_hook
 has   "but the same fixture on a TURN does write" "$(cat "$HNB/2026-09/Agent session 2026-09-29T0500.md")" "session-id:"
 
+# THE SHAPES THE REVIEW FOUND, each of which the hook handles and none of which had a case. A fix with no
+# test is a fix until someone edits the line.
+hook_raw() {  # hook_raw <lines…> — the whole entry, fence included, so the broken shapes can be written
+  { for l in "$@"; do printf '%s\n' "$l"; done; } > "$HNB/2026-09/Agent session 2026-09-29T0500.md"
+}
+hook_body() { cat "$HNB/2026-09/Agent session 2026-09-29T0500.md"; }
+FOREIGN=99999999-1111-2222-3333-444444444444
+
+# ANOTHER SESSION'S ID IS NEVER WRITTEN OVER. This is the defect the review of #71 found in the wild: the
+# entry was matched by DISPLAY NAME, and a name recurs — eleven sessions shared one on 2026-09-26.
+hook_entry "session-id: \"$FOREIGN\""; run_hook
+body=$(hook_body)
+eq    "a foreign id exits 0"                     "$hook_rc" 0
+has   "the foreign id is left exactly as it was" "$body" "$FOREIGN"
+hasnt "and ours is not written beside it"        "$body" "$SID"
+hasnt "and no cwd is written either"             "$body" "cwd:"
+
+# TWO ids, OURS FIRST AND A FOREIGN ONE LAST. The reader takes the last; the writer took the first, so this
+# entry read as ours on the way in and as somebody else's on the way out. Both take the last now, so this
+# refuses — which is the safe direction when a record disagrees with itself.
+hook_raw '---' 'session: "[L0-CC] roster test"' "session-id: \"$SID\"" "session-id: \"$FOREIGN\"" 'status: draft/running' '---' '' 'body'
+run_hook
+body=$(hook_body)
+eq    "two ids, the foreign one last: exits 0"   "$hook_rc" 0
+hasnt "and nothing is written"                   "$body" "cwd:"
+
+# NO CLOSING FENCE IS NOT FRONTMATTER. Without this the writer stayed "inside frontmatter" to the end of the
+# file and rewrote body lines that happened to begin `agent:` or `cwd:`.
+hook_raw '---' 'session: "[L0-CC] roster test"' 'status: draft/running' '' 'agent: this is prose, not a key'
+run_hook
+body=$(hook_body)
+eq    "an unclosed frontmatter exits 0"          "$hook_rc" 0
+hasnt "and writes nothing at all"                "$body" "session-id:"
+has   "and leaves the prose alone"               "$body" "agent: this is prose, not a key"
+
+# A NESTED KEY IS NOT HOISTED OUT OF ITS PARENT. Rewriting it would destroy the parent mapping, and the line
+# count would not change, so the guard at the end of the write would pass it through.
+hook_raw '---' 'session: "[L0-CC] roster test"' 'status: draft/running' 'meta:' '  cwd: /tmp/nested' '---' '' 'body'
+run_hook
+body=$(hook_body)
+has   "the nested cwd is left nested"            "$body" "  cwd: /tmp/nested"
+has   "and the real cwd is added at column zero" "$body" "cwd: \"$TMP/live\""
+
+# A FOLDED VALUE IS REFUSED, NOT HALF-REPLACED. `agent: >` and an indented line are one value across two
+# lines: replacing the first orphans the second under the new scalar, and the file does not shrink, so the
+# line-count guard sees nothing wrong.
+hook_raw '---' 'session: "[L0-CC] roster test"' 'status: draft/running' 'agent: >' '  lieutenant' '---' '' 'body'
+run_hook
+body=$(hook_body)
+eq    "a folded value exits 0"                   "$hook_rc" 0
+hasnt "and nothing is written"                   "$body" "session-id:"
+has   "and the folded value survives whole"      "$body" "  lieutenant"
+
+# A BACKSLASH NEVER REACHES `awk -v`, WHICH INTERPRETS ESCAPES. A cwd holding `\n` wrote a real line break
+# inside a quoted scalar — two lines where the note has one value, and the frontmatter no longer parses. The
+# key is blanked, the id still lands, and the block is still one block.
+printf '{"sessionId":"%s","name":"[L0-CC] roster test","jobId":"abcd1234","cwd":"/tmp/a\\\\nb","agent":"lieutenant"}\n' "$SID" > "$TMP/sessions/1.json"
+# The fixture already carries a cwd, because blanking is only meaningful where a value is standing: an absent
+# key with an unwritable value stays absent, which is right and proves nothing.
+hook_entry 'cwd: /tmp/the-old-place'; run_hook
+body=$(hook_body)
+eq    "a cwd holding a backslash exits 0"        "$hook_rc" 0
+has   "the stale value is blanked"               "$body" 'cwd: ""'
+hasnt "and the old directory does not stand"     "$body" "/tmp/the-old-place"
+hasnt "no backslash reaches the record"          "$body" '\'
+has   "and the id still lands"                   "$body" "session-id: \"$SID\""
+eq    "the frontmatter is still one block"       "$(grep -c '^---$' "$HNB/2026-09/Agent session 2026-09-29T0500.md")" 2
+printf '{"sessionId":"%s","name":"[L0-CC] roster test","jobId":"abcd1234","cwd":"%s","agent":"lieutenant"}\n' "$SID" "$TMP/live" > "$TMP/sessions/1.json"
+
 echo
 echo "=== 7. the sweeper: all four keys, ended, and not alive — or it skips"
 SJOBS="$TMP/sjobs"; mkdir -p "$SJOBS"
@@ -317,7 +403,15 @@ has  "and says it will not sweep blind"        "$out" "refusing to sweep without
 printf '{"sessions":[{"sessionId":"eeeeeeee-1111-2222-3333-444444444444","status":"idle"}]}' > "$TMP/listing.json"
 out=$(sweep); rc=$?
 eq   "a listing that is not an array refuses"  "$rc" 2
-has  "and says why"                            "$out" "not a JSON array"
+has  "and says why"                            "$out" "not an array of objects"
+# AN ARRAY OF THE WRONG THING IS ALSO WRONG. `[1]`, `["x"]` and `[null]` all passed a bare `type == "array"`
+# check; the pid lookup then failed on each row, its failure was swallowed, and every ended job was removed.
+# A sweeper that deletes must refuse a listing it cannot read, in every shape of "cannot read".
+for junk in '[1]' '["eeeeeeee-1111-2222-3333-444444444444"]' '[null]'; do
+  printf '%s' "$junk" > "$TMP/listing.json"
+  out=$(sweep); rc=$?
+  eq "a listing of $junk refuses"              "$rc" 2
+done
 printf '[]' > "$TMP/listing.json"
 
 # TWO ENTRIES FOR ONE ID: the NEWEST decides. An older `archived/ended` beside a newer `draft/running` used to
@@ -354,7 +448,11 @@ has  "naming the entry it read"                "$(cat "$TMP/sweeplog.md" 2>/dev/
 # still ends with a happy total. Update EXPECTED deliberately when you add a case.
 # 80, TAKEN FROM A CLEAN RUN rather than guessed. The first value here was a guess and the guard fired on its
 # own suite — which is the right failure, and the reason to set this from a run you have just watched pass.
-EXPECTED=80
+# THE EXPECTED COUNT DEPENDS ON WHETHER SECTION 1 RAN. Section 1 reads the real notebook and runs four
+# checks; where there is no notebook it runs one SKIP, so a single fixed number made the guard itself fail on
+# a machine that is behaving correctly — and a guard that cries wolf is a guard someone deletes. Each branch
+# says how many checks it is worth, and the total is derived.
+EXPECTED=$((SUITE_BASE + SECTION1_CHECKS))
 printf '\n%s checks, %s failed, %s skipped (expected %s checks)\n' "$n" "$fails" "$skips" "$EXPECTED"
 [ "$n" = "$EXPECTED" ] || { printf 'FAIL  the suite ran %s checks, not the %s it expects — a section did not run\n' "$n" "$EXPECTED"; exit 1; }
 [ "$fails" = 0 ] || exit 1
