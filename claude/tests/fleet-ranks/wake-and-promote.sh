@@ -73,11 +73,30 @@ refused_because() {  # refused_because <label> <text the refusal must carry> -- 
     *) fail "$label" "refused, but on another rail: $(printf '%s' "$out" | grep -m 1 'refused:')" ;;
   esac
 }
-allowed() {  # allowed <label> -- cmd...   (the gate let it through; nothing was touched, it is a dry run)
-  label="$1"; shift 2
+allowed() {  # allowed <label> [wanted text] -- cmd...   (the gate let it through; a dry run touches nothing)
+  # RC 0 OR 3, AND NOTHING ELSE. This used to accept any exit but 2, so a script that DIED — rc 1 from a
+  # syntax error, an unbound variable, a missing library — counted as a pass. #69's review found it in
+  # `wake-two-roots.sh`; the same helper lived here. The two allowed codes are the script's own contract:
+  # 0 done, 3 the target is alive so SendMessage it. Anything else is a crash wearing a pass.
+  label="$1"; shift
+  want=""
+  if [ "${1:-}" != "--" ]; then want="$1"; shift; fi
+  shift   # the `--`
   out=$("$@" 2>&1); rc=$?
-  if [ "$rc" != 2 ] && ! printf '%s' "$out" | grep -q 'refused:'; then pass "$label"
-  else fail "$label" "rc=$rc; $(printf '%s' "$out" | grep -m 1 'refused:')"; fi
+  case "$rc" in
+    0|3) ;;
+    *) fail "$label" "rc=$rc (only 0 or 3 are this script's success codes); $(printf '%s' "$out" | head -n 1)"; return ;;
+  esac
+  if printf '%s' "$out" | grep -q 'refused:'; then
+    fail "$label" "rc=$rc but the output refuses: $(printf '%s' "$out" | grep -m 1 'refused:')"; return
+  fi
+  if [ -n "$want" ]; then
+    case "$out" in
+      *"$want"*) ;;
+      *) fail "$label" "rc=$rc and nothing refused, but the output does not carry '$want'"; return ;;
+    esac
+  fi
+  pass "$label"
 }
 
 # THE REPORTING LINE, in a temp notebook. The chain names are RECORDS, not sessions: nothing is dispatched
@@ -93,6 +112,18 @@ mk "Agent session 2026-09-27T0102" "$HOP"    running "$TOP"
 mk "Agent session 2026-09-27T0103" "$TOP"    running "[A0] rear admiral"
 # The listing's name for the throwaway must match the line's first entry, or every case refuses on a missing
 # record and none of them measures a gate. Said out loud, and checked, rather than discovered case by case.
+# THE SHORT ID, AND ONLY THE SHORT ID. This battery writes its captain stub at `jobs/<the id you pass>/
+# state.json`, and the script reads that stub by the SHORT id — so a full 36-character id produces four
+# silent failures with nothing to say why. It cost the commander exactly that on #69, so it is a STOP rather
+# than a comment. `claude stop` takes the short form too; `--resume` is the one that needs the full id.
+case "$LT" in
+  ????????-????-????-????-????????????)
+    printf 'STOP  %s is a FULL sessionId; this battery needs the SHORT job id (its first 8 characters),\n' "$LT"
+    printf '      because it writes its job stub at jobs/<id>/state.json and the script reads it by the short id.\n'
+    printf '      Try: %s\n' "$(printf '%s' "$LT" | cut -c1-8)"
+    exit 1 ;;
+esac
+
 listed=$(claude agents --json --all 2>/dev/null | jq -r --arg i "$LT" '.[] | select(.id == $i or .sessionId == $i) | .name' | head -n 1)
 if [ "$listed" != "$TARGET" ]; then
   printf 'STOP  the throwaway %s is listed as "%s", and this battery writes its reporting line under "%s".\n' "$LT" "${listed:-(not listed at all)}" "$TARGET"

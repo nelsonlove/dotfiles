@@ -24,7 +24,8 @@ set -u
 
 NOTEBOOK_DIR="${NOTEBOOK_NAME_SYNC_DIR:-$HOME/obsidian/00-09 System/03 Agents/03.04 Records/Agent notebook}"
 RENAME="${NOTEBOOK_NAME_SYNC_SCRIPT:-$HOME/.claude/bin/rename-notebook.sh}"
-SESSIONS_DIR="$HOME/.claude/sessions"
+SESSIONS_DIR="${NOTEBOOK_NAME_SYNC_SESSIONS_DIR:-$HOME/.claude/sessions}"
+JOBS_DIR="${NOTEBOOK_NAME_SYNC_JOBS_DIR:-$HOME/.claude/jobs}"
 
 input=$(cat 2>/dev/null || true)
 [ -n "$input" ] || exit 0
@@ -45,10 +46,12 @@ esac
 
 # The current name, from the registry keyed by sessionId.
 name=""
+reg_file=""
 for candidate in "$SESSIONS_DIR"/*.json; do
   [ -f "$candidate" ] || continue
   if [ "$(jq -r '.sessionId // ""' "$candidate" 2>/dev/null || echo "")" = "$sid" ]; then
     name=$(jq -r '.name // ""' "$candidate" 2>/dev/null || echo "")
+    reg_file="$candidate"
     break
   fi
 done
@@ -67,6 +70,76 @@ done
 # THE LIBRARY IS OPTIONAL HERE, AND THAT IS THE POINT: this hook must never fail a turn, so if the rule cannot
 # be read it says so once on stderr and does nothing, rather than refusing. A missed rename is a name out of
 # step in a record; a refusal is Nelson's session unable to think.
+# THE ROSTER KEYS, package 6. A session's notebook entry is the record OF that session, so it carries
+# `session-id` (full, 36 characters), `session`, `agent` and `cwd`. This writes `agent` and `cwd` beside the
+# id, on a turn only, into the entry the loop below has just agreed is this session's running one.
+#
+# WHY THE HOOK AND NOT THE SESSION. `claude rm` takes the job away — the listing row, the job state and the
+# saved options — and leaves the transcript. After that the entry is the only place the name, the agent and
+# the directory still exist, and a post-rm resume needs all three. A session that forgets to write them is
+# a session that cannot be brought back, so the machinery writes them rather than the instructions asking.
+#
+# AGENT IS READ, NEVER INFERRED: the job state's `template` first, the registry's `agent` as the fallback,
+# and NOTHING WRITTEN when both are absent — an invented agent is worse than a missing one, because a resume
+# would bring the session back as something it never was. `claude` is a legitimate value and is written
+# verbatim; it is what a session Nelson opened himself runs as, and it sits under rank-coded names all over
+# the fleet.
+#
+# CWD IS THE REGISTRY'S FIRST, the job state's as the fallback, because the transcript lives under the
+# project directory of the cwd the session is IN, not the one it started in — Claude Code moves it and leaves
+# a `.superseded-<ms>` marker behind. Measured on this machine; `claude/lib/session-roster.sh` carries the
+# three values and both markers as the evidence.
+#
+# IT NEVER FAILS A TURN and it never rewrites a value that is already right: a key is written only when it is
+# missing or different, the file is rewritten through a temp file and moved into place, and every failure is
+# silent except one line on stderr. A notebook entry is a record — this adds keys to it and changes nothing
+# else, and if it cannot, the turn goes on.
+roster_write() {  # $1 = this session's running entry
+  rw_entry="$1"
+  [ -n "$rw_entry" ] && [ -f "$rw_entry" ] && [ -w "$rw_entry" ] || return 0
+
+  # The agent: job state first, registry second, nothing if neither says.
+  rw_job_id=$(jq -r '.jobId // ""' "$reg_file" 2>/dev/null || echo "")
+  [ -n "$rw_job_id" ] || rw_job_id=$(printf '%s' "$sid" | cut -c1-8)
+  rw_agent=$(jq -r '.template // ""' "$JOBS_DIR/$rw_job_id/state.json" 2>/dev/null || echo "")
+  [ -n "$rw_agent" ] || rw_agent=$(jq -r '.agent // ""' "$reg_file" 2>/dev/null || echo "")
+
+  # The cwd: the registry's, then the job state's.
+  rw_cwd=$(jq -r '.cwd // ""' "$reg_file" 2>/dev/null || echo "")
+  [ -n "$rw_cwd" ] || rw_cwd=$(jq -r '.cwd // ""' "$JOBS_DIR/$rw_job_id/state.json" 2>/dev/null || echo "")
+
+  rw_tmp="$rw_entry.roster.$$"
+  if ! awk -v sid="$sid" -v agent="$rw_agent" -v cwd="$rw_cwd" '
+    # Only inside the frontmatter block, and only the three keys. Everything else passes through byte for
+    # byte, including the body, because this is a record and nothing here is entitled to rewrite it.
+    NR == 1 { if ($0 !~ /^---[ \t\r]*$/) { bad = 1; exit 1 } print; infm = 1; next }
+    infm && /^---[ \t\r]*$/ {
+      if (!seen_id && sid != "")     print "session-id: " sid
+      if (!seen_agent && agent != "") print "agent: " agent
+      if (!seen_cwd && cwd != "")    print "cwd: " cwd
+      infm = 0; print; next
+    }
+    infm && /^[ \t]*session-id[ \t]*:/ { seen_id = 1;    if (sid   != "") { print "session-id: " sid; next } }
+    infm && /^[ \t]*agent[ \t]*:/      { seen_agent = 1; if (agent != "") { print "agent: " agent;    next } }
+    infm && /^[ \t]*cwd[ \t]*:/        { seen_cwd = 1;   if (cwd   != "") { print "cwd: " cwd;        next } }
+    { print }
+  ' "$rw_entry" > "$rw_tmp" 2>/dev/null; then
+    rm -f "$rw_tmp" 2>/dev/null || true
+    return 0
+  fi
+  # Nothing is moved into place unless the result still looks like the entry: a frontmatter fence on line one
+  # and no fewer lines than it had. A truncated record is worse than an unwritten key.
+  rw_old_lines=$(grep -c '' "$rw_entry" 2>/dev/null || echo 0)
+  rw_new_lines=$(grep -c '' "$rw_tmp" 2>/dev/null || echo 0)
+  if [ -s "$rw_tmp" ] && [ "$rw_new_lines" -ge "$rw_old_lines" ] && [ "$(head -n 1 "$rw_tmp")" = "---" ]; then
+    if ! cmp -s "$rw_tmp" "$rw_entry"; then
+      mv "$rw_tmp" "$rw_entry" 2>/dev/null || printf 'notebook-name-sync: could not write the roster keys into %s\n' "$rw_entry" >&2
+    fi
+  fi
+  rm -f "$rw_tmp" 2>/dev/null || true
+  return 0
+}
+
 in_step=0
 SESSION_STATUS_LIB="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)/../lib/session-status.sh"
 if [ -r "$SESSION_STATUS_LIB" ] && bash -n "$SESSION_STATUS_LIB" 2>/dev/null && . "$SESSION_STATUS_LIB" 2>/dev/null && command -v session_status_of >/dev/null 2>&1; then
@@ -78,7 +151,7 @@ if [ -r "$SESSION_STATUS_LIB" ] && bash -n "$SESSION_STATUS_LIB" 2>/dev/null && 
     # made this line an unbound-variable abort: rc=1 from a hook whose whole contract is that it never fails a
     # turn. Found by the review of the fix-forward, which added the broken-library cases and missed this shape.
     case "${sess_state:-}" in
-      running) in_step=1; break ;;
+      running) in_step=1; roster_write "$hit"; break ;;
       conflict)
         # Not renamed, and said out loud: an entry that disagrees with itself is a thing a human must fix, and
         # this hook is the only machinery that reads it every turn.

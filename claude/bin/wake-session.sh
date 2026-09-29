@@ -198,8 +198,24 @@ while [ $# -gt 0 ]; do
 done
 
 # --agents-dir moves the parent both default roots are found under; an explicit --notebook-dir still wins.
-if [ "$AGENTS_DIR_SET" = 1 ] && [ "$NOTEBOOK_DIR_SET" = 0 ]; then NOTEBOOK_DIR="$AGENTS_DIR/03.04 Records/Agent notebook"; fi
-[ "$ARCHIVE_DIR_SET" = 1 ] || ARCHIVE_DIR="$AGENTS_DIR/03.09 Archive/Agent notebook"
+# THE TWO NOTEBOOK ROOTS, from one definition. Guarded the three ways #61 ruled — readable, parses, defines
+# what is wanted — because a roots library that silently defined nothing would leave this script reading NO
+# notebook at all and refusing every wake for a missing record, which is a lie about the record rather than a
+# failure to find it.
+NOTEBOOK_ROOTS_LIB="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)/../lib/notebook-roots.sh"
+[ -r "$NOTEBOOK_ROOTS_LIB" ] || die "the notebook-roots library is missing or unreadable at $NOTEBOOK_ROOTS_LIB"
+bash -n "$NOTEBOOK_ROOTS_LIB" 2>/dev/null || die "the notebook-roots library at $NOTEBOOK_ROOTS_LIB does not parse; refusing rather than reading half a notebook"
+# shellcheck source=../lib/notebook-roots.sh
+. "$NOTEBOOK_ROOTS_LIB" || die "the notebook-roots library at $NOTEBOOK_ROOTS_LIB could not be sourced"
+for fn in notebook_roots_of entries_in_root notebook_dir_for archive_dir_for; do
+  command -v "$fn" >/dev/null 2>&1 || die "the notebook-roots library at $NOTEBOOK_ROOTS_LIB parsed but defined no $fn; refusing"
+done
+
+# THE DEFAULTS ARE DERIVED BY THE LIBRARY, after the flags are read, so the paths live in exactly one place.
+# `--agents-dir` moves the parent both come from; an explicit `--notebook-dir` still wins; `--archive-dir`
+# wins for the archive. Deriving here as well would be a second home for the same two strings.
+NOTEBOOK_DIR=$(notebook_dir_for "$AGENTS_DIR" "$NOTEBOOK_DIR" "$NOTEBOOK_DIR_SET" "$AGENTS_DIR_SET")
+ARCHIVE_DIR=$(archive_dir_for "$AGENTS_DIR" "$ARCHIVE_DIR" "$ARCHIVE_DIR_SET")
 
 [ -n "$by" ] || die "--by is required"
 command -v jq >/dev/null     || die "jq is required"
@@ -226,6 +242,7 @@ fi
 # `~/.claude/bin` symlink the installer makes. A missing or unreadable table is fatal: every rank check in
 # this script depends on it, and a script that cannot read the rank line must not act on a rank.
 FLEET_RANKS="$script_dir/_fleet-ranks.sh"
+
 [ -r "$FLEET_RANKS" ] || die "the rank table is missing or unreadable at $FLEET_RANKS; this script cannot judge a rank without it"
 # PARSED BEFORE IT IS SOURCED, and the `|| die` after the `.` is not enough on its own. Under `set -e` a
 # SYNTAX ERROR in a sourced file aborts this script before the `||` is ever reached, the EXIT trap is
@@ -372,19 +389,10 @@ END { flush() }
 # The roots the index reads, one per line: the notebook, then the archive. With `--notebook-dir` and no
 # `--archive-dir`, the notebook alone.
 notebook_roots() {
-  printf '%s\n' "$NOTEBOOK_DIR"
-  if [ "$ARCHIVE_DIR_SET" = 1 ] || [ "$NOTEBOOK_DIR_SET" = 0 ]; then printf '%s\n' "$ARCHIVE_DIR"; fi
-  return 0
+  notebook_roots_of "$NOTEBOOK_DIR" "$NOTEBOOK_DIR_SET" "$ARCHIVE_DIR" "$ARCHIVE_DIR_SET"
 }
 
 # The entries under one root: `<root>/YYYY-MM/Agent session *.md`, one month folder down and no deeper.
-entries_in_root() {
-  local m
-  for m in "$1"/[0-9][0-9][0-9][0-9]-[0-9][0-9]; do
-    [ -d "$m" ] && find "$m" -mindepth 1 -maxdepth 1 -type f -name 'Agent session *.md' -print 2>/dev/null
-  done
-  return 0
-}
 
 build_report_index() {
   [ "$REPORT_INDEX_BUILT" = 0 ] || return 0
