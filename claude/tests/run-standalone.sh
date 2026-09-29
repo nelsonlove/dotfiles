@@ -38,9 +38,8 @@ RUN=(
   "accept-verb-guard ob|python3 $AVG/ob-cases.py $G"
 )
 # name | command | issue | the text its failure must print. Each must FAIL WITH THAT TEXT: a pass means it is fixed and belongs in RUN again, and a failure with other text (a wrong argument, a missing tool) is a new failure, not the tracked one.
-KNOWN_FAILING=(
-  "accept-verb-guard verb-list-drift|bash $AVG/verb-list-drift.sh $G|#82|no verb list found"
-)
+# (Empty since #82 retired verb-list-drift.sh. Loops over it use ${KNOWN_FAILING[@]+...}, because an empty array under `set -u` is an error in bash 3.2.)
+KNOWN_FAILING=()
 # file | why it is not run here
 SKIP=(
   "fleet-ranks/wake-and-promote.sh|needs a throwaway session id you dispatch yourself"
@@ -65,7 +64,7 @@ if [ "$only_accounting" = 0 ]; then
     if bash -c "$cmd"; then printf '===== PASS  %s\n' "$name"
     else fails=$((fails + 1)); printf '===== FAIL  %s\n' "$name"; fi
   done
-  for row in "${KNOWN_FAILING[@]}"; do
+  for row in ${KNOWN_FAILING[@]+"${KNOWN_FAILING[@]}"}; do
     IFS='|' read -r name cmd issue want <<< "$row"
     printf '\n##### %s (known failing, %s)\n' "$name" "$issue"
     ran=$((ran + 1))
@@ -84,7 +83,7 @@ printf '\n##### accounting: every file is run, known failing, or skipped with a 
 unaccounted=0
 commands=""
 for row in "${RUN[@]}"; do commands="$commands ${row#*|} "; done
-for row in "${KNOWN_FAILING[@]}"; do IFS='|' read -r _ cmd _ _ <<< "$row"; commands="$commands $cmd "; done
+for row in ${KNOWN_FAILING[@]+"${KNOWN_FAILING[@]}"}; do IFS='|' read -r _ cmd _ _ <<< "$row"; commands="$commands $cmd "; done
 while IFS= read -r f; do
   rel=${f#claude/tests/}
   hit=0
