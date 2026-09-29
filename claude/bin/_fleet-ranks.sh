@@ -31,10 +31,10 @@
 # --- the rank line ---------------------------------------------------------------------------------
 # Smaller number = higher rank. Repository variants share the rank of their base.
 #
-# `[A0]`, the rear admiral, is rank -1: the session Nelson placed between himself and the captains on
-# 2026-09-26. The table is NUMBERED rather than shifted so that C0..L0 keep the numbers they have always
+# `[A0]` is the admiral rank, -1: first the rear admiral, the session Nelson placed between himself and the
+# captains on 2026-09-26, and a rank of its own since 2026-09-29, held by `[A0] rear admiral` and `[A0] areas admiral`. The table is NUMBERED rather than shifted so that C0..L0 keep the numbers they have always
 # had in both scripts and in every battery case. A0 is matched on the BARE code alone, because it carries
-# no ship code — it sits above every ship — so `[A0-CC]` is not the rear admiral and is not a rank code at
+# no ship code — it sits above every ship — so `[A0-CC]` is not an admiral and is not a rank code at
 # all; it reads as unknown and is refused. (That arm once accepted `"[A0-"*` as well, which made
 # `[A0-CC] impostor` the real rear admiral to both scripts and contradicted this very paragraph. Found by
 # the reviewer of #56.)
@@ -63,7 +63,7 @@ rank_of_caller() {
   case "$1" in
     # THE ARM THIS FUNCTION WAS BUILT FOR, landed by package 5. `human:nelson` is the accept verbs' own
     # write path: the verb runs inside Obsidian when NELSON CLICKS, so it has no session and no rank, and
-    # without this it could not tell a session that its item was verified. Rank -2, above the rear admiral,
+    # without this it could not tell a session that its item was verified. Rank -2, above the admirals,
     # because the click is the admiral's own hand and a ruling of his must not sit unread behind a rank
     # check. Ruled by [A0] rear admiral on 2026-09-27 inside Nelson's "get it built", in the queue note
     # "Rule the two calls in the verified-item notifier before it is built".
@@ -80,9 +80,11 @@ rank_of_caller() {
 }
 
 # The rank of an agent DEFINITION name, as `~/.claude/agents/<name>.md` and `claude agents` spell it.
-# There is no A0 definition: the rear admiral is a session Nelson placed, not a rank a definition carries.
+# `03 Agents/03.18 Claude Code agents/admiral.md` defines the A0 rank since 2026-09-29 (Nelson: "i mean we may
+# as well make it a new rank"); `[A0] rear admiral` and `[A0] areas admiral` are the two sessions that hold it.
 rank_of_agent() {
   case "$1" in
+    admiral) echo -1 ;;
     captain) echo 0 ;;
     commander) echo 1 ;;
     lieutenant-commander|lieutenant-commander-repository) echo 2 ;;
@@ -94,7 +96,7 @@ rank_of_agent() {
 # The words, for a sentence a human reads.
 word_of_rank() {
   case "$1" in
-    -1) echo "rear admiral" ;;
+    -1) echo admiral ;;   # the rank word; the SESSION names `[A0] rear admiral` and `[A0] areas admiral` stay
     0) echo captain ;;
     1) echo commander ;;
     2) echo "lieutenant commander" ;;

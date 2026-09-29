@@ -73,7 +73,10 @@ eq "an unknown definition"          "$(rank_of_agent rear-admiral)"             
 
 echo
 echo "=== the words and the codes"
-eq "word -1" "$(word_of_rank -1)" "rear admiral"
+# A0 is a rank since 2026-09-29 (Nelson: "i mean we may as well make it a new rank"): its word is "admiral",
+# and 03.18/admiral.md defines it. The session NAMES `[A0] rear admiral` and `[A0] areas admiral` do not change.
+eq "word -1" "$(word_of_rank -1)" "admiral"
+eq "the admiral definition is rank -1" "$(rank_of_agent admiral)" -1
 eq "word 0"  "$(word_of_rank 0)"  captain
 eq "word 1"  "$(word_of_rank 1)"  commander
 eq "word 2"  "$(word_of_rank 2)"  "lieutenant commander"
@@ -162,12 +165,14 @@ if command -v jq >/dev/null 2>&1; then
   row "[L0-DV] ship words target"
   out=$(pr --name "[C2-CC] x" --by "[A0] rear admiral" --ship CC)
   eq "a DV-coded target is refused even with --ship" "$out" "promote-session: refused: ship DV is guarded; no script wakes or promotes a session on it or into it, whoever asks, because only Nelson starts a session there"
+  out=$(pr --name "[A0] x" --by "[C1] ship words test")
+  eq "an [A0] name is refused with the rank word" "$out" "promote-session: refused: --name '[A0] x' would make an admiral, and only Nelson makes one; A0 is never a --name"
   # The common path: a coded MA caller, no --ship, on an MA target (the ship comes from the caller).
   row "[L0-MA] ship words target"
   out=$(pr --name "[C2-MA] x" --by "[C0-MA] macos")
   eq "[C0-MA] on an MA target, no --ship, passes" "$(reached MA "$out")" past-the-ship-gates
 else
-  skipped=6; printf 'SKIP  the six promote-session cases: jq is not installed, and the script needs it\n'
+  skipped=7; printf 'SKIP  the seven promote-session cases: jq is not installed, and the script needs it\n'
 fi
 
 echo
@@ -195,11 +200,12 @@ done
 # known-check each, and the ship of a [C0-DV] name), 103 with the [C0-MA] common-path case, 104 with ships_in_words under a strict-mode IFS, and 105
 # with DV held out (the DV known-check became a not-known check, and one promote case refuses --ship DV), 108 with
 # a DV-coded target refused under --ship and two values with a space refused as ships (review 6), and still
-# 108 once DV joined with its guard (those checks now say known, and refused as guarded). DV is known but
+# 108 once DV joined with its guard (those checks now say known, and refused as guarded), and 110 with the
+# admiral rank word (the word, the definition, and the promote refusal). DV is known but
 # never offered: `ships_in_words` leaves the guarded ship out of the words (review 2 of #73).
 # Change EXPECTED only in the commit that adds or removes a check, and say which.
 # The count is part of the summary line, so a run that lost checks can never print a green summary.
-EXPECTED=108
+EXPECTED=110
 [ $((n + skipped)) = "$EXPECTED" ] || { fails=$((fails + 1)); echo "FAIL  the check count is $((n + skipped)) ($n run, $skipped skipped), expected $EXPECTED: a line was lost or added without updating EXPECTED"; }
 printf '\n%s checks (expected %s), %s skipped, %s failed\n' "$n" "$EXPECTED" "$skipped" "$fails"
 [ "$fails" = 0 ] || exit 1

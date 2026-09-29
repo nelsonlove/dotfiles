@@ -53,8 +53,8 @@
 # CC, OB, HS, MA and FL, the areas admiral the area ships; DV no caller at all. Within its own ships an A0
 # caller is not held to one ship, since A0 carries no ship code; the new name's ship therefore comes from
 # the TARGET unless --ship says otherwise, and a bare-named target must be given --ship rather than
-# guessed; a ship-coded `[A0-CC]` is not the rear admiral and is refused as a name with no rank code at
-# all; and `--name` never carries A0, because only Nelson makes a rear admiral. `--to captain`
+# guessed; a ship-coded `[A0-CC]` is not an admiral and is refused as a name with no rank code at
+# all; and `--name` never carries A0, because only Nelson makes an admiral. `--to captain`
 # stays refused for everyone, A0 included: only Nelson makes captains.
 #
 # The ship rules (Nelson, 2026-09-26; names carry the ship code after the rank):
@@ -202,7 +202,7 @@ by_rank=$(rank_of_caller "$by"); [ "$by_rank" != 9 ] || die "--by must start wit
 # names the wrong problem and invites a caller to pass one. Nothing was ruled about the verb path promoting
 # anybody, and a rank change nobody can attribute to a session is worse than one refused.
 [ "$by_rank" -ge -1 ] || die "refused: '$by' is the accept verbs' write path; it notifies a session, it does not promote or demote one"
-name_rank=$(rank_of_name "$name"); [ "$name_rank" != -1 ] || die "refused: --name '$name' would make a rear admiral, and only Nelson makes one; A0 is never a --name"
+name_rank=$(rank_of_name "$name"); [ "$name_rank" != -1 ] || die "refused: --name '$name' would make an admiral, and only Nelson makes one; A0 is never a --name"
 [ "$name_rank" = "$to_rank" ] || die "--name '$name' must carry the rank code $(bare_code_of_rank "$to_rank") to match --to $to"
 [ "$to_rank" -gt "$by_rank" ] || die "refused: $by ($(word_of_rank "$by_rank")) may only promote or demote to a rank below its own; $to is not below it"
 
