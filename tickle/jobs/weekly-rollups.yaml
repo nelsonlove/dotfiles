@@ -9,7 +9,8 @@ status: disabled
 # captain dispatches `[L0-OB] weekly rollups` by hand on Mondays. Before `status: active`: one watched run by hand for
 # the week just ended, on Nelson's word.
 #
-# Every guard (pause, load, previous week, no overwrite, brief markers, placeholder, live lieutenant) is in run.sh,
+# Every guard (pause, load, no overwrite, live lieutenant and log claim, previous week, brief markers, placeholder,
+# the Claude daemon's API key) is in run.sh, in that order, under a lock,
 # so `tickle run weekly-rollups` by hand is guarded too. `run.sh --dry-run` goes through them all and dispatches
 # nothing. The trigger adds only the host (on-host.sh, not gated.sh: run.sh checks the pause itself): the job must run
 # on ONE machine, or two daemons start two lieutenants.

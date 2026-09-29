@@ -63,7 +63,7 @@ go() {
   OUT=$(env -i HOME="$C" USER=nelson LOGNAME=nelson PATH=/usr/bin:/bin:/usr/sbin:/sbin TMPDIR=/tmp \
         ANTHROPIC_API_KEY=sk-test-should-be-unset \
         WR_VAULT="$V" WR_CLAUDE="$S/claude" WR_DISPATCH_CWD="$C/dotfiles" WR_CLAUDE_JSON="$C/claude.json" \
-        WR_LOADAVG="${LOAD:-1.00}" WR_LOCK="$C/lock/run.lock" WR_CONFIRM_TRIES=2 WR_CONFIRM_SLEEP=0 PAUSE_NOTE="$C/Pause.md" \
+        WR_LOADAVG="${LOAD:-1.00}" WR_LOCK="$C/lock/run.lock" WR_DAEMON_KEY_PIDS="${KEYED:-}" WR_CONFIRM_TRIES=2 WR_CONFIRM_SLEEP=0 PAUSE_NOTE="$C/Pause.md" \
         /bin/bash "$RUN" "$@" 2>&1)
   RC=$?
 }
@@ -90,7 +90,7 @@ check "subst: --- body line kept" grep -qx -- '---' "$S/bg_prompt"
 check "subst: markers not in brief" bash -c "! grep -qF 'weekly-rollups brief:' '$S/bg_prompt'"
 check "CLI call: API key unset" bash -c "! grep -qF KEY_LEAKED '$S/calls'"
 check "dispatch: add-dir, agent, name, --" grep -qF -- "--bg --add-dir $V --agent lieutenant --name [L0-OB] weekly rollups -- " "$S/calls"
-check "lock: released" [ ! -d "$C/lock/run.lock" ]
+check "claim: log check passed" out_has "log check: no claim"
 check "dispatch: from trusted cwd" [ "$(cat "$S/bg_cwd")" = "$C/dotfiles" ]
 check "claim: one line in log" [ "$(grep -c 'tickle weekly-rollups — claim' "$XLOG")" = 1 ]
 check "claim: names the ruling" grep -qF 'alright go for it' "$XLOG"
@@ -167,8 +167,21 @@ check "live idle: queue item" grep -qF 'claude stop' "$Q/Weekly rollup not start
 check "item session is the job" grep -qxF 'session: "tickle weekly-rollups"' "$Q/Weekly rollup not started 2026-W40.md"
 new_case; /usr/bin/trash "$NB/Agent rollup for 2026-W39.md"; echo '[{"name":"[L0-OB] weekly rollups","pid":42,"status":"busy","state":"working"}]' > "$S/agents.json"; go --week 2026-W40
 check "live busy: no false missed item" [ "$(queue_count)" = 0 ]
-new_case; echo '[{"name":"[L0-OB] weekly rollups (old)","pid":42}]' > "$S/agents.json"; go --week 2026-W40
+new_case; echo '[{"name":"[L0-OB] monthly rollups","pid":42,"status":"busy","state":"working"}]' > "$S/agents.json"; go --week 2026-W40
 check "live: other name does not block" dispatched
+new_case; echo '[{"name":"[L0-OB] weekly rollups 2026-W40","pid":42,"status":"busy","state":"working"}]' > "$S/agents.json"; go --week 2026-W40
+check "live: renamed session still blocks" not_dispatched
+old=$(( ($(date +%s) - 90000) * 1000 ))
+new_case; echo "[{\"name\":\"[L0-OB] weekly rollups\",\"pid\":42,\"status\":\"idle\",\"state\":\"blocked\",\"startedAt\":$old}]" > "$S/agents.json"; go --week 2026-W40
+check "stuck: exit 5" [ "$RC" = 5 ]; check "stuck: no dispatch" not_dispatched; check "stuck: queue item" grep -qF '24 hours' "$Q/Weekly rollup not started 2026-W40.md"
+new_case; echo '' > "$S/agents.json"; go --week 2026-W40
+check "empty listing: exit 2" [ "$RC" = 2 ]; check "empty listing: no dispatch" not_dispatched; check "empty listing: no item" [ "$(queue_count)" = 0 ]
+new_case; printf '\n## 2026-10-05T07:00 · [C0-OB] obsidian — claim\nDispatched by hand: Agent rollup for 2026-W40.md. — [C0-OB] obsidian\n' >> "$XLOG"; go --week 2026-W40
+check "log claim: exit 0" [ "$RC" = 0 ]; check "log claim: no dispatch" not_dispatched
+new_case; KEYED=4242 go --week 2026-W40
+check "daemon key: exit 6" [ "$RC" = 6 ]; check "daemon key: no dispatch" not_dispatched; check "daemon key: queue item" grep -qF 'ANTHROPIC_API_KEY' "$Q/Weekly rollup not started 2026-W40.md"
+new_case; KEYED=4242 go --dry-run --week 2026-W40
+check "daemon key dry: reported" out_has "REFUSES to dispatch"
 
 # 10. Failures are loud: listing fails, dispatch fails, dispatch returns 0 but no session appears, untrusted cwd.
 new_case; echo 1 > "$S/agents_rc"; go --week 2026-W40
@@ -192,11 +205,19 @@ under_response() { awk '/^## Response/{r=1;next} /^## /{r=0} r && /after all/{f=
 check "response placement" under_response
 check "history kept last" [ "$(tail -1 "$Q/Weekly rollup not started 2026-W40.md")" = "- added by hand" ]
 
-# 10c. Lock: a live holder skips the run; a dead holder's lock is taken over.
-new_case; mkdir -p "$C/lock/run.lock"; sleep 30 & holder=$!; echo "$holder" > "$C/lock/run.lock.pid"; go --week 2026-W40
-check "lock held: exit 0" [ "$RC" = 0 ]; check "lock held: no dispatch" not_dispatched; kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
-new_case; mkdir -p "$C/lock/run.lock"; echo 999999 > "$C/lock/run.lock.pid"; go --week 2026-W40
-check "stale lock: dispatched" dispatched; check "stale lock: released" [ ! -d "$C/lock/run.lock" ]
+# 10c. Lock: a run holding the lock makes a second run skip; a leftover lock file with no holder does not block.
+new_case; mkdir -p "$C/lock"; /usr/bin/lockf -s -t 0 "$C/lock/run.lock" sleep 30 & holder=$!; sleep 1; go --week 2026-W40
+check "lock held: exit 0" [ "$RC" = 0 ]; check "lock held: reason" out_has "another weekly-rollups run"; check "lock held: no dispatch" not_dispatched
+kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
+new_case; mkdir -p "$C/lock"; : > "$C/lock/run.lock"; go --week 2026-W40
+check "leftover lock file: dispatched" dispatched
+
+# 10d. Queue items: UUIDv7 uid, and an item whose quotes a tool removed is still the job's own.
+new_case; echo 1 > "$S/bg_rc"; go --week 2026-W40
+check "uid v7" grep -Eq '^uid: [0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' "$Q/Weekly rollup not started 2026-W40.md"
+sed -i '' 's/^  by: "tickle weekly-rollups"$/  by: tickle weekly-rollups/' "$Q/Weekly rollup not started 2026-W40.md"
+echo 0 > "$S/bg_rc"; echo '[]' > "$S/agents.json"; go --week 2026-W40
+check "unquoted by: still settled" grep -qx 'needs: nothing' "$Q/Weekly rollup not started 2026-W40.md"
 new_case; echo 0 > "$S/bg_registers"; go --week 2026-W40
 check "bg silent: exit 4" [ "$RC" = 4 ]; check "bg silent: no claim" [ ! -s "$XLOG" ]
 check "bg silent: queue item" [ -f "$Q/Weekly rollup not started 2026-W40.md" ]
