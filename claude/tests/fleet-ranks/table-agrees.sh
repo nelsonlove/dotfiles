@@ -120,6 +120,7 @@ eq "ship of [C0-HS]"      "$(ship_of_name '[C0-HS] orange')"   HS
 eq "ship of [C0-MA]"      "$(ship_of_name '[C0-MA] macos')"    MA
 eq "ship of [C0-DV]"      "$(ship_of_name '[C0-DV] divorce')"  DV
 eq "ships in words"       "$(ships_in_words)"          "CC, OB, HS, MA, PE, PP, HH, FN, ED, WK, HB or DV"
+eq "ships in words under a strict-mode IFS" "$(IFS=$'\n\t'; ships_in_words)" "CC, OB, HS, MA, PE, PP, HH, FN, ED, WK, HB or DV"
 eq "ship of [L0-FL]"      "$(ship_of_name '[L0-FL] dotfiles')" FL
 eq "ship of a bare name"  "$(ship_of_name '[L0] dotfiles')"    ""
 eq "ship of [A0]"         "$(ship_of_name '[A0] rear admiral')" ""
@@ -135,7 +136,7 @@ echo "=== promote-session.sh speaks the table: MA passes the ship gate, and both
 # and --log point into the temp dir. The one real dependency is `jq`, which the script itself needs; without
 # it these cases are counted as skipped, and the skip is in the summary line.
 PTMP=$(mktemp -d "${TMPDIR:-/tmp}/table-agrees.XXXXXX") || exit 1
-trap 'trash "$PTMP" 2>/dev/null || rm -rf "$PTMP"' EXIT
+trap 'trash "$PTMP" 2>/dev/null || true' EXIT   # trash, never rm (CLAUDE.md); a dir it cannot trash stays in the temp dir
 ZERO=00000000-0000-0000-0000-000000000000
 mkdir -p "$PTMP/home/.claude/agents" "$PTMP/stubbin" "$PTMP/cwd"
 : > "$PTMP/home/.claude/agents/lieutenant-commander.md"
@@ -188,10 +189,10 @@ done
 # The count is asserted, not only printed (tests/README.md rule 1): 84 before the MA cases, 92 after
 # the review of #72 (three MA table cases, `ships_in_words`, two promote-session cases, and the two new
 # negative checks), 93 with the rear admiral's refusal, 102 with the eight area ships (one
-# known-check each, and the ship of a [C0-DV] name), and 103 with the [C0-MA] common-path case.
+# known-check each, and the ship of a [C0-DV] name), 103 with the [C0-MA] common-path case, and 104 with ships_in_words under a strict-mode IFS.
 # Change EXPECTED only in the commit that adds or removes a check, and say which.
 # The count is part of the summary line, so a run that lost checks can never print a green summary.
-EXPECTED=103
-[ $((n + skipped)) = "$EXPECTED" ] || { fails=$((fails + 1)); echo "FAIL  the check count is $n, expected $EXPECTED: a line was lost or added without updating EXPECTED"; }
+EXPECTED=104
+[ $((n + skipped)) = "$EXPECTED" ] || { fails=$((fails + 1)); echo "FAIL  the check count is $((n + skipped)) ($n run, $skipped skipped), expected $EXPECTED: a line was lost or added without updating EXPECTED"; }
 printf '\n%s checks (expected %s), %s skipped, %s failed\n' "$n" "$EXPECTED" "$skipped" "$fails"
 [ "$fails" = 0 ] || exit 1
