@@ -378,10 +378,18 @@ FNR == 1 {
 {
   if (!infm) next
   if ($0 ~ /^---[ \t\r]*$/) { infm = 0; next }
-  if (match($0, "^[ \t]*session[ \t]*:[ \t]*"))             { sess = strip(substr($0, RLENGTH + 1)) }
-  else if (match($0, "^[ \t]*session-status[ \t]*:[ \t]*")) { old_stat = strip(substr($0, RLENGTH + 1)) }
-  else if (match($0, "^[ \t]*status[ \t]*:[ \t]*"))         { new_stat = strip(substr($0, RLENGTH + 1)) }
-  else if (match($0, "^[ \t]*" key "[ \t]*:[ \t]*"))        { rt   = strip(substr($0, RLENGTH + 1)) }
+  # COLUMN ZERO, ALL FOUR. These matched a key at ANY indentation and took the last, so a key nested under a
+  # parent mapping beat the record own top-level one. For `status` that was a wrong word in a message. For
+  # `reports-to` it was a PERMISSION: that key is what `check_reporting_line` walks, so an entry stating
+  # `reports-to: [C1-CC] plugins` at column zero and carrying an indented `reports-to: [C0-CC] claude code`
+  # under some other block handed the chain to a caller the record does not name, and the wake was allowed.
+  # Measured before changing: of 495 entries across both roots, zero carry any of these four keys indented,
+  # so nothing real reads differently. `claude/lib/session-status.sh` was anchored in the seventh review
+  # round and this copy was not, which is the same pair-drift this program own comment warns about.
+  if (match($0, "^session[ \t]*:[ \t]*"))             { sess = strip(substr($0, RLENGTH + 1)) }
+  else if (match($0, "^session-status[ \t]*:[ \t]*")) { old_stat = strip(substr($0, RLENGTH + 1)) }
+  else if (match($0, "^status[ \t]*:[ \t]*"))         { new_stat = strip(substr($0, RLENGTH + 1)) }
+  else if (match($0, "^" key "[ \t]*:[ \t]*"))        { rt   = strip(substr($0, RLENGTH + 1)) }
 }
 END { flush() }
 '

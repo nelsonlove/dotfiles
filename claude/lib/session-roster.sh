@@ -185,6 +185,20 @@ roster_id_in_frontmatter() {  # $1 = the entry; prints the id, or nothing
     END { if (closed && !dup) print last }' "$1" 2>/dev/null || true
 }
 
+# WHICH OF THE FOUR KEYS AN ENTRY STATES TWICE, if any. The readers return NOTHING for a doubled key — that is
+# the round-three rule and it is right — but "nothing" then reads identically to "absent", so a record holding
+# all four keys with one of them twice was reported as "does not carry all four roster keys". The verdict was
+# the same either way; the stated cause was false, and the cause is the part a human acts on.
+roster_duplicate_key_in() {  # $1 = the entry; prints the first doubled key, or nothing
+  [ -n "${1:-}" ] && [ -f "$1" ] || return 0
+  awk 'NR == 1 { if ($0 !~ /^---[ \t\r]*$/) exit 0; infm = 1; next }
+       infm && /^---[ \t\r]*$/ { exit 0 }
+       infm && /^session[ \t]*:/      { if (a++) { print "session"; exit 0 } }
+       infm && /^session-id[ \t]*:/   { if (b++) { print "session-id"; exit 0 } }
+       infm && /^agent[ \t]*:/        { if (c++) { print "agent"; exit 0 } }
+       infm && /^cwd[ \t]*:/          { if (d++) { print "cwd"; exit 0 } }' "$1" 2>/dev/null || true
+}
+
 # WHETHER AN ENTRY IS THIS SESSION'S OWN, and this test is STRICT: inside the closed frontmatter, at column
 # zero, the LAST `session-id` (the one the reader takes), parsed the way the writer parses it. A false positive
 # here writes one session's facts over another session's record, which is the worst thing in this package, so
@@ -200,6 +214,7 @@ roster_newest_entry_for_id() {  # $1 = full session id, $2… = the FOUR root ar
   roster_entry=""
   roster_entry_count=0
   roster_entry_ambiguous=0
+  roster_order_reason=""
   ros_id="${1:-}"
   shift || true
   [ -n "$ros_id" ] || return 0
@@ -217,9 +232,16 @@ roster_newest_entry_for_id() {  # $1 = full session id, $2… = the FOUR root ar
     # an order; a filename carrying no stamp has none, and the old code gave it the empty string, which loses
     # to every real stamp — so an unstamped RUNNING entry silently lost to a stamped ENDED one and the job was
     # swept. Guessing an order is how that happened. This says it cannot order them, and the caller skips.
-    [ -n "$ros_stamp" ] || roster_entry_ambiguous=1
-    if [ -n "$roster_entry" ] && [ -n "$ros_stamp" ] && [ "$ros_stamp" = "$ros_best_stamp" ]; then
+    # AND IT SAYS WHICH KIND OF UNORDERABLE. One flag covered two different facts — a filename with no stamp,
+    # and two filenames with the same stamp — and the caller printed "two or more entries" for both, so a LONE
+    # unstamped entry was reported as a tie while its own evidence line said the count was one. A reason that
+    # contradicts the evidence printed beside it teaches a reader to trust neither.
+    if [ -z "$ros_stamp" ]; then
       roster_entry_ambiguous=1
+      roster_order_reason="the filename ${ros_f##*/} carries no timestamp, so it cannot be placed in order"
+    elif [ -n "$roster_entry" ] && [ "$ros_stamp" = "$ros_best_stamp" ]; then
+      roster_entry_ambiguous=1
+      roster_order_reason="two entries share the timestamp $ros_stamp, so neither is the newest"
     fi
     if [ -z "$roster_entry" ] || [ "$ros_stamp" \> "$ros_best_stamp" ]; then
       roster_entry="$ros_f"

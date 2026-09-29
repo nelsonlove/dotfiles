@@ -195,8 +195,12 @@ for job in "$JOBS_DIR"/*; do
     # THE ROW'S OWN `.status` IS PRINTED even though nothing decides on it, because a reader of this evidence
     # needs to see the case where the listing calls a session running and it has no pid — that reads as not
     # alive here, deliberately, and a week of output should show how often that happens rather than hide it.
-    ev_stat=$(printf '%s' "$listing" | jq -r --arg s "$full" '[.[] | select(.sessionId == $s) | .status // "none"] | join(",")' 2>/dev/null || echo "?")
-    evidence="$evidence listing-rows=$ev_rows pids=${ev_pids:-none} listing-status=${ev_stat:-none}"
+    # `.status // "none"` COLLAPSED THREE DIFFERENT FACTS — an absent key, a null and a false — into one word,
+    # and the shell fallback then printed the same word for zero rows. Each is now distinct, because the whole
+    # point of this field is to show a reader how often the listing says one thing and the pid says another.
+    ev_stat=$(printf '%s' "$listing" | jq -r --arg s "$full" '[.[] | select(.sessionId == $s) | if has("status") then (.status | tostring) else "absent" end] | join(",")' 2>/dev/null || echo "?")
+    [ "$ev_rows" != 0 ] || ev_stat="no-rows"
+    evidence="$evidence listing-rows=$ev_rows pids=${ev_pids:-none} listing-status=${ev_stat:-empty-string}"
     if session_is_alive "$full"; then
       evidence="$evidence live-pid=yes"
       reason="the session is in the listing with a live pid"
@@ -214,8 +218,16 @@ for job in "$JOBS_DIR"/*; do
         evidence="$evidence newest-status=n/a"
         reason="no notebook entry states that id"
       elif [ "${roster_entry_ambiguous:-0}" != 0 ]; then
-        evidence="$evidence order=UNDECIDABLE newest-status=not-read"
-        reason="two or more entries state that id and none can be called the newest (a tie, or a filename with no stamp), so nothing was read"
+        # `first=`, NOT `newest=`: when nothing can be ordered there is no newest, and labelling an arbitrary
+        # member of a tie as the newest is the same false precision the reason used to carry.
+        evidence="$evidence order=UNDECIDABLE first=${roster_entry:-none} newest-status=not-read"
+        reason="${roster_order_reason:-the entries for that id cannot be ordered}, so nothing was read"
+      elif [ -n "$(roster_duplicate_key_in "$roster_entry")" ]; then
+        # BEFORE THE OTHER TWO, because a doubled key makes a reader return nothing and both branches below
+        # would then blame an absence. A record holding all four keys with one of them twice was reported as
+        # "does not carry all four roster keys", which is a different defect and sends a human to the wrong line.
+        evidence="$evidence newest-status=not-read duplicate-key=$(roster_duplicate_key_in "$roster_entry")"
+        reason="its newest entry $roster_entry states '$(roster_duplicate_key_in "$roster_entry")' twice, so that key reads as nothing and the entry decides nothing"
       elif [ "${roster_entry_unreadable:-0}" != 0 ]; then
         evidence="$evidence newest-status=not-read"
         reason="its newest entry $roster_entry does not state that id when parsed, so it decides nothing"

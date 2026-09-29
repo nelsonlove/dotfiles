@@ -28,7 +28,7 @@ TMP=$(mktemp -d -t session-roster) || exit 1
 trap 'rm -rf "$TMP"' EXIT
 n=0; fails=0; skips=0
 # Every check outside section 1, whose own count depends on whether the real notebook is on this machine.
-SUITE_BASE=161
+SUITE_BASE=168
 SECTION1_CHECKS=0
 SECTION1_SKIPPED=0
 eq() { n=$((n + 1)); if [ "$2" = "$3" ]; then printf 'PASS  %-56s %s\n' "$1" "$2"; else fails=$((fails + 1)); printf 'FAIL  %-56s got %s, want %s\n' "$1" "$2" "$3"; fi; }
@@ -304,6 +304,18 @@ for d in 2026-09 2026-10; do
     > "$AMB/$d/Agent session 2026-09-26T0100.md"
 done
 eq "a tie gives the wake no ended line" "$(lib 'roster_ended_line_for "90909090-1111-2222-3333-444444444444" "$1" 1 "" 0 >/dev/null 2>&1; printf "[%s]" "${roster_ended_line:-}"' "$AMB")" "[]"
+
+# THE WAKE INDEX READS COLUMN ZERO TOO, and this is the one round-eight finding that was not cosmetic. That
+# awk matched all four keys at ANY indentation and took the last, so a key nested under a parent mapping beat
+# the record own top-level one. For `status` that was a wrong word in a message. For `reports-to` it was a
+# PERMISSION: `check_reporting_line` walks that key, so an entry stating one superior at column zero and
+# carrying an indented `reports-to` under some other block handed the chain to a caller the record does not
+# name. The reviewer classified this as reports-only from the `status` side; the gating key is the other one.
+WIDX="$TMP/wakeidx"; mkdir -p "$WIDX"
+sed -n "/^index_awk='/,/^'$/p" "$ROOT/claude/bin/wake-session.sh" | sed '1d;$d' > "$WIDX/idx.awk"
+printf -- '---\nsession: "[L0-CC] nested line"\nreports-to: "[C1-CC] plugins"\nmeta:\n  reports-to: "[C0-CC] claude code"\nstatus: draft/running\n---\n\nbody\n' > "$WIDX/Agent session 2026-09-29T0900.md"
+eq "an indented reports-to never wins" "$(awk -v key="reports-to" -f "$WIDX/idx.awk" "$WIDX/Agent session 2026-09-29T0900.md" | cut -f 2)" "[C1-CC] plugins"
+eq "and an indented status never wins" "$(awk -v key="reports-to" -f "$WIDX/idx.awk" "$WIDX/Agent session 2026-09-29T0900.md" | cut -f 4)" "running"
 
 echo
 echo "=== 5. where the conversation is: four outcomes, and two of them refuse"
@@ -660,11 +672,17 @@ has  "two entries at the same stamp block it"  "$(sweep)" "SKIP  56565656"
 # at all printed a status for the entry it did not have. The verdict was safe every time and the stated cause
 # was wrong, which is the half a reader would have relied on.
 out=$(sweep)
-has "a tie says a tie, not missing keys"       "$out" "none can be called the newest"
+has "a tie says a tie, not missing keys"       "$out" "two entries share the timestamp"
 has "and does not claim a status it never read" "$out" "newest-status=not-read"
 hasnt "and never says four keys about a tie"   "$(printf '%s' "$out" | grep -A1 'SKIP  56565656' || true)" "does not carry all four"
 has "a fork-comment winner says it decides nothing" "$out" "does not state that id when parsed"
-has "and the listing status is in the evidence" "$out" "listing-status="
+# AN ACTUAL VALUE, not just the label. Grepping for `listing-status=` would pass for any jq expression at all,
+# including one that printed nothing useful — the reviewer named it, and it is the same weakness as a test that
+# asserts a thing happened without asserting what.
+# THE LISTING IS EMPTY AT THIS POINT, so the honest expectation is `no-rows` — which is exactly the fact the
+# old `.status // "none"` collapsed together with an absent key and a null. Asserting the label alone would
+# have passed for any of them.
+has "the listing status says there are no rows" "$out" "listing-status=no-rows"
 # A JOB WITH NO ENTRY AT ALL says so, and claims no status for an entry it does not have.
 mkjob 41414141 41414141-1111-2222-3333-444444444444 "[L0-CC] no entry anywhere"
 out=$(sweep)
@@ -681,6 +699,25 @@ mkjob 13131313 13131313-1111-2222-3333-444444444444 "[L0-CC] nested status"
 out=$(sweep)
 has  "a nested status does not end a session" "$out" "SKIP  13131313"
 hasnt "and the job is not listed for removal" "$out" "WOULD REMOVE  13131313"
+
+# A LONE UNSTAMPED ENTRY IS NOT A TIE. One flag covered two facts — no stamp, and two equal stamps — and the
+# reason said "two or more entries" for both, so a SINGLE entry was reported as a tie while the evidence beside
+# it said the count was one. A reason that contradicts its own evidence teaches a reader to trust neither.
+entry "Agent session lonely.md" 'session: "[L0-CC] lone unstamped"' 'session-id: 24242424-1111-2222-3333-444444444444' 'agent: lieutenant' 'cwd: /tmp/lu' 'status: archived/ended' >/dev/null
+mkjob 24242424 24242424-1111-2222-3333-444444444444 "[L0-CC] lone unstamped"
+out=$(sweep)
+has  "a lone unstamped entry says so"          "$out" "carries no timestamp"
+hasnt "and is not called a tie"                "$(printf '%s' "$out" | grep 'SKIP  24242424' || true)" "two entries share"
+has  "and the field is first=, not newest="    "$out" "first="
+
+# A DOUBLED KEY IS NOT A MISSING KEY. The readers return nothing for a key stated twice, which is right, but
+# "nothing" reads the same as "absent" — so an entry holding all four keys with one of them twice was reported
+# as "does not carry all four roster keys". Same verdict, false cause, and the cause is what a human acts on.
+entry "Agent session 2026-09-27T0500.md" 'session: "[L0-CC] doubled agent"' 'session-id: 35353535-1111-2222-3333-444444444444' 'agent: lieutenant' 'agent: lieutenant' 'cwd: /tmp/da' 'status: archived/ended' >/dev/null
+mkjob 35353535 35353535-1111-2222-3333-444444444444 "[L0-CC] doubled agent"
+out=$(sweep)
+has  "a doubled key is named as doubled"       "$out" "states 'agent' twice"
+hasnt "and is not called incomplete"           "$(printf '%s' "$out" | grep 'SKIP  35353535' || true)" "does not carry all four"
 
 # THE ARCHIVE ROOT IS READ IN PRODUCTION. An ended entry MOVES there, so a sweeper that reads only the
 # notebook skips exactly the population it exists for — which is what the first version did, with
