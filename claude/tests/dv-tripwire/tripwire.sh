@@ -93,6 +93,12 @@ case_ deny  $'cat <<EOF >> n.md\nNelson\'s note: $(claude --bg --name "[C0-DV] x
 case_ deny  $'echo hi # it\'s fine\necho "$(claude --bg --name \'[C0-DV] x\' y)"'
 # Review 5 of #73: a quoted `)` inside `$( )` does not end it.
 case_ deny  'echo "$(printf ")"; claude --bg --name "[C0-DV] x" y)"'
+# Review 2 of #86: the file system ignores case, and bash joins a quoted or escaped name back together.
+case_ deny  'Claude --bg --name "[C0-DV] x" y'
+case_ deny  'CLAUDE --bg --name "[C0-DV] x" y'
+case_ deny  'c\laude --bg --name "[C0-DV] x" y'
+case_ deny  'cl""aude --bg --name "[C0-DV] x" y'
+case_ deny  "'cl'aude --bg --name \"[C0-DV] x\" y"
 echo
 echo "=== refused: a DV session reached through the id it resumes"
 case_ deny  "claude --resume $DVID"
@@ -142,6 +148,6 @@ PYX
 if [ "$reg" = ok ]; then printf 'PASS  the repo settings.json has one Bash PreToolUse entry for dv-tripwire.sh, timeout 1-10 s\n'; else fails=$((fails + 1)); printf 'FAIL  settings.json: %s\n' "$reg"; fi
 
 printf '\n%s checks, %s failed, %s known limits let through\n' "$n" "$fails" "$known"
-EXPECTED=69
+EXPECTED=74
 [ "$n" = "$EXPECTED" ] || { echo "FAIL  the check count is $n, expected $EXPECTED"; exit 1; }
 [ "$fails" = 0 ] || exit 1

@@ -37,7 +37,9 @@ except Exception:
     sys.exit(0)
 # Fast path: no `claude` WORD anywhere, quotes included (a shell's -c string is checked too). A path such as
 # ~/.claude/hooks or dotfiles/claude/tests is not the word, so most fleet commands leave here (review of #86).
-if not re.search(r"(^|[^.A-Za-z0-9_-])claude([^/A-Za-z0-9_.-]|$)", cmd):
+# Two more things the shell does that the text does not show (review 2 of #86): the file system ignores case, so `Claude` runs Claude Code; and bash joins `c\laude`, `cl""aude` and `'cl'aude` back into `claude`. So the fast path looks at the text as written and with backslashes and quotes removed, in any case.
+WORD = re.compile(r"(^|[^.A-Za-z0-9_-])claude([^/A-Za-z0-9_.-]|$)", re.I)
+if not (WORD.search(cmd) or WORD.search(re.sub(r"[\\'\"]", "", cmd))):   # both: removing the quotes of -S'claude …' glues the word to -S
     sys.exit(0)
 DV = re.compile(r"-dv\]", re.I)
 
@@ -117,10 +119,10 @@ def effective(c):
         i += 1
     if i >= len(c):
         return "", []
-    prog = os.path.basename(c[i])
+    prog = os.path.basename(c[i]).lower()
     if prog in WRAPPERS:
         for j in range(i + 1, len(c)):
-            w = os.path.basename(c[j])
+            w = os.path.basename(c[j]).lower()
             if w == "claude" or w in SHELLS or w == "eval":
                 return effective(c[j:])
     return prog, c[i + 1:]
