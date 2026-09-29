@@ -1,15 +1,16 @@
 version: 1
 id: obsidian-backup
-name: obsidian Backup (auto-commit, every 30m)
+name: obsidian Backup (auto-commit, every 10m)
 status: active
 
 # Air-only: ~/obsidian (the Assent-era vault) lives on the MacBook Air; its
 # local-only safety-net repo is ~/obsidian-backup.git. The script trigger
 # gates on hostname so it never runs on other machines. Successor to the
 # retired obsidian-new-backup job (disabled 2026-08-08, target absorbed).
+# Every 10 minutes since 2026-09-29 (Nelson: "now that we have agents handling my stuff, let's increase backup frequency to 10 minutes").
 triggers:
   - type: script
-    schedule: "*/30 * * * *"
+    schedule: "*/10 * * * *"
     command: ["@config/scripts/_lib/on-host.sh", "Nelsons-MacBook-Air"]
     timeout: 10s
 

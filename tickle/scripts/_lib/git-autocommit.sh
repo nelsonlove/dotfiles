@@ -20,8 +20,10 @@ G(){ git --git-dir="$GITDIR" --work-tree="$WT" "$@"; }
 
 # A run killed mid-add/commit (timeout, sleep, power loss) leaves a stale
 # index.lock that would fail every future run forever. Runs are capped at 5m,
-# so a lock older than 10m cannot belong to a live git — clear it.
-find "$GITDIR" -maxdepth 1 -name index.lock -mmin +10 -delete
+# so a lock older than 6m cannot belong to a live git — clear it. The margin is
+# tied to the 5m run cap, never to the schedule: at the 10-minute cadence
+# (2026-09-29) a 10m threshold left a killed run's lock in place for the next run.
+find "$GITDIR" -maxdepth 1 -name index.lock -mmin +6 -delete
 
 # Nested git repos are stored as content-less gitlinks — their files would NOT
 # be in the backup. Warn loudly so the run log shows it (such repos are
