@@ -12,8 +12,9 @@
 # at exactly that depth and the archive holds none, so the narrow rule reads the same population the glob did
 # — without ever walking a folder nobody meant it to.
 #
-# WHY IT IS A LIBRARY. Three callers need the same answer: `wake-session.sh` (the reporting-line index and the
-# post-rm path), `claude/bin/sweep-jobs.sh`, and the roster reader. A shell function cannot be reached from
+# WHY IT IS A LIBRARY. Four callers need the same answer: `wake-session.sh` (the reporting-line index and the
+# post-rm path), `claude/bin/sweep-jobs.sh`, the roster reader, and `claude/tests/fleet-ranks/status-dual-read.sh`
+# (its real-population section, since 2026-09-29). A shell function cannot be reached from
 # another script, so the alternative was three copies of one rule — the shape that drifted in the pause parser
 # before #61 and again between the library and the awk in #68. One definition, three callers, and
 # `claude/tests/fleet-ranks/wake-two-roots.sh` passing unchanged is the proof the move changed nothing.
