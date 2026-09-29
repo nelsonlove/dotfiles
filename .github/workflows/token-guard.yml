@@ -1,0 +1,38 @@
+name: Token guard
+
+# The same check as the local pre-commit hook (githooks/token-guard.sh), on every pull request and every push
+# to main. The local hook can be skipped with --no-verify; this cannot. It reads the tree at the head and every
+# line added by every commit in the range, so a token added and later removed in the same PR is still refused.
+# This repository is public.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# The job only reads the repository (review 1 of #74: without this, a push event may get write rights).
+permissions:
+  contents: read
+
+jobs:
+  token-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Token guard (tree and history of the range)
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: |
+          # A push that creates the branch has an all-zero "before", and a force-push to main names an old tip
+          # the checkout does not have. In both cases the pushed commits are unknown, so check the head's WHOLE
+          # history (review 2 of #74: the head's parent alone missed a token added and removed earlier in the
+          # same push). The whole history scans in about a second.
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ] || ! git rev-parse --verify -q "$BASE^{commit}" >/dev/null; then
+            bash githooks/token-guard.sh --history "$HEAD"
+          else
+            bash githooks/token-guard.sh --range "$BASE" "$HEAD"
+          fi
+      - name: The guard's own tests
+        run: bash githooks/test-token-guard.sh

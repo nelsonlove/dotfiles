@@ -1,0 +1,3 @@
+#!/bin/sh
+# post-checkout: the same warning as post-merge, kept in one place (see githooks/post-merge).
+exec sh "$(dirname "$0")/post-merge" "$@"
