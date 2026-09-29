@@ -30,12 +30,18 @@ CTX=$(printf '%s' "$out" | python3 -c 'import json,sys; print(json.load(sys.stdi
 check "the fixture entry was injected (the test reads what it thinks it reads)" yes "A fixture entry."
 check "the new text is there, word for word" yes "read each entry in full and dispose of it silently: act, reply by SendMessage, or dismiss. Do not restate entries in chat; say at most one line on what one changes for you."
 check "a reply by SendMessage stays mandatory for your scope" yes "A reply by SendMessage is mandatory if an entry names your scope, files, or claims."
-check "no reply in the log" no "reply in the log"
+# Any sentence that sends a reply (or an append) to the log, not only the old phrase (review 1 of #76).
+n=$((n + 1))
+if printf '%s\n' "$CTX" | grep -qiE '(repl(y|ies)|append)[^.]*[^A-Za-z-]log([^A-Za-z]|$)'; then
+  fails=$((fails + 1)); echo "FAIL  no sentence sends a reply to the log"
+else echo "PASS  no sentence sends a reply to the log"; fi
+# A message to a stopped session wakes it, so the mandatory reply must not reach a stopped author (review 1).
+check "the mandatory reply excludes a stopped author" yes "never message a stopped session"
 n=$((n + 1))
 if [ -f "$T/.local/share/cross-session-hook/inject-text-test" ]; then echo "PASS  the state file landed under the temp HOME, not the real one"
 else fails=$((fails + 1)); echo "FAIL  no state file under the temp HOME"; fi
 
-EXPECTED=5
+EXPECTED=6
 printf '\n%s checks (expected %s), %s failed\n' "$n" "$EXPECTED" "$fails"
 [ "$n" = "$EXPECTED" ] || { echo "FAIL  the check count is $n, expected $EXPECTED"; exit 1; }
 [ "$fails" = 0 ] || exit 1
