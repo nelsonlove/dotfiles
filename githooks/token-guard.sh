@@ -6,6 +6,8 @@
 #   token-guard.sh --range <base> <head> [--repo <dir>]
 #                                                  what CI runs on a pull request: the tree at <head>, and every
 #                                                  line added by every commit in <base>..<head>
+#   token-guard.sh --history <head> [--repo <dir>] the same over every commit reachable from <head>: CI's fallback
+#                                                  when a push's base cannot be read
 #
 # It refuses when:
 #   * claude/settings.local.json is present as anything but a symlink (git mode 120000). In this repo it must
@@ -43,7 +45,7 @@ PATTERN="$P_CLASSIC|$P_FINE"
 refused=0
 refuse() { refused=1; printf 'token-guard: refused: %s\n' "$*" >&2; }
 
-usage() { sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+usage() { sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 
 mode="${1:-}"; [ -n "$mode" ] || usage; shift
 repo="."
@@ -53,6 +55,13 @@ case "$mode" in
     [ $# -ge 2 ] || usage
     base="$1"; head="$2"; shift 2
     [ -n "$base" ] && [ -n "$head" ] || { printf 'token-guard: --range needs a base and a head, both non-empty\n' >&2; exit 2; }
+    revs="$base..$head"
+    ;;
+  --history)
+    [ $# -ge 1 ] || usage
+    head="$1"; base=""; shift
+    [ -n "$head" ] || { printf 'token-guard: --history needs a head\n' >&2; exit 2; }
+    revs="$head"
     ;;
   *) usage ;;
 esac
@@ -79,7 +88,9 @@ if [ "$mode" = --staged ]; then
     fi
   done < <(g diff --cached --name-only --diff-filter=ACMRT -z)
 else
-  g rev-parse --verify -q "$base^{commit}" >/dev/null || { printf 'token-guard: cannot read base %s\n' "$base" >&2; exit 2; }
+  if [ -n "$base" ]; then
+    g rev-parse --verify -q "$base^{commit}" >/dev/null || { printf 'token-guard: cannot read base %s\n' "$base" >&2; exit 2; }
+  fi
   g rev-parse --verify -q "$head^{commit}" >/dev/null || { printf 'token-guard: cannot read head %s\n' "$head" >&2; exit 2; }
   # 1. The settings file in the tree at head.
   m=$(g ls-tree "$head" -- "$SETTINGS" | awk '{print $1}')
@@ -97,7 +108,7 @@ else
   while IFS= read -r f; do
     [ -n "$f" ] && refuse "${f#"$head":} at $head contains what looks like a GitHub token."
   done <<< "$hits"
-  # 3. Every line added by any commit in the range, so a token added and later removed still counts: it is
+  # 3. Every line added by any commit in the range (or, with --history, in all of the head's history), so a token added and later removed still counts: it is
   # in the history the pull request would publish.
   # One pass: awk tags each ADDED line with its file, and one grep keeps the matches. Only the file names are
   # printed, never the matching text. Hardened on review 1 of #74:
@@ -105,11 +116,12 @@ else
   #     under the placeholder, because an empty name must never drop a line;
   #   * a `+++` line counts as a file header only BEFORE the first hunk of a file, so an added line that
   #     starts with `++ ` is content, not a header;
+  #   * --src-prefix/--dst-prefix fix the `b/` the parser reads, whatever diff.noprefix says (review 2);
   #   * --diff-merges=first-parent shows what a merge commit adds, so a token added while resolving a merge
   #     is seen.
   while IFS= read -r f; do
-    [ -n "$f" ] && refuse "$f gains a line that looks like a GitHub token in $base..$head (history counts, even if a later commit removes it)."
-  done < <(g -c core.quotePath=false log -p --no-color --no-ext-diff --diff-merges=first-parent --format= "$base..$head" -- \
+    [ -n "$f" ] && refuse "$f gains a line that looks like a GitHub token in $revs (history counts, even if a later commit removes it)."
+  done < <(g -c core.quotePath=false log -p --no-color --no-ext-diff --src-prefix=a/ --dst-prefix=b/ --diff-merges=first-parent --format= "$revs" -- \
              | awk '/^diff --git /{hunk=0; f="(a file whose name git quotes)"; next}
                     !hunk && /^\+\+\+ /{ if (substr($0,5,2)=="b/") f=substr($0,7); next }
                     /^@@ /{hunk=1; next}

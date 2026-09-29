@@ -108,6 +108,15 @@ git -C "$R" checkout -q main; printf 'main\n' > "$R/main.txt"; git -C "$R" add m
 git -C "$R" merge -q --no-commit --no-ff side >/dev/null 2>&1; printf '%s\n' "$FAKE_CLASSIC" > "$R/merged.txt"; git -C "$R" add merged.txt
 git -C "$R" commit -q -m merge --no-verify; git -C "$R" rm -q merged.txt; git -C "$R" commit -q -m remove --no-verify
 expect "a token added in a merge commit, removed after, is refused" 1 "merged.txt" bash "$R/githooks/token-guard.sh" --range "$base" HEAD --repo "$R"
+# Review 2 of #74: --history scans every commit of the head (the CI fallback when a push's base is unknown),
+# and a diff.noprefix config does not hide the file name.
+R="$T/r2e"; newrepo "$R"
+printf '%s\n' "$FAKE_CLASSIC" > "$R/early.txt"; git -C "$R" add early.txt; git -C "$R" commit -q -m a --no-verify
+git -C "$R" rm -q early.txt; git -C "$R" commit -q -m b --no-verify
+printf 'c\n' >> "$R/README"; git -C "$R" add README; git -C "$R" commit -q -m c --no-verify
+expect "--history finds a token added and removed anywhere before the head" 1 "early.txt" bash "$R/githooks/token-guard.sh" --history HEAD --repo "$R"
+git -C "$R" config diff.noprefix true
+expect "diff.noprefix does not hide the file name" 1 "early.txt" bash "$R/githooks/token-guard.sh" --range "$(git -C "$R" rev-list --max-parents=0 HEAD)" HEAD --repo "$R"
 R="$T/r3"; newrepo "$R"
 base=$(git -C "$R" rev-parse HEAD)
 gone "$R/claude/settings.local.json"; printf '{}\n' > "$R/claude/settings.local.json"
@@ -132,9 +141,9 @@ out=$(cd "$R" && sh githooks/post-checkout a b 1 2>&1); if [ -z "$out" ]; then p
 
 echo
 echo "=== this file does not match the patterns it tests"
-if grep -qE 'ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{20,}' "$0"; then fail "no real-looking token in the test file"; else pass "no real-looking token in the test file"; fi
+if grep -qE 'gh[pousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{20,}' "$0"; then fail "no real-looking token in the test file"; else pass "no real-looking token in the test file"; fi
 
-EXPECTED=21
+EXPECTED=23
 printf '\n%s checks (expected %s), %s failed\n' "$n" "$EXPECTED" "$fails"
 [ "$n" = "$EXPECTED" ] || { echo "FAIL  the check count is $n, expected $EXPECTED"; exit 1; }
 [ "$fails" = 0 ] || exit 1
