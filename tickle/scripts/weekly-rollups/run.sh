@@ -182,10 +182,10 @@ uuid7() { /usr/bin/perl -MTime::HiRes=time -e 'my $ms=int(time*1000); my @r=map{
 
 is_closed() { grep -Eq '^status:[[:space:]]*"?archived/' "$1"; }
 # open_not_started <week>: every open "not started" item for the week, the dated "(again …)" ones too, one per line.
+# Items are found anywhere under the queue folder: open items are sometimes swept into dated subfolders.
 open_not_started() {
-  for f in "$QUEUE_DIR/Weekly rollup not started $1.md" "$QUEUE_DIR/Weekly rollup not started $1 (again "*").md"; do
-    [ -f "$f" ] && ! is_closed "$f" && printf '%s\n' "$f"
-  done
+  find "$QUEUE_DIR" -type f \( -name "Weekly rollup not started $1.md" -o -name "Weekly rollup not started $1 (again *).md" \) 2>/dev/null \
+    | while IFS= read -r f; do is_closed "$f" || printf '%s\n' "$f"; done
   return 0
 }
 # asking_not_started <week>: the open "not started" items that still ask (needs is not nothing).
@@ -200,7 +200,7 @@ filed_anywhere() { [ -n "$(find "$QUEUE_DIR" -name "$1.md" -print -quit 2>/dev/n
 # open_items <week>: every open item this job filed for the week, "missed" included.
 open_items() {
   open_not_started "$1"
-  f="$QUEUE_DIR/Weekly rollup missed $1.md"; [ -f "$f" ] && ! is_closed "$f" && printf '%s\n' "$f"
+  find "$QUEUE_DIR" -type f -name "Weekly rollup missed $1.md" 2>/dev/null | while IFS= read -r f; do is_closed "$f" || printf '%s\n' "$f"; done
   return 0
 }
 # complete <week>: both rollups exist.
@@ -213,7 +213,7 @@ complete() { [ -e "$(nb_file "$1")" ] && [ -e "$(xs_file "$1")" ]; }
 # while it was being rewritten (someone typing in it), the rewrite is dropped rather than written over their edit.
 respond() {
   rf="$1"; rn="$2"; rl="$3"
-  is_ours "$rf" || { say "WARNING: not touching $rf: it does not carry generated.by tickle weekly-rollups"; return 0; }
+  is_ours "$rf" || { say "not touching $rf: it does not carry generated.by tickle weekly-rollups"; return 2; }
   is_closed "$rf" && return 1
   st=$(iso_now)
   m0=$(stat -f %Fm "$rf") || { say "WARNING: could not update $rf (cannot stat it)"; return 0; }
@@ -241,7 +241,8 @@ respond() {
 # overwritten. A repeat failure adds its cause to an open "not started" item; if that item is closed, a new one is filed
 # with the date in its title. "missed" is not filed while an open "not started" item for that week already asks.
 file_queue_item() {
-  kind="$1"; qw="$2"; why="$3"; suffix="${4:-}"
+  kind="$1"; qw="$2"; suffix="${4:-}"
+  why=$(printf '%s' "$3" | sed -E $'s/\x1b\\[[0-9;?]*[A-Za-z]//g' | tr '\n\r' '  ')
   title="Weekly rollup $kind $qw$suffix"
   qf="$QUEUE_DIR/$title.md"
   if [ "$kind" = missed ] && [ -n "$(asking_not_started "$qw")" ]; then
@@ -251,7 +252,10 @@ file_queue_item() {
   if [ "$kind" = "not started" ] && [ -z "$suffix" ]; then
     open1=$(open_not_started "$qw" | head -1)
     if [ -n "$open1" ]; then
-      if [ "$dry" = "1" ]; then say "would add the new cause to queue item: $open1"; else respond "$open1" ruling "Failed again: $why"; fi
+      if [ "$dry" = "1" ]; then say "would add the new cause to queue item: $open1"; return 0; fi
+      respond "$open1" ruling "Failed again: $why"
+      [ "$?" = 2 ] || return 0
+      file_queue_item "$kind" "$qw" "$why" " (again $(date +%Y-%m-%d))"   # someone else's item: file our own
       return 0
     fi
     if filed_anywhere "$title"; then   # the base item exists (here or archived) and is closed: file a dated one
@@ -318,7 +322,8 @@ settle() {
     complete) list=open_items; msg="The rollups for $1 now exist." ;;
     *) finish 2 "settle: unknown scope '$2'" ;;
   esac
-  "$list" "$1" | while IFS= read -r nf; do respond "$nf" nothing "$msg" || true; done
+  "$list" "$1" | while IFS= read -r nf; do respond "$nf" nothing "$msg"; done
+  return 0
 }
 
 # check_previous — guard 5, also run by guard 3 before it skips, so a missing previous week is never passed over.
@@ -441,7 +446,12 @@ daemon_key_pids() {
   done
   return 0
 }
-if [ -n "${WR_TEST_DAEMON_KEY_PIDS+set}" ]; then keyed="$WR_TEST_DAEMON_KEY_PIDS"; else keyed=$(daemon_key_pids | tr '\n' ' '); fi
+# The test seam is honoured only together with WR_CLAUDE (a stub CLI), which a production run never sets.
+if [ -n "${WR_TEST_DAEMON_KEY_PIDS+set}" ] && [ -n "${WR_CLAUDE:-}" ]; then keyed="$WR_TEST_DAEMON_KEY_PIDS"; else
+  keyed=$(daemon_key_pids | tr '\n' ' ')
+  # Guard 4 listed agents, so a daemon runs now; finding none means the scan no longer recognises it.
+  [ -n "$(ps -axo pid=,command= | awk '$2 ~ /(^|\/)claude$/ && $3 == "daemon" && $4 == "run"')" ] || keyed="unrecognised?"
+fi
 keyed=$(printf '%s' "$keyed" | sed 's/ *$//')
 
 cmd=(env -u ANTHROPIC_API_KEY /usr/bin/perl -e 'alarm shift; exec @ARGV or exit 127' "${WR_CLAUDE_TIMEOUT:-60}" "$CLAUDE" --bg --agent lieutenant --name "$LT_NAME" -- "$brief")

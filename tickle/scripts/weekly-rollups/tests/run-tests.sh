@@ -54,7 +54,7 @@ case "$1" in
       1) echo '[{"id":"deadbeef","name":"[L0-OB] weekly rollups","pid":1,"status":"busy","state":"working"}]' > "$S/agents.json" ;;
       other) echo '[{"id":"cafef00d","name":"[L0-OB] weekly rollups","pid":2,"status":"busy","state":"working"}]' > "$S/agents.json" ;;
     esac
-    if [ "$(cat "$S/bg_registers")" = noid ]; then printf 'started\nsecond line\n'; else echo "backgrounded session deadbeef"; fi
+    if [ "$(cat "$S/bg_registers")" = noid ]; then printf 'started\n\033[31msecond line\033[0m\n'; else echo "backgrounded session deadbeef"; fi
     exit "$(cat "$S/bg_rc")" ;;
 esac
 exit 0
@@ -79,6 +79,7 @@ check() { # check <name> <condition...>
 dispatched() { [ -f "$S/bg_prompt" ]; }
 not_dispatched() { [ ! -f "$S/bg_prompt" ]; }
 out_has() { printf '%s' "$OUT" | grep -qF -- "$1"; }
+dated_count() { n=0; for f in "$Q/Weekly rollup not started 2026-W40 (again "*").md"; do [ -f "$f" ] && n=$((n + 1)); done; echo "$n"; }
 queue_count() { ls "$Q" | wc -l | tr -d ' '; }
 
 # 1. Happy path: dispatch, substitution, angle forms untouched, key unset, trusted cwd, claim line.
@@ -282,8 +283,6 @@ check "half: said so" out_has "only one of the two 2026-W40 rollups exists"
 
 # 10n. A "missed" item is settled once that week is complete.
 new_case; /usr/bin/trash "$XS/Cross-session rollup for 2026-W39.md"; go --week 2026-W40
-: > "$XS/Cross-session rollup for 2026-W39.md"; echo '[]' > "$S/agents.json"; /usr/bin/trash "$S/bg_prompt"; go --week 2026-W41
-new_case; /usr/bin/trash "$XS/Cross-session rollup for 2026-W39.md"; go --week 2026-W40
 : > "$XS/Cross-session rollup for 2026-W39.md"; : > "$NB/Agent rollup for 2026-W40.md"; : > "$XS/Cross-session rollup for 2026-W40.md"; go --week 2026-W40
 check "missed settled by a later run" grep -qx 'needs: nothing' "$Q/Weekly rollup missed 2026-W39.md"
 
@@ -291,7 +290,6 @@ check "missed settled by a later run" grep -qx 'needs: nothing' "$Q/Weekly rollu
 new_case; echo 1 > "$S/bg_rc"; go --week 2026-W40
 sed -i '' 's|^status: draft/proposed$|status: archived/done|' "$Q/Weekly rollup not started 2026-W40.md"
 echo '[]' > "$S/agents.json"; go --week 2026-W40; echo '[]' > "$S/agents.json"; echo 3 > "$S/bg_rc"; go --week 2026-W40
-dated_count() { n=0; for f in "$Q/Weekly rollup not started 2026-W40 (again "*").md"; do [ -f "$f" ] && n=$((n + 1)); done; echo "$n"; }
 check "dated: one item open" [ "$(dated_count)" = 1 ]
 check "dated: took the new cause" grep -qF 'exited 3' "$Q/Weekly rollup not started 2026-W40 (again $(date +%Y-%m-%d)).md"
 
@@ -317,6 +315,20 @@ new_case; go --week 2026-W40
 check "lock file kept" [ -f "$C/lock/run.lock" ]
 new_case; : > "$S/hang"; WR_CLAUDE_TIMEOUT=1 go --week 2026-W40
 check "hang: exit 2" [ "$RC" = 2 ]; check "hang: no dispatch" not_dispatched
+
+# 10t. An open item swept into a subfolder is still found; an item the job did not write gets a dated one of ours.
+new_case; echo 1 > "$S/bg_rc"; go --week 2026-W40; mkdir -p "$Q/Open (2026-10-06)"
+mv "$Q/Weekly rollup not started 2026-W40.md" "$Q/Open (2026-10-06)/"; echo '[]' > "$S/agents.json"; go --week 2026-W40
+check "swept: cause added" grep -qF 'Failed again' "$Q/Open (2026-10-06)/Weekly rollup not started 2026-W40.md"
+check "swept: no dated item" [ "$(dated_count)" = 0 ]
+new_case; printf -- '---\ntitle: x\nstatus: draft/proposed\nneeds: ruling\n---\n\n## Response\n' > "$Q/Weekly rollup not started 2026-W40.md"
+cp "$Q/Weekly rollup not started 2026-W40.md" "$C/theirs.bak"; echo 1 > "$S/bg_rc"; go --week 2026-W40
+check "not ours: untouched" cmp -s "$C/theirs.bak" "$Q/Weekly rollup not started 2026-W40.md"
+check "not ours: dated item of ours" [ "$(dated_count)" = 1 ]
+
+# 10u. Terminal escapes in the CLI output never reach a note.
+new_case; echo noid > "$S/bg_registers"; go --week 2026-W40
+check "no escapes in item" bash -c "! grep -q \$'\\x1b' \"\$1\"" _ "$Q/Weekly rollup not started 2026-W40.md"
 
 # 11. Week arithmetic and bad input.
 new_case; go --dry-run --week 2027-W01
