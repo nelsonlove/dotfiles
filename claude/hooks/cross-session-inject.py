@@ -185,6 +185,7 @@ def main():
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     state_file = STATE_DIR / re.sub(r"[^A-Za-z0-9._-]", "_", session_id)
     last = state_file.read_text().strip() if state_file.exists() else ""
+    first_run = not last
     if not last:
         last = (datetime.now() - timedelta(hours=FIRST_RUN_WINDOW_HOURS)).strftime(
             "%Y-%m-%dT%H:%M"
@@ -198,6 +199,27 @@ def main():
         # BELOW CAPTAIN: rulings only. THE STAMP: it advances past every ruling shown, and past the claims and releases around them, which are not meant to be read below captain; it never passes a ruling that was not shown. With rulings left over the cap, it stops just below the first of them, so that ruling (and anything tied with it) comes back next start.
         unread.sort(key=lambda pair: norm(pair[0]))
         rulings = [(s, e) for s, e in unread if is_ruling(e.split("\n", 1)[0])]
+        if first_run and rulings:
+            # A FIRST RUN below captain (no stamp file yet; the captain's word on the #99 follow-up): the NEWEST rulings, newest first, up to the cap, with a stamp group kept whole; the stamp goes to the newest ruling, so the older ones in the 48-hour window are never paged later. Later runs page oldest first, as below.
+            newest, used = [], 0
+            for s_, e_ in reversed(rulings):
+                if newest and used + len(e_) > RULINGS_MAX_CHARS and norm(s_) != norm(newest[-1][0]):
+                    break
+                newest.append((s_, e_)); used += len(e_)
+            older = len(rulings) - len(newest)
+            note = (f"[This session's first start: the {len(newest)} newest rulings are shown, newest first. {older} older rulings from the last {FIRST_RUN_WINDOW_HOURS} hours are not shown and will not come back; read them in the file if your work needs them.]\n\n" if older else "")
+            chan_lines = "\n".join(f"- {c}" for c in channel_index()) or f"- {log}"
+            emit(
+                f"UNREAD CROSS-SESSION LOG: RULINGS ONLY ({log}):\n"
+                "You are below captain, so since Nelson's ruling of 2026-09-29 you read the RULINGS; claims and releases are left out. "
+                "Before you edit a file, grep the log once for a claim on that path, and honour it. Do not start a Monitor on the log. "
+                "Read each ruling in full and give it a disposition without restating it in chat. Say at most one line on what it changes for you. "
+                "This is the 'Cross-session log reading discipline' rule in CLAUDE.md.\n\n"
+                + "\n\n".join(e_ for _, e_ in newest) + "\n\n" + note
+                + f"Cross-session channels discovered (audience: frontmatter):\n{chan_lines}"
+            )
+            state_file.write_text(norm(newest[0][0]))
+            return
         shown, used = [], 0
         for s_, e_ in rulings:
             if shown and used + len(e_) > RULINGS_MAX_CHARS:
