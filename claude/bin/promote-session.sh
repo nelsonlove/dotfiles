@@ -272,7 +272,7 @@ ship_note=""
 # where it is. A bare-named target has no ship to take, so it must be said rather than guessed.
 if [ "$ship_from_target" = 1 ]; then
   [ -n "$old_ship" ] || die "refused: \`$old_name\` carries no ship code and $by has none either, so the new name's ship cannot be read from anywhere; pass --ship $(ships_in_words) (FL for a floating session)"
-  ship_is_known "$old_ship" || die "refused: \`$old_name\` carries the ship code '$old_ship', which is not one of: $KNOWN_SHIPS; pass --ship to say which ship"
+  # (an unknown code on the target was already refused above, whatever --ship says)
   new_ship="$old_ship"
   ship_note="the ship comes from the target, because the rear admiral carries none"
 fi

@@ -162,7 +162,6 @@ if command -v jq >/dev/null 2>&1; then
   row "[L0-DV] ship words target"
   out=$(pr --name "[C2-CC] x" --by "[A0] rear admiral" --ship CC)
   eq "a DV-coded target is refused even with --ship" "$out" "promote-session: refused: \`[L0-DV] ship words target\` carries the ship code 'DV', which is not one of: CC OB HS MA PE PP HH FN ED WK HB FL"
-  row "[L0] ship words target"
   # The common path: a coded MA caller, no --ship, on an MA target (the ship comes from the caller).
   row "[L0-MA] ship words target"
   out=$(pr --name "[C2-MA] x" --by "[C0-MA] macos")
