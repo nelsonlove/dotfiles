@@ -48,8 +48,10 @@
 # captains on 2026-09-26. It is rank -1, above a captain, and the table is numbered rather than shifted
 # so that C0..L0 keep their numbers in both scripts (`_fleet-ranks.sh` is where a renumbering belongs).
 # What follows from it here: an A0 caller may promote or demote any rank below a captain and a captain
-# too, because a captain reports to A0; the ship rules below do not apply to an A0 CALLER, since A0
-# carries no ship code and a ship boundary is between ships; the new name's ship therefore comes from
+# too, because a captain reports to A0. Since the areas ruling (2026-09-29) there are two A0 sessions, told
+# apart by full name, and each reaches only its own ships (`ship_refusal` in the table): the rear admiral
+# CC, OB, HS, MA and FL, the areas admiral the area ships; DV no caller at all. Within its own ships an A0
+# caller is not held to one ship, since A0 carries no ship code; the new name's ship therefore comes from
 # the TARGET unless --ship says otherwise, and a bare-named target must be given --ship rather than
 # guessed; a ship-coded `[A0-CC]` is not the rear admiral and is refused as a name with no rank code at
 # all; and `--name` never carries A0, because only Nelson makes a rear admiral. `--to captain`
@@ -208,8 +210,9 @@ name_rank=$(rank_of_name "$name"); [ "$name_rank" != -1 ] || die "refused: --nam
 # The new name's ship comes from the promoter's own name, or from --ship when one is given; it is
 # never guessed. A promoter with a bare name has no ship to carry over, so it must say which.
 by_ship=$(ship_of_name "$by")
-# The rear admiral carries no ship code and sits above every ship, so the ship rules do not apply to
-# it as a caller: it cannot "move a session onto another captain's ship", because no ship is its own.
+# An admiral carries no ship code. Within the ships it reaches, the one-ship rule below does not apply to
+# it: it cannot "move a session onto another captain's ship", because no single ship is its own. Which
+# ships it reaches is `ship_refusal`'s rule, checked on the new name's ship and on the target's.
 # A0 keeps a session where it is unless --ship says otherwise, so the new name's ship comes from the
 # TARGET, which is not read until below; the decision is deferred rather than guessed.
 ship_from_target=0
@@ -279,7 +282,7 @@ if [ "$ship_from_target" = 1 ]; then
   [ -n "$old_ship" ] || die "refused: \`$old_name\` carries no ship code and $by has none either, so the new name's ship cannot be read from anywhere; pass --ship $(ships_in_words) (FL for a floating session)"
   # (an unknown code on the target was already refused above, whatever --ship says)
   new_ship="$old_ship"
-  ship_note="the ship comes from the target, because the rear admiral carries none"
+  ship_note="the ship comes from the target, because an admiral carries none"
 fi
 r=$(ship_refusal "$by" "$by_rank" "$old_ship"); [ -z "$r" ] || die "$r"
 # Reach is judged against the PROMOTER's ship, never against the new name's: a captain making one of
@@ -288,8 +291,8 @@ caller_ship="$by_ship"
 [ -n "$caller_ship" ] || caller_ship="$ship"
 # Only the FL TARGET is exempt, which is what was ruled. A floating PROMOTER gets no extra reach
 # here: that would be a rule nobody has made, so it is refused and left as a question in the PR.
-# The rear admiral is exempt as a CALLER, which is not a new rule but the same one: a ship boundary is
-# between ships, and A0 is above them all — captains report to it.
+# An admiral is exempt from THIS check as a caller, because it carries no ship of its own; the ships it may
+# act on are limited instead by `ship_refusal` (above), which keeps each admiral to its own ships.
 if [ "$by_rank" != -1 ] && [ -n "$old_ship" ] && [ "$old_ship" != "$FLOATING_SHIP" ] && [ "$old_ship" != "$caller_ship" ]; then
   die "refused: \`$old_name\` is on ship $old_ship and $by acts on ship $caller_ship; only a rank on its own ship, or Nelson, changes that session's rank (a floating $FLOATING_SHIP session is the exception, and this one is not floating)"
 fi

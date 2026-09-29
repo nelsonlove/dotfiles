@@ -19,8 +19,10 @@
 # ranks below its own, and that the accept verbs are his alone. The numbers here are the whole of the
 # machine-readable part of that rule, which is why they live in one file with one header.
 #
-# ADDING A SHIP CODE IS ONE LINE HERE: `KNOWN_SHIPS` below. Nothing else needs touching, because both
-# consumers ask `ship_is_known` rather than carrying their own list. Adding or renaming a RANK is two
+# ADDING A SHIP CODE IS TWO WORDS HERE: the code in `KNOWN_SHIPS` below, and the same code in the ship list
+# of the admiral who holds it (`REAR_ADMIRAL_SHIPS` or `AREAS_ADMIRAL_SHIPS`); a guarded ship also goes in
+# `GUARDED_SHIPS`. Nothing outside this file needs touching, because both consumers ask this table rather
+# than carrying their own list, and `admirals-and-dv.sh` fails if a ship is in no admiral's list or in two. Adding or renaming a RANK is two
 # lines — `rank_of_name` and `word_of_rank` — and it is a ruling, not a patch, because it changes who may
 # reach whom.
 #
@@ -160,6 +162,14 @@ AREAS_ADMIRAL_SHIPS="PE PP HH FN ED WK HB DV"
 # `claude/hooks/dv-tripwire.sh` watches the bare command line; nothing watches SendMessage.
 GUARDED_SHIPS="DV"
 
+# A ship list without the guarded ships, for a sentence that tells a caller what it can reach: a refusal
+# never offers a ship every caller is refused (review 2 of #73).
+unguarded() {
+  local IFS=' ' c out=""
+  for c in $1; do ship_is_guarded "$c" || out="${out:+$out }$c"; done
+  printf '%s' "$out"
+}
+
 ship_is_guarded() {
   [ -n "${1:-}" ] || return 1
   case " $GUARDED_SHIPS " in *" $1 "*) return 0 ;; *) return 1 ;; esac
@@ -183,16 +193,17 @@ ship_refusal() {
   esac
   if [ -z "$ship" ]; then
     # A bare-named session predates the ship codes, and every one of them is on the rear admiral's side.
-    [ "$by" = "$REAR_ADMIRAL" ] || printf 'refused: the session carries no ship code, and %s reaches only the area ships (%s)' "$by" "$AREAS_ADMIRAL_SHIPS"
+    [ "$by" = "$REAR_ADMIRAL" ] || printf 'refused: the session carries no ship code, and %s reaches only the area ships (%s)' "$by" "$(unguarded "$list")"
     return 0
   fi
   case " $list " in
     *" $ship "*) ;;
-    *) printf '%s' "refused: $by does not reach ship $ship; it reaches $list, and the other admiral's ships are not its own" ;;
+    *) printf '%s' "refused: $by does not reach ship $ship; it reaches $(unguarded "$list"), and the other admiral's ships are not its own" ;;
   esac
 }
 
-# The real ships in words, for a refusal: "CC, OB, … or DV", read from KNOWN_SHIPS. FL is left out, because the sentences that
+# The real ships in words, for a refusal: "CC, OB, … or HB", read from KNOWN_SHIPS without the guarded ships,
+# which are never offered. FL is left out, because the sentences that
 # use this name it on its own ("FL for a floating session").
 ships_in_words() {
   # IFS is set here, because this file is sourced: a caller in strict mode (IFS=$'\n\t') would otherwise
@@ -200,6 +211,8 @@ ships_in_words() {
   local IFS=' ' out="" last="" c
   for c in $KNOWN_SHIPS; do
     [ "$c" = "$FLOATING_SHIP" ] && continue
+    # A guarded ship is known but never offered: every caller is refused it (review 2 of #73).
+    ship_is_guarded "$c" && continue
     if [ -n "$last" ]; then out="${out:+$out, }$last"; fi
     last="$c"
   done

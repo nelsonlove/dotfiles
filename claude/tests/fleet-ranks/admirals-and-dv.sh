@@ -89,6 +89,9 @@ has "DV: the areas admiral is refused"     "$(ship_refusal '[A0] areas admiral' 
 has "DV: a DV captain is refused"          "$(ship_refusal '[C0-DV] divorce' 0 DV)"     "$REFUSE_DV"
 has "DV: Nelson's verb path is refused"    "$(ship_refusal 'human:nelson' -2 DV)"       "$REFUSE_DV"
 eq "a captain on its own ship: no word here" "$(ship_refusal '[C0-CC] claude code' 0 CC)" ""
+# A refusal names only the ships the caller can actually reach: never a guarded one (review 2 of #73).
+eq "the areas admiral's reach, as printed" "$(ship_refusal '[A0] areas admiral' -1 CC)" "refused: [A0] areas admiral does not reach ship CC; it reaches PE PP HH FN ED WK HB, and the other admiral's ships are not its own"
+eq "the bare-name refusal, as printed" "$(ship_refusal '[A0] areas admiral' -1 '')" "refused: the session carries no ship code, and [A0] areas admiral reaches only the area ships (PE PP HH FN ED WK HB)"
 
 # --- the fixture: a temp HOME, a stub claude, a Pause note set to not paused, and one listing per case --
 # Every target row is a lieutenant (tests/README.md section 4): an admiral's reach is by ship, not by rank.
@@ -157,8 +160,8 @@ WAKE_CASES=(
   "[L0-DV] t|human:nelson|$REFUSE_DV"
 )
 # The gate is a CALL, not a mention: a comment naming the function must not switch these cases on (review 1
-# of #73). A line whose first non-blank character is `#` is skipped.
-if grep -qE '^[[:space:]]*[^#[:space:]].*ship_refusal' "$BIN/wake-session.sh"; then
+# of #73), and the call is the `$(ship_refusal …)` form both scripts use, before any `#` on the line (review 2).
+if grep -qE '^[^#]*\$\(ship_refusal ' "$BIN/wake-session.sh"; then
   for c in "${WAKE_CASES[@]}"; do
     IFS='|' read -r tgt by want <<<"$c"
     out=$(run_wake "$tgt" "$by")
@@ -179,7 +182,7 @@ fi
 
 # The count is asserted and is part of the summary line (tests/README.md rule 1). Pending cases count
 # toward it, so the total is the same before and after wake-session.sh is edited.
-EXPECTED=76
+EXPECTED=78
 [ $((n + pending)) = "$EXPECTED" ] || { fails=$((fails + 1)); echo "FAIL  the check count is $((n + pending)), expected $EXPECTED: a line was lost or added without updating EXPECTED"; }
 printf '\n%s checks (expected %s), %s pending, %s failed\n' "$n" "$EXPECTED" "$pending" "$fails"
 [ "$fails" = 0 ] || exit 1

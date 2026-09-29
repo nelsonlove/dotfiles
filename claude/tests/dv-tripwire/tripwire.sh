@@ -60,10 +60,21 @@ case_ deny  'nice -n 5 claude --bg --name "[C0-DV] x" y'
 case_ deny  'env -u FOO claude --bg --name "[C0-DV] x" y'
 case_ deny  'timeout 30 claude --bg --name "[C0-DV] x" y'
 case_ deny  'claude --bg --name="[C0-DV] x" y'
+# Review 2 of #73: redirects, quoted substitutions, shells behind wrappers, eval, env -S, attached values.
+case_ deny  'claude --bg 2>/dev/null --name "[C0-DV] x" y'
+case_ deny  'claude --bg </dev/null --name "[C0-DV] x" y'
+case_ deny  "out=\"\$(claude --bg --name '[C0-DV] x' y)\""
+case_ deny  'echo "$(claude --bg --name "[C0-DV] x" y)"'
+case_ deny  "nohup bash -c \"claude --bg --name '[C0-DV] x' y\" &"
+case_ deny  "sudo -u nelson sh -c \"claude --bg --name '[C0-DV] x' y\""
+case_ deny  "eval \"claude --bg --name '[C0-DV] x' y\""
+case_ deny  "env -S \"claude --bg --name '[C0-DV] x' y\""
+case_ deny  'claude --bg -n"[C0-DV] x" y'
 echo
 echo "=== refused: a DV session reached through the id it resumes"
 case_ deny  "claude --resume $DVID"
 case_ deny  "claude -r $DVID"
+case_ deny  "claude -r$DVID"
 case_ deny  "claude --resume dddddddd"
 case_ deny  "claude --resume=$DVID"
 echo
@@ -80,9 +91,13 @@ case_ allow 'claude --bg --agent lieutenant --name "[L0-CC] t" "leave [C0-DV] al
 # A heredoc append whose body mentions DV and has an apostrophe starts no session.
 case_ allow $'cat <<\'EOF\' >> ~/.claude/notes.md\nNelson\'s ruling: [C0-DV] divorce is guarded\nEOF'
 case_ allow 'echo claude --bg --name "[C0-DV] x"'
+# Review 2 of #73: a heredoc body that goes to a program that is not a shell is text, not commands.
+case_ allow $'cat <<\'EOF\' >> notes.md\nA bare `claude --bg --name "[C0-DV] x"` starts one\nEOF'
+case_ allow $'git commit -F - <<\'EOF\'\nclaude --bg --name "[C0-DV] x" is refused\nEOF'
+case_ allow 'claude --bg 2>/dev/null --name "[L0-CC] x" y'
 case_ allow ''
 
 printf '\n%s checks, %s failed\n' "$n" "$fails"
-EXPECTED=37
+EXPECTED=50
 [ "$n" = "$EXPECTED" ] || { echo "FAIL  the check count is $n, expected $EXPECTED"; exit 1; }
 [ "$fails" = 0 ] || exit 1

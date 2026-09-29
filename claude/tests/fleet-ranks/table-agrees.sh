@@ -115,8 +115,8 @@ eq "ship of [L0-CC]"      "$(ship_of_name '[L0-CC] dotfiles')" CC
 eq "ship of [C0-HS]"      "$(ship_of_name '[C0-HS] orange')"   HS
 eq "ship of [C0-MA]"      "$(ship_of_name '[C0-MA] macos')"    MA
 eq "ship of [C0-DV]"      "$(ship_of_name '[C0-DV] divorce')"  DV   # read, not accepted
-eq "ships in words"       "$(ships_in_words)"          "CC, OB, HS, MA, PE, PP, HH, FN, ED, WK, HB or DV"
-eq "ships in words under a strict-mode IFS" "$(IFS=$'\n\t'; ships_in_words)" "CC, OB, HS, MA, PE, PP, HH, FN, ED, WK, HB or DV"
+eq "ships in words"       "$(ships_in_words)"          "CC, OB, HS, MA, PE, PP, HH, FN, ED, WK or HB"
+eq "ships in words under a strict-mode IFS" "$(IFS=$'\n\t'; ships_in_words)" "CC, OB, HS, MA, PE, PP, HH, FN, ED, WK or HB"
 eq "ship of [L0-FL]"      "$(ship_of_name '[L0-FL] dotfiles')" FL
 eq "ship of a bare name"  "$(ship_of_name '[L0] dotfiles')"    ""
 eq "ship of [A0]"         "$(ship_of_name '[A0] rear admiral')" ""
@@ -150,9 +150,9 @@ skipped=0
 if command -v jq >/dev/null 2>&1; then
   row "[L0] ship words target"
   out=$(pr --name "[C2] x" --by "[C0] ship words test")
-  eq "no ship on --by: the refusal names every ship" "$out" "promote-session: --by has no ship code; pass --ship CC, OB, HS, MA, PE, PP, HH, FN, ED, WK, HB or DV (FL for a floating session)"
+  eq "no ship on --by: the refusal names every ship" "$out" "promote-session: --by has no ship code; pass --ship CC, OB, HS, MA, PE, PP, HH, FN, ED, WK or HB (FL for a floating session)"
   out=$(pr --name "[C2-CC] x" --by "[A0] rear admiral")
-  eq "no ship on the target: the refusal names every ship" "$out" "promote-session: refused: \`[L0] ship words target\` carries no ship code and [A0] rear admiral has none either, so the new name's ship cannot be read from anywhere; pass --ship CC, OB, HS, MA, PE, PP, HH, FN, ED, WK, HB or DV (FL for a floating session)"
+  eq "no ship on the target: the refusal names every ship" "$out" "promote-session: refused: \`[L0] ship words target\` carries no ship code and [A0] rear admiral has none either, so the new name's ship cannot be read from anywhere; pass --ship CC, OB, HS, MA, PE, PP, HH, FN, ED, WK or HB (FL for a floating session)"
   out=$(pr --name "[C2-MA] x" --by "[C0] ship words test" --ship MA)
   eq "--ship MA and a [C2-MA] name pass the ship gates" "$(reached MA "$out")" past-the-ship-gates
   out=$(pr --name "[C2-DV] x" --by "[C0] ship words test" --ship DV)
@@ -195,7 +195,8 @@ done
 # known-check each, and the ship of a [C0-DV] name), 103 with the [C0-MA] common-path case, 104 with ships_in_words under a strict-mode IFS, and 105
 # with DV held out (the DV known-check became a not-known check, and one promote case refuses --ship DV), 108 with
 # a DV-coded target refused under --ship and two values with a space refused as ships (review 6), and still
-# 108 once DV joined with its guard (those checks now say known, and refused as guarded).
+# 108 once DV joined with its guard (those checks now say known, and refused as guarded). DV is known but
+# never offered: `ships_in_words` leaves the guarded ship out of the words (review 2 of #73).
 # Change EXPECTED only in the commit that adds or removes a check, and say which.
 # The count is part of the summary line, so a run that lost checks can never print a green summary.
 EXPECTED=108
