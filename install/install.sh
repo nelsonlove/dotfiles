@@ -261,6 +261,27 @@ link_block() {
       i = index($0, ":"); print substr($0, 1, i-1) "\t" substr($0, i+1)
     }' "$MANIFEST")
 }
+# Wire the repo's own git hooks (githooks/: the token guard) for every worktree at once. core.hooksPath lives
+# in the shared config, so one setting covers the main checkout and every worktree. Idempotent: an already
+# wired repo is left as it is, and a hooksPath someone set to something else is warned about, never replaced.
+wire_githooks() {
+  local cur
+  hdr "Git hooks"
+  [[ -d "$REPO_ROOT/githooks" ]] || { warn "no githooks/ in the repo — skipping"; return; }
+  cur="$(git -C "$REPO_ROOT" config --get core.hooksPath 2>/dev/null || true)"
+  if [[ "$cur" == "githooks" ]]; then
+    ok "core.hooksPath = githooks (already wired)"
+  elif [[ -z "$cur" ]]; then
+    if git -C "$REPO_ROOT" config core.hooksPath githooks; then
+      ok "core.hooksPath = githooks (the token guard now runs in every worktree)"
+    else
+      warn "could not set core.hooksPath — the token guard is NOT wired"
+    fi
+  else
+    warn "core.hooksPath is already '$cur' — left as it is; the token guard in githooks/ is NOT wired"
+  fi
+}
+
 link_configs() { link_block config_symlinks "Symlinking configs into ~/.config/"; }
 link_home()    { link_block home_symlinks   "Symlinking dotfiles into ~/"; }
 
@@ -834,7 +855,7 @@ main() {
   if (( DRY_RUN )); then
     say "${dim}dry-run: skipping symlinks + ssh key (no mutations)${rst}"
   else
-    step_enabled links && { link_configs; link_home; }
+    step_enabled links && { link_configs; link_home; wire_githooks; }
     step_enabled ssh   && ensure_ssh_key
   fi
 

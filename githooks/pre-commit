@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# pre-commit: run the token guard on what is about to be committed. See githooks/token-guard.sh for what it
+# refuses and why. Wired for every worktree at once by `git config core.hooksPath githooks` (install/install.sh).
+exec bash "$(git rev-parse --show-toplevel)/githooks/token-guard.sh" --staged
