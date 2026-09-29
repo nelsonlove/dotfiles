@@ -180,7 +180,7 @@ xs_file() { echo "$XS_DIR/Cross-session rollup for $1.md"; }
 is_ours() { grep -Eq '^[[:space:]]+by:[[:space:]]*"?tickle weekly-rollups"?[[:space:]]*$' "$1"; }
 uuid7() { /usr/bin/perl -MTime::HiRes=time -e 'my $ms=int(time*1000); my @r=map{int rand 256}1..10; printf "%08x-%04x-7%03x-%04x-%04x%08x\n", $ms>>16, $ms&0xffff, ($r[0]<<4|$r[1]>>4)&0xfff, 0x8000|(($r[2]<<8|$r[3])&0x3fff), $r[4]<<8|$r[5], ($r[6]<<24|$r[7]<<16|$r[8]<<8|$r[9])'; }
 
-is_closed() { grep -Eq '^status:[[:space:]]*"?archived/' "$1"; }
+is_closed() { grep -Eq '^status:[[:space:]]*"?archived("|/|[[:space:]]*$)' "$1"; }
 # open_not_started <week>: every open "not started" item for the week, the dated "(again …)" ones too, one per line.
 # Items are found anywhere under the queue folder: open items are sometimes swept into dated subfolders.
 open_not_started() {
@@ -333,15 +333,24 @@ check_previous() {
   [ -e "$(xs_file "$prev")" ] || missing="$missing cross-session"
   if [ -n "$missing" ]; then
     say "previous week $prev missing:$missing"
-    prev_live=0
+    # Last week's lieutenant, with guard 4's filter: only one at work (busy, or idle and not done) and younger than 24 h
+    # holds the "missed" item back. One that is finished, or at work for 24 h or more (stuck), does not: the item is
+    # filed and says so. This is where a scheduled run sees last week's stuck lieutenant.
+    prev_work=0; prev_other=0
     if [ -n "${agents:-}" ]; then
-      prev_live=$(printf '%s' "$agents" | jq -r --arg n "$LT_BASE $prev" '[.[] | select((.name // "") | startswith($n))] | length' 2>/dev/null) || prev_live=0
+      pc=$(printf '%s' "$agents" | jq -r --arg n "$LT_BASE $prev" --argjson now "${now_ms:-0}" '
+        [.[] | select((.name // "") | startswith($n))] as $m
+        | ($m | map(select(((.status == "idle" and .state == "done") | not) and ((.startedAt // $now) >= ($now - 86400000))))) as $w
+        | "\($w | length) \(($m | length) - ($w | length))"' 2>/dev/null) || pc="0 0"
+      prev_work=${pc% *}; prev_other=${pc#* }
     fi
-    if [ "${prev_live:-0}" != "0" ]; then
-      say "not filing \"missed $prev\": its lieutenant ($LT_BASE $prev) is still listed and may be writing"
+    if [ "${prev_work:-0}" != "0" ]; then
+      say "not filing \"missed $prev\": its lieutenant ($LT_BASE $prev) is at work and younger than 24 hours"
       return 0
     fi
-    file_queue_item missed "$prev" "Missing at the run for $week:$missing."
+    extra=""
+    [ "${prev_other:-0}" = "0" ] || extra=" Its lieutenant ($LT_BASE $prev) is still listed, finished or at work for 24 hours or more: look at it with \`claude attach\`, and stop it with \`claude stop\`."
+    file_queue_item missed "$prev" "Missing at the run for $week:$missing.$extra"
   else
     say "previous week $prev: both rollups exist"
     [ "$dry" = "1" ] || settle "$prev" complete

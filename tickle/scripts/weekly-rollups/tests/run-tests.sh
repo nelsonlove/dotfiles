@@ -332,6 +332,20 @@ check "not ours: dated item of ours" [ "$(dated_count)" = 1 ]
 new_case; echo noid > "$S/bg_registers"; go --week 2026-W40
 check "no escapes in item" bash -c "! grep -q \$'\\x1b' \"\$1\"" _ "$Q/Weekly rollup not started 2026-W40.md"
 
+# 10v. Last week's lieutenant: finished or stuck does not hold back "missed"; the item names it.
+new_case; /usr/bin/trash "$XS/Cross-session rollup for 2026-W39.md"
+echo '[{"name":"[L0-OB] weekly rollups 2026-W39","pid":42,"status":"idle","state":"done"}]' > "$S/agents.json"; go --week 2026-W40
+check "prev finished: missed filed" grep -qF 'is still listed, finished or at work for 24 hours' "$Q/Weekly rollup missed 2026-W39.md"
+new_case; /usr/bin/trash "$XS/Cross-session rollup for 2026-W39.md"
+echo "[{\"name\":\"[L0-OB] weekly rollups 2026-W39\",\"pid\":42,\"status\":\"idle\",\"state\":\"blocked\",\"startedAt\":$old}]" > "$S/agents.json"; go --week 2026-W40
+check "prev stuck: missed filed" [ -f "$Q/Weekly rollup missed 2026-W39.md" ]; check "prev stuck: W40 dispatched" dispatched
+
+# 10w. A bare `status: archived` counts as closed: never reopened.
+new_case; echo 1 > "$S/bg_rc"; go --week 2026-W40
+sed -i '' 's|^status: draft/proposed$|status: archived|' "$Q/Weekly rollup not started 2026-W40.md"
+cp "$Q/Weekly rollup not started 2026-W40.md" "$C/bare.bak"; echo '[]' > "$S/agents.json"; go --week 2026-W40
+check "bare archived: untouched" cmp -s "$C/bare.bak" "$Q/Weekly rollup not started 2026-W40.md"; check "bare archived: dated item" [ "$(dated_count)" = 1 ]
+
 # 11. Week arithmetic and bad input.
 new_case; go --dry-run --week 2027-W01
 check "year edge: prev is 2026-W53" out_has "previous week 2026-W53"
