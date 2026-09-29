@@ -129,7 +129,9 @@ code_of_rank() {  # $1 = rank, $2 = ship code
 # WK 60-69 Work, HB 70-79 Hobbies & media, and DV 80-89 Divorce. DV is guarded (its captain starts only
 # when Nelson starts it), so it joined this list only in the same change as its guard, `ship_refusal` below;
 # a known DV code with no guard would let any honest caller promote a session onto it. The same ruling puts
-# the area ships under a second admiral, `[A0] areas admiral`; the two are told apart by full name below. FL is not a ship but the marker of a floating session shared across captains, and it is listed
+# the area ships under a second admiral, `[A0] areas admiral`; the two are told apart by full name below.
+#
+# FL is not a ship but the marker of a floating session shared across captains, and it is listed
 # beside them because it is what such a name carries.
 #
 # ADD A SHIP HERE AND NOWHERE ELSE. `FLOATING_SHIP` sits directly below on purpose: `FL` appears both in
@@ -211,5 +213,7 @@ ship_of_name() {
 }
 
 ship_is_known() {
+  # One code, no spaces: the list is matched space-padded, so 'CC OB' would otherwise match (review 6 of #72).
+  case "$1" in ""|*[[:space:]]*) return 1 ;; esac
   case " $KNOWN_SHIPS " in *" $1 "*) return 0 ;; *) return 1 ;; esac
 }
