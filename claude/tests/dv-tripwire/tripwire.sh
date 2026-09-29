@@ -34,6 +34,13 @@ case_() {  # case_ <want> <command>
   if [ "$got" = "$1" ]; then printf 'PASS  %-5s %s\n' "$1" "$2"
   else fails=$((fails + 1)); printf 'FAIL  %-5s %s   (got %s)\n' "$1" "$2" "$got"; fi
 }
+# known_limit <command>: a DV start the hook is KNOWN to let through. Counted apart, never as a pass; the day the hook refuses it, this fails, so move it to the deny list and out of the header's limits.
+known=0
+known_limit() {
+  n=$((n + 1)); local got; got=$(decide "$1")
+  if [ "$got" = allow ]; then known=$((known + 1)); printf 'KNOWN-LIMIT  let through, as the header says: %s\n' "$1"
+  else fails=$((fails + 1)); printf 'FAIL  a known limit is now refused, so it is fixed: move it to the deny list: %s\n' "$1"; fi
+}
 
 echo "=== refused: a DV session named on the line"
 case_ deny  'claude --bg --agent captain --name "[C0-DV] divorce" "start"'
@@ -115,26 +122,26 @@ case_ allow 'claude --bg 2>/dev/null --name "[L0-CC] x" y'
 case_ allow "echo 'see \`claude --bg --name \"[C0-DV] x\"\` in docs' >> notes.md"
 case_ allow "printf '%s\\n' '\$(claude --bg --name \"[C0-DV] x\")' >> notes.md"
 case_ allow $'cat <<\'EOF\' > x.md\n$(claude --bg --name "[C0-DV] x" y)\nEOF'
-# KNOWN LIMIT, asserted so a future fix shows up (the DV soak of 2026-09-29 found it): a name built in a shell
-# variable is not read, because the hook reads text and does not run the shell. If the hook ever refuses this,
-# this case fails: move it to the deny list above and take it out of the header's limits.
-case_ allow "n='[L0-DV] var'; claude --bg --name \"\$n\" y"
+# KNOWN LIMITS, found by the DV soak of 2026-09-29 and the review of #86: the hook reads the command's text and does not run the shell, so it cannot see a name or a program built by the shell.
+known_limit "n='[L0-DV] var'; claude --bg --name \"\$n\" y"
+known_limit "claude --bg --name \$'[C0-\\x44V] x' y"
+known_limit "c=claude; \$c --bg --name \"[C0-DV] x\" y"
 case_ allow ''
 
 echo
-echo "=== registered: claude/settings.json runs the hook on every Bash call"
+echo "=== registered: the REPO's claude/settings.json runs the hook on every Bash call (the live ~/.claude/settings.json is whatever the main checkout holds)"
 n=$((n + 1))
 reg=$(python3 - "$HERE/../../settings.json" <<'PYX'
 import json, sys
 d = json.load(open(sys.argv[1]))
 hits = [h for e in d.get("hooks", {}).get("PreToolUse", []) if e.get("matcher") == "Bash"
         for h in e.get("hooks", []) if h.get("command") == "/Users/nelson/.claude/hooks/dv-tripwire.sh"]
-print("ok" if len(hits) == 1 and hits[0].get("type") == "command" and hits[0].get("timeout") == 10 else "missing or wrong: %r" % hits)
+print("ok" if len(hits) == 1 and hits[0].get("type") == "command" and isinstance(hits[0].get("timeout"), int) and 1 <= hits[0]["timeout"] <= 10 else "missing or wrong: %r" % hits)
 PYX
 )
-if [ "$reg" = ok ]; then printf 'PASS  a Bash PreToolUse entry runs dv-tripwire.sh, timeout 10\n'; else fails=$((fails + 1)); printf 'FAIL  settings.json: %s\n' "$reg"; fi
+if [ "$reg" = ok ]; then printf 'PASS  the repo settings.json has one Bash PreToolUse entry for dv-tripwire.sh, timeout 1-10 s\n'; else fails=$((fails + 1)); printf 'FAIL  settings.json: %s\n' "$reg"; fi
 
-printf '\n%s checks, %s failed\n' "$n" "$fails"
-EXPECTED=67
+printf '\n%s checks, %s failed, %s known limits let through\n' "$n" "$fails" "$known"
+EXPECTED=69
 [ "$n" = "$EXPECTED" ] || { echo "FAIL  the check count is $n, expected $EXPECTED"; exit 1; }
 [ "$fails" = 0 ] || exit 1

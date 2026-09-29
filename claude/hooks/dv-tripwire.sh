@@ -21,23 +21,24 @@
 # WHAT IT CANNOT SEE. A SendMessage to a stopped DV session wakes it without any Bash command, so no Bash hook
 # sees it; nothing guards SendMessage. `claude -c` / `--continue` resumes the latest conversation of the
 # working directory without naming it, and is not checked. A line that does not parse is skipped.
-# A name built in a shell variable (`n='[L0-DV] x'; claude --bg --name "$n"`) is not seen either: the hook reads the command's text and does not run the shell. Found by the DV soak of 2026-09-29; the test suite asserts it passes, so a future fix shows up.
+# Nor does it see what the SHELL builds, because it reads the command's text and does not run the shell: a name in a variable (`n='[L0-DV] x'; claude --bg --name "$n"`, found by the DV soak of 2026-09-29), an ANSI-C quoted name (`--name $'[C0-\x44V] x'`), or the program itself in a variable (`c=claude; $c --bg …`), both found by the review of #86. The test suite lets each through as a KNOWN-LIMIT, so a future fix shows up.
 #
 # Fail-open on everything else: no `claude` word, bad JSON, or a listing that cannot be read lets the call
 # through, because a tripwire that blocks unrelated work would be switched off, and then it guards nothing.
 
-input=$(cat)
-cmd=$(printf '%s' "$input" | /usr/bin/python3 -c 'import json,sys
-try: print(json.load(sys.stdin).get("tool_input",{}).get("command",""))
-except Exception: pass' 2>/dev/null) || exit 0
-
-# Fast path: the line never says `claude`, not even inside quotes (a shell's -c string is checked too).
-printf '%s' "$cmd" | grep -q 'claude' || exit 0
-
-TRIP_CMD="$cmd" /usr/bin/python3 - <<'PYEOF'
+# ONE python3 process for the whole hook, since it runs on every Bash call: the program is read into a variable
+# with the builtin `read` (no extra process), and python3 reads the tool call from stdin itself.
+IFS= read -r -d '' PROG <<'PYEOF' || true
 import json, os, re, shlex, subprocess, sys
 
-cmd = os.environ.get("TRIP_CMD", "")
+try:
+    cmd = json.load(sys.stdin).get("tool_input", {}).get("command", "") or ""
+except Exception:
+    sys.exit(0)
+# Fast path: no `claude` WORD anywhere, quotes included (a shell's -c string is checked too). A path such as
+# ~/.claude/hooks or dotfiles/claude/tests is not the word, so most fleet commands leave here (review of #86).
+if not re.search(r"(^|[^.A-Za-z0-9_-])claude([^/A-Za-z0-9_.-]|$)", cmd):
+    sys.exit(0)
 DV = re.compile(r"-dv\]", re.I)
 
 def deny(reason):
@@ -63,7 +64,7 @@ def name_of(ident):
     global listing
     if listing is None:
         try:
-            out = subprocess.run(["claude", "agents", "--json", "--all"], capture_output=True, text=True, timeout=8).stdout
+            out = subprocess.run(["claude", "agents", "--json", "--all"], capture_output=True, text=True, timeout=5).stdout   # well inside the hook's 10 s
             listing = json.loads(out) if out.strip() else []
         except Exception:
             listing = []
@@ -316,3 +317,4 @@ def check(line, depth=0):
 check(cmd)
 sys.exit(0)
 PYEOF
+exec /usr/bin/python3 -c "$PROG"
