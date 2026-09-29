@@ -3,17 +3,18 @@ id: paperless-icloud-backup
 name: Paperless iCloud backup (copy the Orange export, every 6h)
 status: active
 
-# Air-only. Copies the nightly Paperless export from the home server Orange
+# Pro-only (the fleet moves to the MacBook Pro; ruled 2026-09-29, "All A"). Copies the nightly Paperless export from the home server Orange
 # (host `proxmox`, /var/lib/vz/paperless-export, written at 02:15 by
 # /etc/cron.d/paperless-export there) into iCloud Drive, then checks every
 # file against the export's manifest. Nelson, 2026-09-29: "we should backup
-# to icloud drive for now". Owned by the home server ship ([C0-HS] orange).
-# Every 6 hours, not nightly, because the Air may be asleep at night and a
+# to icloud drive for now". Written by the home server ship ([C0-HS] orange);
+# tickle jobs belong to the macOS ship per OWNERSHIP.md.
+# Every 6 hours, not nightly, because the Mac may be asleep at night and a
 # copy with nothing new costs almost nothing. Plain shell: no claude, no API.
 triggers:
   - type: script
     schedule: "0 */6 * * *"
-    command: ["@config/scripts/_lib/gated.sh", "Nelsons-MacBook-Air", "paperless-icloud-backup"]
+    command: ["@config/scripts/_lib/gated.sh", "Nelsons-MacBook-Pro", "paperless-icloud-backup"]
     timeout: 10s
 
 run:
