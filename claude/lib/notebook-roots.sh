@@ -16,7 +16,7 @@
 # post-rm path), `claude/bin/sweep-jobs.sh`, the roster reader, and `claude/tests/fleet-ranks/status-dual-read.sh`
 # (its real-population section, since 2026-09-29). A shell function cannot be reached from
 # another script, so the alternative was three copies of one rule — the shape that drifted in the pause parser
-# before #61 and again between the library and the awk in #68. One definition, three callers, and
+# before #61 and again between the library and the awk in #68. One definition, four callers, and
 # `claude/tests/fleet-ranks/wake-two-roots.sh` passing unchanged is the proof the move changed nothing.
 #
 # IT READS NO GLOBAL OF ITS CALLER'S. Every input is an argument, including the DERIVATION of the defaults:

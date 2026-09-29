@@ -112,8 +112,9 @@ if [ "$roots_ok" = 1 ] && { [ -d "$REAL_NB" ] || [ -d "$REAL_ARCH" ]; }; then
   live_n=$(printf '%s\n' "$real_out" | grep -c . || true)
   if [ "$live_n" -gt 100 ]; then pass "the population is real ($live_n entries read)"
   else fail "the population is real" "only $live_n entries were read; this section proves nothing at that size"; fi
+  # An empty notebook is a legitimate state since ended entries move to the archive, so it is a COUNTED skip, never a failure and never forgotten (review 2 of #90).
   if [ "$nb_n" -gt 0 ]; then pass "the notebook itself is read ($nb_n files)"
-  else fail "the notebook itself is read" "no file under $REAL_NB was read; the renamer's own population went untested"; fi
+  else n=$((n + 1)); skips=$((skips + 1)); printf 'SKIP  %-58s no file under %s has a session: key; the renamer'"'"'s own population is empty, so it went untested\n' "the notebook itself is read" "$REAL_NB"; fi
   eq "no entry reads as a conflict" "$(printf '%s\n' "$real_out" | grep -c '^conflict$' || true)" 0
   printf '      census: %s entries — %s\n' \
     "$live_n" \
