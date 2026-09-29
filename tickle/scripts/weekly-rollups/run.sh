@@ -52,7 +52,8 @@
 #
 # --dry-run goes through every guard, prints what it would write and the exact dispatch command, and writes and
 # dispatches NOTHING. It also reports what the dispatch depends on in THIS environment (which `claude`, its auth
-# method, whether the dispatch directory is trusted), so running it under launchd's environment proves condition (d).
+# method, whether the dispatch directory is trusted, whether the Claude daemon holds the API key), so running it under
+# launchd's environment proves that a scheduled run would find everything it needs.
 #
 # Exit codes: 0 = done or deliberately skipped (reason on stdout); 2 = a check failed or bad usage; 3 = the brief is
 # broken; 4 = the dispatch failed; 5 = a finished or stuck lieutenant of the same name blocks the dispatch; 6 = the
@@ -144,8 +145,11 @@ if [ "$dry" != "1" ] && [ -z "${WR_LOCKED:-}" ]; then
   mkdir -p "$(dirname "$LOCK_FILE")" || finish 2 "cannot create the lock's folder for $LOCK_FILE"
   WR_LOCKED=1 /usr/bin/lockf -s -t 0 "$LOCK_FILE" /bin/bash "$0" ${orig_args[@]+"${orig_args[@]}"}
   lrc=$?
-  [ "$lrc" = 75 ] && finish 0 "SKIPPED — another weekly-rollups run holds $LOCK_FILE"
-  wr_ok=1; exit "$lrc"
+  case "$lrc" in
+    0|2|3|4|5|6) wr_ok=1; exit "$lrc" ;;
+    75) finish 0 "SKIPPED — another weekly-rollups run holds $LOCK_FILE" ;;
+    *) finish 2 "lockf could not take the lock $LOCK_FILE (exit $lrc)" ;;
+  esac
 fi
 [ "$dry" = "1" ] && say "DRY RUN — nothing is written and nothing is dispatched"
 
@@ -173,13 +177,20 @@ xs_file() { echo "$XS_DIR/Cross-session rollup for $1.md"; }
 is_ours() { grep -Eq '^[[:space:]]+by:[[:space:]]*"?tickle weekly-rollups"?[[:space:]]*$' "$1"; }
 uuid7() { /usr/bin/perl -MTime::HiRes=time -e 'my $ms=int(time*1000); my @r=map{int rand 256}1..10; printf "%08x-%04x-7%03x-%04x-%04x%08x\n", $ms>>16, $ms&0xffff, ($r[0]<<4|$r[1]>>4)&0xfff, 0x8000|(($r[2]<<8|$r[3])&0x3fff), $r[4]<<8|$r[5], ($r[6]<<24|$r[7]<<16|$r[8]<<8|$r[9])'; }
 
+is_closed() { grep -Eq '^status:[[:space:]]*"?archived/' "$1"; }
+
 # respond <file> <needs> <line> — set `needs` and `modified` in the frontmatter, and put <line> at the end of the
-# `## Response` section (before the next `## ` heading, or at the end of the file). Only on this job's own items.
+# `## Response` section (before the next `## ` heading, or at the end of the file). Only on this job's own open items:
+# returns 1, changing nothing, if the item is closed (`status: archived/…`; closing is Nelson's click). The new text is
+# written to a hidden temp file in the same folder and moved over the note, so the swap is atomic; if the note changed
+# while it was being rewritten (someone typing in it), the rewrite is dropped rather than written over their edit.
 respond() {
   rf="$1"; rn="$2"; rl="$3"
   is_ours "$rf" || { say "WARNING: not touching $rf: it does not carry generated.by tickle weekly-rollups"; return 0; }
+  is_closed "$rf" && return 1
   st=$(iso_now)
-  tmpf=$(mktemp "${TMPDIR:-/tmp}/weekly-rollups-respond.XXXXXX") || { say "WARNING: could not update $rf (no temp file)"; return 0; }
+  m0=$(stat -f %m "$rf") || { say "WARNING: could not update $rf (cannot stat it)"; return 0; }
+  tmpf=$(mktemp "$(dirname "$rf")/.weekly-rollups-respond.XXXXXX") || { say "WARNING: could not update $rf (no temp file)"; return 0; }
   if awk -v st="$st" -v nd="$rn" -v ln="- $st — $rl" '
       BEGIN { fm = 0; inr = 0; done = 0 }
       fm < 2 && /^---$/ { fm++; print; next }
@@ -187,21 +198,35 @@ respond() {
       fm == 1 && /^modified:/ { print "modified: " st; next }
       fm >= 2 && /^## / { if (inr && !done) { print ln; print ""; done = 1 }; inr = ($0 == "## Response") }
       { print }
-      END { if (!done) print ln }' "$rf" > "$tmpf" && cat "$tmpf" > "$rf"; then
+      END { if (!done) print ln }' "$rf" > "$tmpf" \
+     && [ "$(stat -f %m "$rf")" = "$m0" ] && mv "$tmpf" "$rf"; then
     say "queue item updated (needs: $rn): $rf"
   else
-    say "WARNING: could not update $rf"
+    say "WARNING: could not update $rf (it changed while being rewritten, or the write failed); left as it was"
+    /usr/bin/trash "$tmpf" 2>/dev/null || true
   fi
-  /usr/bin/trash "$tmpf" 2>/dev/null || true
+  return 0
 }
 
-# file_queue_item <missed|not started> <week> <why> — ONE item per kind and week, created, never overwritten.
+# file_queue_item <missed|not started> <week> <why> [<title suffix>] — ONE item per kind and week, created, never
+# overwritten. A repeat failure adds its cause to an open "not started" item; if that item is closed, a new one is filed
+# with the date in its title. "missed" is not filed while an open "not started" item for that week already asks.
 file_queue_item() {
-  kind="$1"; qw="$2"; why="$3"
-  title="Weekly rollup $kind $qw"
+  kind="$1"; qw="$2"; why="$3"; suffix="${4:-}"
+  title="Weekly rollup $kind $qw$suffix"
   qf="$QUEUE_DIR/$title.md"
+  ns_item="$QUEUE_DIR/Weekly rollup not started $qw.md"
+  if [ "$kind" = missed ] && [ -e "$ns_item" ] && ! is_closed "$ns_item"; then
+    say "not filing \"missed $qw\": the open item $ns_item already asks about that week"
+    return 0
+  fi
   if [ -e "$qf" ]; then
     if [ "$kind" = "not started" ]; then
+      if is_closed "$qf"; then
+        if [ -n "$suffix" ]; then say "queue item $qf is closed too; not filed again today"; return 0; fi
+        file_queue_item "$kind" "$qw" "$why" " (again $(date +%Y-%m-%d))"
+        return 0
+      fi
       if [ "$dry" = "1" ]; then say "would add the new cause to queue item: $qf"; else respond "$qf" ruling "Failed again: $why"; fi
     else
       say "queue item already exists, not filed again: $qf"
@@ -255,7 +280,7 @@ Expected:
 settle_not_started() {
   nf="$QUEUE_DIR/Weekly rollup not started $1.md"
   [ -f "$nf" ] || return 0
-  respond "$nf" nothing "The weekly-rollups job started the lieutenant for $1 after all."
+  respond "$nf" nothing "${2:-The weekly-rollups job started the lieutenant for $1 after all.}" || true
 }
 
 # ---- 1. fleet pause ----
@@ -282,7 +307,10 @@ say "load: $load"
 exists=""
 [ -e "$(nb_file "$week")" ] && exists="$exists $(nb_file "$week")"
 [ -e "$(xs_file "$week")" ] && exists="$exists $(xs_file "$week")"
-[ -z "$exists" ] || finish 0 "SKIPPED — $week already has a rollup, nothing overwritten, nothing dispatched:$exists"
+if [ -n "$exists" ]; then
+  [ "$dry" = "1" ] || settle_not_started "$week" "The rollups for $week now exist."
+  finish 0 "SKIPPED — $week already has a rollup, nothing overwritten, nothing dispatched:$exists"
+fi
 say "target week $week: no rollup yet"
 
 # ---- 4. live lieutenant ----
@@ -320,19 +348,21 @@ fi
 
 # ---- 6. brief markers ----
 [ -r "$BRIEF_NOTE" ] || { file_queue_item "not started" "$week" "The standing brief note could not be read, so no lieutenant was started."; finish 3 "standing brief unreadable: $BRIEF_NOTE"; }
-ns=$(grep -cxF -- "$MARK_START" "$BRIEF_NOTE")
-ne=$(grep -cxF -- "$MARK_END" "$BRIEF_NOTE")
+note=$(cat "$BRIEF_NOTE") || finish 2 "cannot read the standing brief"
+mk=$(printf '%s\n' "$note" | awk -v s="$MARK_START" -v e="$MARK_END" '
+  $0 == s { ns++; if (!ls) ls = NR } $0 == e { ne++; if (!le) le = NR }
+  END { print ns + 0, ne + 0, ls + 0, le + 0 }') || finish 2 "cannot scan the brief's markers"
+# shellcheck disable=SC2086
+set -- $mk; ns=$1; ne=$2; ls_=$3; le_=$4
 if [ "$ns" != "1" ] || [ "$ne" != "1" ]; then
   file_queue_item "not started" "$week" "The standing brief's markers are broken (start line $ns times, end line $ne times; each must be once, on its own line), so no lieutenant was started."
   finish 3 "brief markers broken: start $ns, end $ne (each must appear exactly once on its own line)"
 fi
-ls_=$(grep -nxF -- "$MARK_START" "$BRIEF_NOTE" | cut -d: -f1)
-le_=$(grep -nxF -- "$MARK_END" "$BRIEF_NOTE" | cut -d: -f1)
 if [ "$le_" -le "$((ls_ + 1))" ]; then
   file_queue_item "not started" "$week" "The standing brief's end marker is not after its start marker with text between, so no lieutenant was started."
   finish 3 "brief markers out of order or empty (start line $ls_, end line $le_)"
 fi
-raw=$(sed -n "$((ls_ + 1)),$((le_ - 1))p" "$BRIEF_NOTE") || finish 2 "cannot extract the brief"
+raw=$(printf '%s\n' "$note" | sed -n "$((ls_ + 1)),$((le_ - 1))p") || finish 2 "cannot extract the brief"
 if ! printf '%s' "$raw" | grep -q '[^[:space:]]'; then
   file_queue_item "not started" "$week" "The standing brief is blank between its markers, so no lieutenant was started."
   finish 3 "brief is blank between the markers"
@@ -391,15 +421,22 @@ if [ "$drc" -ne 0 ]; then
   finish 4 "claude --bg exited $drc"
 fi
 
+# The id `claude --bg` prints, read the way claude/bin/promote-session.sh reads it; the confirm matches that id, not a
+# name, so a hand dispatch of the same name at the same moment can never confirm this one.
+new_id=$(printf '%s' "$out" | tr -d '\r' | sed -E $'s/\x1b\\[[0-9;?]*[A-Za-z]//g' | awk '/^backgrounded/ {print $3; exit}') || true
+if [ -z "$new_id" ]; then
+  file_queue_item "not started" "$week" "\`claude --bg\` exited 0 but printed no \`backgrounded <id>\` line, so the job cannot confirm a lieutenant started. Output: $out"
+  finish 4 "could not read the new session id from: $out"
+fi
 tries="${WR_CONFIRM_TRIES:-10}"; nap="${WR_CONFIRM_SLEEP:-3}"; seen=0; i=0
 while [ "$i" -lt "$tries" ]; do
-  n=$(cl agents --json 2>/dev/null | jq -r --arg n "$LT_NAME" '[.[] | select((.name // "") | startswith($n))] | length' 2>/dev/null) || n=0
+  n=$(cl agents --json 2>/dev/null | jq -r --arg id "$new_id" '[.[] | select(.id == $id or ((.sessionId // "") | startswith($id)))] | length' 2>/dev/null) || n=0
   [ "${n:-0}" -ge 1 ] 2>/dev/null && { seen=1; break; }
   i=$((i + 1)); [ "$i" -lt "$tries" ] && sleep "$nap"
 done
 if [ "$seen" != "1" ]; then
-  file_queue_item "not started" "$week" "\`claude --bg\` returned 0, but no session named $LT_NAME appeared in \`claude agents --json\`."
-  finish 4 "claude --bg returned 0 but no session named $LT_NAME appeared in 'claude agents --json'"
+  file_queue_item "not started" "$week" "\`claude --bg\` returned 0, but its session $new_id did not appear in \`claude agents --json\`."
+  finish 4 "claude --bg returned 0 but session $new_id did not appear in 'claude agents --json'"
 fi
 settle_not_started "$week"
 

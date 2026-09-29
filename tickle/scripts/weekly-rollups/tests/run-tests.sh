@@ -50,8 +50,12 @@ case "$1" in
   --bg)
     pwd > "$S/bg_cwd"
     shift; while [ "$#" -gt 1 ]; do shift; done; printf '%s' "$1" > "$S/bg_prompt"
-    if [ "$(cat "$S/bg_registers")" = 1 ]; then echo '[{"name":"[L0-OB] weekly rollups","pid":1,"status":"busy","state":"working"}]' > "$S/agents.json"; fi
-    echo "started deadbeef"; exit "$(cat "$S/bg_rc")" ;;
+    case "$(cat "$S/bg_registers")" in
+      1) echo '[{"id":"deadbeef","name":"[L0-OB] weekly rollups","pid":1,"status":"busy","state":"working"}]' > "$S/agents.json" ;;
+      other) echo '[{"id":"cafef00d","name":"[L0-OB] weekly rollups","pid":2,"status":"busy","state":"working"}]' > "$S/agents.json" ;;
+    esac
+    if [ "$(cat "$S/bg_registers")" = noid ]; then echo "started"; else echo "backgrounded session deadbeef"; fi
+    exit "$(cat "$S/bg_rc")" ;;
 esac
 exit 0
 STUB
@@ -63,7 +67,7 @@ go() {
   OUT=$(env -i HOME="$C" USER=nelson LOGNAME=nelson PATH=/usr/bin:/bin:/usr/sbin:/sbin TMPDIR=/tmp \
         ANTHROPIC_API_KEY=sk-test-should-be-unset \
         WR_VAULT="$V" WR_CLAUDE="$S/claude" WR_DISPATCH_CWD="$C/dotfiles" WR_CLAUDE_JSON="$C/claude.json" \
-        WR_LOADAVG="${LOAD:-1.00}" WR_LOCK="$C/lock/run.lock" WR_TEST_DAEMON_KEY_PIDS="${KEYED:-}" WR_CONFIRM_TRIES=2 WR_CONFIRM_SLEEP=0 PAUSE_NOTE="$C/Pause.md" \
+        WR_LOADAVG="${LOAD:-1.00}" WR_LOCK="${LOCKPATH:-$C/lock/run.lock}" WR_TEST_DAEMON_KEY_PIDS="${KEYED:-}" WR_CONFIRM_TRIES=2 WR_CONFIRM_SLEEP=0 PAUSE_NOTE="$C/Pause.md" \
         /bin/bash "$RUN" "$@" 2>&1)
   RC=$?
 }
@@ -223,6 +227,34 @@ check "bg silent: exit 4" [ "$RC" = 4 ]; check "bg silent: no claim" [ ! -s "$XL
 check "bg silent: queue item" [ -f "$Q/Weekly rollup not started 2026-W40.md" ]
 new_case; echo '{"projects":{}}' > "$C/claude.json"; go --week 2026-W40
 check "untrusted: exit 2" [ "$RC" = 2 ]; check "untrusted: no dispatch" not_dispatched
+
+# 10e. Confirm by id: a same-name session with another id does not confirm; no id printed is a failure.
+new_case; echo other > "$S/bg_registers"; go --week 2026-W40
+check "other id: exit 4" [ "$RC" = 4 ]; check "other id: no claim" [ ! -s "$XLOG" ]
+new_case; echo noid > "$S/bg_registers"; go --week 2026-W40
+check "no id: exit 4" [ "$RC" = 4 ]; check "no id: queue item" grep -qF 'backgrounded <id>' "$Q/Weekly rollup not started 2026-W40.md"
+
+# 10f. Guard 3 settles an open "not started" item once the week's rollups exist.
+new_case; echo 1 > "$S/bg_rc"; go --week 2026-W40; : > "$NB/Agent rollup for 2026-W40.md"; go --week 2026-W40
+check "exists: settles item" grep -qx 'needs: nothing' "$Q/Weekly rollup not started 2026-W40.md"
+check "exists: says why" grep -qF 'The rollups for 2026-W40 now exist.' "$Q/Weekly rollup not started 2026-W40.md"
+
+# 10g. No "missed" item while an open "not started" item asks about the same week.
+new_case; /usr/bin/trash "$NB/Agent rollup for 2026-W39.md" "$XS/Cross-session rollup for 2026-W39.md"
+echo 1 > "$S/bg_rc"; go --week 2026-W39; echo 0 > "$S/bg_rc"; echo '[]' > "$S/agents.json"; go --week 2026-W40
+check "no double ask: the not-started item is there" [ -f "$Q/Weekly rollup not started 2026-W39.md" ]
+check "no double ask" [ ! -e "$Q/Weekly rollup missed 2026-W39.md" ]
+
+# 10h. A closed item is never reopened; a new failure files a dated item.
+new_case; echo 1 > "$S/bg_rc"; go --week 2026-W40
+sed -i '' 's|^status: draft/proposed$|status: archived/done|' "$Q/Weekly rollup not started 2026-W40.md"
+cp "$Q/Weekly rollup not started 2026-W40.md" "$C/closed.bak"; echo '[]' > "$S/agents.json"; go --week 2026-W40
+check "closed: untouched" cmp -s "$C/closed.bak" "$Q/Weekly rollup not started 2026-W40.md"
+check "closed: dated item filed" [ -f "$Q/Weekly rollup not started 2026-W40 (again $(date +%Y-%m-%d)).md" ]
+
+# 10i. A lock that cannot be taken for any reason but "held" is a failed run.
+new_case; mkdir -p "$C/ro"; chmod 500 "$C/ro"; LOCKPATH="$C/ro/run.lock" go --week 2026-W40; chmod 700 "$C/ro"
+check "lock unusable: exit 2" [ "$RC" = 2 ]; check "lock unusable: says so" out_has "lockf could not take the lock"; check "lock unusable: no dispatch" not_dispatched
 
 # 11. Week arithmetic and bad input.
 new_case; go --dry-run --week 2027-W01
