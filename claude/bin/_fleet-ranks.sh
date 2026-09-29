@@ -190,7 +190,9 @@ ship_refusal() {
 # The real ships in words, for a refusal: "CC, OB, … or DV", read from KNOWN_SHIPS. FL is left out, because the sentences that
 # use this name it on its own ("FL for a floating session").
 ships_in_words() {
-  local out="" last="" c
+  # IFS is set here, because this file is sourced: a caller in strict mode (IFS=$'\n\t') would otherwise
+  # see the whole list as one word, and the sentence would lose its commas and name FL twice (review 4 of #72).
+  local IFS=' ' out="" last="" c
   for c in $KNOWN_SHIPS; do
     [ "$c" = "$FLOATING_SHIP" ] && continue
     if [ -n "$last" ]; then out="${out:+$out, }$last"; fi
