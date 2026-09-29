@@ -7,8 +7,8 @@
 # line is one whole entry: its `## ` heading and its body, with the entry's newlines joined by " ⏎ ". So the
 # event IS the entry, and a session reads it without running anything.
 #
-# THE MONITOR COMMAND a session uses (Monitor lasts at most 30 minutes; re-arm it with the SAME command when
-# it expires, and --state makes the new run print what arrived in between):
+# THE MONITOR COMMAND a session uses (Monitor lasts at most 30 minutes; it may expire sooner; re-arm with the
+# same command, and --state makes the new run print what arrived in between):
 #
 #     Monitor({ command: "bash ~/.claude/bin/xlog-follow.sh --state ~/.local/state/xlog-follow/$CLAUDE_CODE_SESSION_ID",
 #               description: "new cross-session log entries",
