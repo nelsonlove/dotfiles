@@ -240,6 +240,48 @@ start --state "$ST7"; sleep 4
 eq "a notice lost to a closed pipe is not printed again" "$(lines)" 0
 stop
 
+# 9r. A long entry is cut by the script itself, under the harness's 500-character cut, at a whole UTF-8 character, and ends with where to read it in full (approved after #87's review).
+seed; start
+long=$(python3 -c 'import sys; sys.stdout.write(("é€😀" + "x" * 37) * 125)')   # about 5000 bytes, a multibyte character every 40
+printf '\n## 2026-09-29T12:00 · [L0-CC] test — claim\n%s\n' "$long" >> "$LOG"; waitfor 1
+cut_check=$(head -1 "$OUT" | python3 -c '
+import sys, re
+raw = sys.stdin.buffer.read().rstrip(b"\n")
+try: line = raw.decode("utf-8")
+except Exception: print("not valid UTF-8"); sys.exit()
+m = re.search(r" … \((\d+) more bytes; read (\S+) in full: (.+)\)$", line)
+if len(line) > 500: print("longer than 500 characters: %d" % len(line))
+elif not line.startswith("## 2026-09-29T12:00 · "): print("does not start with its heading")
+elif not m: print("no tail: " + line[-120:])
+elif m.group(2) != "2026-09-29T12:00": print("the tail names the wrong stamp: " + m.group(2))
+else: print("ok")
+')
+eq "a 5000-byte entry arrives cut: valid UTF-8, under 500 characters, its heading first, its own stamp in the tail" "$cut_check" ok
+case "$(head -1 "$OUT")" in *"in full: $LOG)") r=names-the-log ;; *) r="$(head -1 "$OUT" | tail -c 120)" ;; esac
+eq "the tail names the log it follows" "$r" names-the-log
+stop
+# A short entry is not touched.
+seed; start
+entry "2026-09-29T12:01" "Short."; waitfor 1
+eq "a short entry is printed whole" "$(head -1 "$OUT")" "## 2026-09-29T12:01 · [L0-CC] test — claim ⏎ Short."
+stop
+# 9s. Several entries in one poll are spaced, so the harness (which joins lines printed within 200 ms into one notification, capped at 3000 characters) gives each its own notification.
+seed; : > "$OUT"
+bash "$FOLLOW" --log "$LOG" 2>"$T/err" | python3 -u -c '
+import sys, time
+for line in sys.stdin: print("%.3f" % time.time(), flush=True)
+' > "$OUT" & PID=$!
+sleep 1.5
+{ printf '\n## 2026-09-29T12:02 · [L0-CC] test — claim\nA.\n'; printf '\n## 2026-09-29T12:03 · [L0-CC] test — claim\nB.\n'; printf '\n## 2026-09-29T12:04 · [L0-CC] test — claim\nC.\n'; } >> "$LOG"
+waitfor 3
+gaps=$(python3 -c '
+import sys
+t = [float(x) for x in open(sys.argv[1]).read().split()]
+print("ok" if len(t) >= 3 and all(b - a >= 0.2 for a, b in zip(t, t[1:])) else "gaps: %s" % [round(b - a, 3) for a, b in zip(t, t[1:])])
+' "$OUT")
+eq "entries printed together are at least 200 ms apart" "$gaps" ok
+killall_followers; stop
+
 # 9h. GNU stat: with a GNU `stat` first on PATH, it still follows (tested with gstat where it exists).
 if command -v gstat >/dev/null 2>&1; then
   mkdir -p "$T/gnu"; ln -sf "$(command -v gstat)" "$T/gnu/stat"
@@ -263,7 +305,7 @@ if kill -0 "$HP" 2>/dev/null; then eq "a closed pipe ends it" alive gone; killal
 left=$(pgrep -f "xlog-follow.sh --log $LOG" | wc -l | tr -d ' ')
 eq "no follower is left running" "$left" 0
 
-EXPECTED=40
+EXPECTED=44
 printf '\n%s checks (expected %s), %s failed\n' "$n" "$EXPECTED" "$fails"
 [ "$n" = "$EXPECTED" ] || { echo "FAIL  the check count is $n, expected $EXPECTED"; exit 1; }
 [ "$fails" = 0 ] || exit 1

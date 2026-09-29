@@ -14,7 +14,7 @@
 #               timeout_ms: 1800000 })
 #
 # WHAT IT DOES
-#   * A long entry arrives CUT. Claude Code (2.1.284) cuts each Monitor line at exactly 500 characters and adds `...(truncated)` to it, although this script printed the line whole. Lines printed within 200 ms arrive as one notification, each line cut on its own, and the whole notification is cut at 3000 characters with `...(truncated)` on a line of its own. Every entry line starts with its entry's stamp and heading; a notice line starts with `xlog-follow:`. On a mark at the end of a LINE, read that entry in full. On a mark on its own line at the end of a NOTIFICATION, read every entry from the last stamp shown, that one included: it may have been cut with no mark of its own, and the entries after it are not in the notification at all. Read them in the fleet log, the file every notice line names (`~/obsidian/00-09 System/03 Agents/03.16 Cross-session log/CROSS-SESSION.md` unless --log says otherwise).
+#   * A long entry is CUT by this script before the harness can cut it: a line over 480 bytes keeps a whole-character prefix and ends with ` … (N more bytes; read <stamp> in full: <log>)`, so it tells you what to read and where. Entries printed in the same poll are 250 ms apart, so each gets its own notification. (The harness, Claude Code 2.1.284, cuts each Monitor line at exactly 500 characters and adds `...(truncated)`.) Lines printed within 200 ms arrive as one notification, each line cut on its own, and the whole notification is cut at 3000 characters with `...(truncated)` on a line of its own. Every entry line starts with its entry's stamp and heading; a notice line starts with `xlog-follow:`. On a mark at the end of a LINE, read that entry in full. On a mark on its own line at the end of a NOTIFICATION, read every entry from the last stamp shown, that one included: it may have been cut with no mark of its own, and the entries after it are not in the notification at all. Read them in the fleet log, the file every notice line names (`~/obsidian/00-09 System/03 Agents/03.16 Cross-session log/CROSS-SESSION.md` unless --log says otherwise).
 #   * It starts AT THE END of the log and never replays the entries already there. With --state <file> it saves
 #     where it is (the start of any entry still pending), and a later run on the same file resumes from there. A
 #     gap over 16 KB, or a state file that no longer fits the log, prints one notice line instead.
@@ -76,11 +76,40 @@ fingerprint() { [ "$2" -gt 0 ] || { echo 0; return; }; local from=$(( $2 > FP ? 
 
 NL=$'\n'
 HEAD_GLOB='## [0-9][0-9][0-9][0-9]-'   # the fleet's entry heading: `## YYYY-...`; a plain `## x` in a body is text
-emit() {  # print one entry as one line, trailing blank lines trimmed; exit if nobody is reading any more
-  local e="$1"
+# The harness cuts a Monitor line at 500 characters and joins lines printed within 200 ms into one notification capped at 3000 (Claude Code 2.1.284), so a long entry lost its end with no word of where to read it. The script now cuts first: a line over MAXLINE bytes keeps a whole-character prefix and ends with " … (N more bytes; read <stamp> in full: <log>)". Bytes, because a byte count is never below the character count the harness measures.
+MAXLINE=480
+byte_at() { local b; b=$(printf '%d' "'$1"); [ "$b" -lt 0 ] && b=$((b + 256)); printf '%s' "$b"; }
+# utf8_cut <text> <max bytes>: the longest prefix of at most that many bytes that ends on a whole UTF-8 character. It counts the continuation bytes at the end and keeps them only if the lead byte before them announces exactly that many.
+utf8_cut() {
+  local p=${1:0:$2} k=0 b lead need
+  while [ "$k" -lt 3 ] && [ "${#p}" -gt "$k" ]; do
+    b=$(byte_at "${p:$(( ${#p} - 1 - k )):1}")
+    if [ "$b" -ge 128 ] && [ "$b" -lt 192 ]; then k=$((k + 1)); else break; fi
+  done
+  [ "${#p}" -gt "$k" ] || { printf '%s' ""; return 0; }
+  lead=$(byte_at "${p:$(( ${#p} - 1 - k )):1}")
+  if [ "$lead" -lt 128 ]; then need=0
+  elif [ "$lead" -ge 240 ]; then need=3
+  elif [ "$lead" -ge 224 ]; then need=2
+  elif [ "$lead" -ge 192 ]; then need=1
+  else need=-1; fi
+  if [ "$k" = "$need" ]; then printf '%s' "$p"; else printf '%s' "${p:0:$(( ${#p} - k - 1 ))}"; fi
+}
+tick_emits=0   # lines printed in this poll: each after the first waits 250 ms, so the harness gives each its own notification
+emit() {  # print one entry as one line, trailing blank lines trimmed, cut if long; exit if nobody is reading any more
+  local e="$1" stamp tail keep prefix
   while [ "${e%"$NL"}" != "$e" ]; do e="${e%"$NL"}"; done
   e="${e//$NL/ ⏎ }"
   [ -n "$e" ] || return 0
+  if [ "${#e}" -gt "$MAXLINE" ]; then
+    stamp=${e#"## "}; stamp=${stamp%% *}
+    tail=" … (999999 more bytes; read $stamp in full: $log)"   # the widest the tail can be, for the budget
+    keep=$(( MAXLINE - ${#tail} )); [ "$keep" -gt 80 ] || keep=80
+    prefix=$(utf8_cut "$e" "$keep")
+    e="$prefix … ($(( ${#e} - ${#prefix} )) more bytes; read $stamp in full: $log)"
+  fi
+  if [ "$tick_emits" -gt 0 ]; then sleep 0.25; fi
+  tick_emits=$((tick_emits + 1))
   printf '%s\n' "$e" || closed
 }
 is_entry() { case "$1" in $HEAD_GLOB*) return 0 ;; *) return 1 ;; esac; }
@@ -135,6 +164,7 @@ save_state
 
 while :; do
   sleep 1
+  tick_emits=0
   st=$(fstat "$log")
   if [ -z "$st" ]; then continue; fi          # missing for a moment, as during an atomic save
   read -r n_inode n_size n_mtime <<< "$st"
