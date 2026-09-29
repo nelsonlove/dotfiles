@@ -3,7 +3,7 @@
 #
 # EVERY file under claude/tests that git tracks or would track (not ignored: no .DS_Store, no caches), except the Markdown ones, is accounted for: a RUN command names it, a KNOWN_FAILING command names it, or SKIP gives its reason. The runner fails if a file is in none of them, or if a SKIP entry names a file that does not exist. The covered set is READ FROM the commands, not kept by hand, so removing a RUN row un-covers its file and the check fails.
 #
-# KNOWN_FAILING holds suites that fail on main today for a reason tracked in an issue. They run, and they must still FAIL: the day one passes, the runner fails and says to move it back to RUN.
+# KNOWN_FAILING is for a suite that fails on main for a reason tracked in an issue: it runs, and it must still FAIL WITH ITS TEXT; the day it passes, the runner fails and says to move it back to RUN. The check itself is proved on two made-up rows every run, so it works on the day a real row is added.
 #
 # Run: bash claude/tests/run-standalone.sh                    (exit 0 only if all is well)
 #      bash claude/tests/run-standalone.sh --accounting-only  (only the check that every file is accounted for)
@@ -38,7 +38,7 @@ RUN=(
   "accept-verb-guard ob|python3 $AVG/ob-cases.py $G"
 )
 # name | command | issue | the text its failure must print. Each must FAIL WITH THAT TEXT: a pass means it is fixed and belongs in RUN again, and a failure with other text (a wrong argument, a missing tool) is a new failure, not the tracked one.
-# (Empty since #82 retired verb-list-drift.sh. Loops over it use ${KNOWN_FAILING[@]+...}, because an empty array under `set -u` is an error in bash 3.2.)
+# (Empty since #82 retired verb-list-drift.sh. Every loop over RUN, KNOWN_FAILING and SKIP uses ${ARR[@]+...}, because an empty array under `set -u` is an error in bash 3.2.)
 KNOWN_FAILING=()
 # file | why it is not run here
 SKIP=(
@@ -55,9 +55,28 @@ SKIP=(
 
 printf 'bash for the suites: %s (%s)\n' "$(command -v bash)" "$(bash -c 'echo $BASH_VERSION')"
 
+# known_failing <name|cmd|issue|text>: 0 when the command fails and prints the text, 1 otherwise (it passes, or it fails some other way).
+known_failing() {
+  local name cmd issue want out
+  IFS='|' read -r name cmd issue want <<< "$1"
+  if out=$(bash -c "$cmd" 2>&1); then printf '%s\n===== FAIL  %s now PASSES: %s looks fixed, so move it back to RUN\n' "$out" "$name" "$issue"; return 1; fi
+  printf '%s\n' "$out"
+  case "$out" in
+    *"$want"*) printf '===== PASS  %s still fails as tracked in %s ("%s")\n' "$name" "$issue" "$want"; return 0 ;;
+    *) printf '===== FAIL  %s failed, but not with "%s": a new failure, not the one tracked in %s\n' "$name" "$want" "$issue"; return 1 ;;
+  esac
+}
+
 fails=0; ran=0
+# The known-failing check, proved on made-up rows every run (review of #84: with the list empty, it would otherwise be code no run executes).
+printf '\n##### self-check of the known-failing path\n'
+if known_failing 'probe that fails as tracked|echo tracked-text; exit 1|#0|tracked-text' >/dev/null \
+   && ! known_failing 'probe that now passes|true|#0|x' >/dev/null \
+   && ! known_failing 'probe that fails another way|echo other; exit 2|#0|tracked-text' >/dev/null; then
+  printf '===== PASS  the known-failing path tells a tracked failure from a pass and from another failure\n'
+else fails=$((fails + 1)); printf '===== FAIL  the known-failing path is broken\n'; fi
 if [ "$only_accounting" = 0 ]; then
-  for row in "${RUN[@]}"; do
+  for row in ${RUN[@]+"${RUN[@]}"}; do
     name=${row%%|*}; cmd=${row#*|}
     printf '\n##### %s\n' "$name"
     ran=$((ran + 1))
@@ -65,33 +84,25 @@ if [ "$only_accounting" = 0 ]; then
     else fails=$((fails + 1)); printf '===== FAIL  %s\n' "$name"; fi
   done
   for row in ${KNOWN_FAILING[@]+"${KNOWN_FAILING[@]}"}; do
-    IFS='|' read -r name cmd issue want <<< "$row"
-    printf '\n##### %s (known failing, %s)\n' "$name" "$issue"
+    printf '\n##### %s (known failing)\n' "${row%%|*}"
     ran=$((ran + 1))
-    if out=$(bash -c "$cmd" 2>&1); then fails=$((fails + 1)); printf '%s\n===== FAIL  %s now PASSES: %s looks fixed, so move it back to RUN\n' "$out" "$name" "$issue"
-    else
-      printf '%s\n' "$out"
-      case "$out" in
-        *"$want"*) printf '===== PASS  %s still fails as tracked in %s ("%s")\n' "$name" "$issue" "$want" ;;
-        *) fails=$((fails + 1)); printf '===== FAIL  %s failed, but not with "%s": a new failure, not the one tracked in %s\n' "$name" "$want" "$issue" ;;
-      esac
-    fi
+    known_failing "$row" || fails=$((fails + 1))
   done
 fi
 
 printf '\n##### accounting: every file is run, known failing, or skipped with a reason\n'
 unaccounted=0
 commands=""
-for row in "${RUN[@]}"; do commands="$commands ${row#*|} "; done
+for row in ${RUN[@]+"${RUN[@]}"}; do commands="$commands ${row#*|} "; done
 for row in ${KNOWN_FAILING[@]+"${KNOWN_FAILING[@]}"}; do IFS='|' read -r _ cmd _ _ <<< "$row"; commands="$commands $cmd "; done
 while IFS= read -r f; do
   rel=${f#claude/tests/}
   hit=0
   case "$commands" in *"$f "*|*"$f\""*|*"$f;"*) hit=1 ;; esac
-  for s in "${SKIP[@]}"; do [ "${s%%|*}" = "$rel" ] && hit=1; done
+  for s in ${SKIP[@]+"${SKIP[@]}"}; do [ "${s%%|*}" = "$rel" ] && hit=1; done
   if [ "$hit" = 0 ]; then unaccounted=$((unaccounted + 1)); printf 'FAIL  %s is not run, not known failing, and not skipped with a reason\n' "$rel"; fi
 done < <(git ls-files --cached --others --exclude-standard -- claude/tests | grep -v -e '\.md$' -e '/run-standalone\.sh$' | sort -u)
-for s in "${SKIP[@]}"; do
+for s in ${SKIP[@]+"${SKIP[@]}"}; do
   [ -f "claude/tests/${s%%|*}" ] || { unaccounted=$((unaccounted + 1)); printf 'FAIL  %s is skipped but does not exist\n' "${s%%|*}"; }
   printf 'SKIP  %s — %s\n' "${s%%|*}" "${s#*|}"
 done
