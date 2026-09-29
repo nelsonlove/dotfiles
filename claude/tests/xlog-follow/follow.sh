@@ -240,46 +240,69 @@ start --state "$ST7"; sleep 4
 eq "a notice lost to a closed pipe is not printed again" "$(lines)" 0
 stop
 
-# 9r. A long entry is cut by the script itself, under the harness's 500-character cut, at a whole UTF-8 character, and ends with where to read it in full (approved after #87's review).
-seed; start
-long=$(python3 -c 'import sys; sys.stdout.write(("é€😀" + "x" * 37) * 125)')   # about 5000 bytes, a multibyte character every 40
-printf '\n## 2026-09-29T12:00 · [L0-CC] test — claim\n%s\n' "$long" >> "$LOG"; waitfor 1
-cut_check=$(head -1 "$OUT" | python3 -c '
+# 9r. A long entry is cut by the script itself, under the harness's 500-character cut, at a whole UTF-8 character, and ends with where to read it (approved after #87's review; hardened by review 1 of #92).
+check_cut() {  # check_cut <heading stamp> <raw entry bytes>: checks line 1 of $OUT; prints ok or what is wrong
+  head -1 "$OUT" | python3 -c '
 import sys, re
+stamp, rawlen = sys.argv[1], int(sys.argv[2])
 raw = sys.stdin.buffer.read().rstrip(b"\n")
 try: line = raw.decode("utf-8")
 except Exception: print("not valid UTF-8"); sys.exit()
-m = re.search(r" … \((\d+) more bytes; read (\S+) in full: (.+)\)$", line)
+m = re.search(r" … \((\d+) more bytes; read the entry headed \"(.+?)\" in full(: .+| in the fleet log)\)$", line)
 if len(line) > 500: print("longer than 500 characters: %d" % len(line))
-elif not line.startswith("## 2026-09-29T12:00 · "): print("does not start with its heading")
-elif not m: print("no tail: " + line[-120:])
-elif m.group(2) != "2026-09-29T12:00": print("the tail names the wrong stamp: " + m.group(2))
+elif not line.startswith("## " + stamp + " · "): print("does not start with its heading")
+elif not m: print("no tail: " + line[-160:])
+elif not m.group(2).startswith(stamp + " · [L0-CC]"): print("the tail names the wrong entry: " + m.group(2))
+elif not 0 < int(m.group(1)) < rawlen: print("N is not in the entry own bytes: %s of %d" % (m.group(1), rawlen))
 else: print("ok")
-')
-eq "a 5000-byte entry arrives cut: valid UTF-8, under 500 characters, its heading first, its own stamp in the tail" "$cut_check" ok
+' "$1" "$2"
+}
+seed; start
+long=$(python3 -c 'import sys; sys.stdout.write(("é€😀" + "x" * 37) * 125)')   # 5750 bytes, 2-, 3- and 4-byte characters every 46
+bytes_of() { printf '%s' "$1" | wc -c | tr -d ' '; }
+printf '\n## 2026-09-29T12:00 · [L0-CC] test — claim\n%s\n' "$long" >> "$LOG"; waitfor 1
+eq "a 5750-byte entry arrives cut: valid UTF-8, under 500 characters, heading first, named by its heading" "$(check_cut 2026-09-29T12:00 "$(( $(bytes_of "$long") + 60 ))")" ok
 case "$(head -1 "$OUT")" in *"in full: $LOG)") r=names-the-log ;; *) r="$(head -1 "$OUT" | tail -c 120)" ;; esac
 eq "the tail names the log it follows" "$r" names-the-log
 stop
+# N counts the entry's own bytes, not the joined line: 300 short lines are 899 bytes in the log, but 2000-odd once each newline is " ⏎ ". (The bound is the entry plus its heading, about 60 bytes.)
+seed; start
+many=$(python3 -c 'print("\n".join("l%d" % (i % 10) for i in range(300)))')
+printf '\n## 2026-09-29T12:05 · [L0-CC] test — claim\n%s\n' "$many" >> "$LOG"; waitfor 1
+eq "a newline-heavy entry reports its remaining bytes in the log's own terms" "$(check_cut 2026-09-29T12:05 "$(( $(bytes_of "$many") + 60 ))")" ok
+stop
+# A very long log path still gives a line under the cut: the path is left out of the tail, not the tail cut off.
+LONGDIR="$T/$(python3 -c 'print("d" * 200)')/$(python3 -c 'print("e" * 200)')"; mkdir -p "$LONGDIR"
+LOG_SAVED=$LOG; LOG="$LONGDIR/CROSS-SESSION.md"; seed; start
+printf '\n## 2026-09-29T12:06 · [L0-CC] test — claim\n%s\n' "$long" >> "$LOG"; waitfor 1
+eq "a long log path: the line still fits, and says the fleet log" "$(check_cut 2026-09-29T12:06 "$(( $(bytes_of "$long") + 60 ))")" ok
+stop; LOG=$LOG_SAVED
 # A short entry is not touched.
 seed; start
 entry "2026-09-29T12:01" "Short."; waitfor 1
 eq "a short entry is printed whole" "$(head -1 "$OUT")" "## 2026-09-29T12:01 · [L0-CC] test — claim ⏎ Short."
 stop
-# 9s. Several entries in one poll are spaced, so the harness (which joins lines printed within 200 ms into one notification, capped at 3000 characters) gives each its own notification.
+# 9s. Pacing: lines printed in one poll pause 0.5 s before a batch would pass about 2800 bytes, so the harness (which joins lines printed within 200 ms, capped at 3000) never drops an entry. Eight entries of about 1800 bytes (14 KB and 8 headings, under the script's own burst limits of 16 KB and 10) are cut to about 480 bytes each, about 3800 in all.
 seed; : > "$OUT"
 bash "$FOLLOW" --log "$LOG" 2>"$T/err" | python3 -u -c '
 import sys, time
-for line in sys.stdin: print("%.3f" % time.time(), flush=True)
+for line in sys.stdin.buffer: print("%.3f %d" % (time.time(), len(line)), flush=True)
 ' > "$OUT" & PID=$!
 sleep 1.5
-{ printf '\n## 2026-09-29T12:02 · [L0-CC] test — claim\nA.\n'; printf '\n## 2026-09-29T12:03 · [L0-CC] test — claim\nB.\n'; printf '\n## 2026-09-29T12:04 · [L0-CC] test — claim\nC.\n'; } >> "$LOG"
-waitfor 3
-gaps=$(python3 -c '
+mid=$(python3 -c 'import sys; sys.stdout.write("m" * 1800)')
+for i in $(seq 10 17); do printf '\n## 2026-09-29T12:%s · [L0-CC] test — claim\n%s\n' "$i" "$mid"; done >> "$LOG"
+waitfor 8
+paced=$(python3 -c '
 import sys
-t = [float(x) for x in open(sys.argv[1]).read().split()]
-print("ok" if len(t) >= 3 and all(b - a >= 0.2 for a, b in zip(t, t[1:])) else "gaps: %s" % [round(b - a, 3) for a, b in zip(t, t[1:])])
+rows = [tuple(map(float, l.split())) for l in open(sys.argv[1]) if l.strip()]
+if len(rows) < 8: print("only %d lines" % len(rows)); sys.exit()
+batch, worst = rows[0][1], rows[0][1]
+for (t0, _), (t1, n) in zip(rows, rows[1:]):
+    batch = n if t1 - t0 >= 0.4 else batch + n
+    worst = max(worst, batch)
+print("ok" if worst <= 3000 else "a batch of %d bytes with no pause" % worst)
 ' "$OUT")
-eq "entries printed together are at least 200 ms apart" "$gaps" ok
+eq "eight long entries in one poll never make a batch over 3000 bytes" "$paced" ok
 killall_followers; stop
 
 # 9h. GNU stat: with a GNU `stat` first on PATH, it still follows (tested with gstat where it exists).
@@ -305,7 +328,7 @@ if kill -0 "$HP" 2>/dev/null; then eq "a closed pipe ends it" alive gone; killal
 left=$(pgrep -f "xlog-follow.sh --log $LOG" | wc -l | tr -d ' ')
 eq "no follower is left running" "$left" 0
 
-EXPECTED=44
+EXPECTED=46
 printf '\n%s checks (expected %s), %s failed\n' "$n" "$EXPECTED" "$fails"
 [ "$n" = "$EXPECTED" ] || { echo "FAIL  the check count is $n, expected $EXPECTED"; exit 1; }
 [ "$fails" = 0 ] || exit 1

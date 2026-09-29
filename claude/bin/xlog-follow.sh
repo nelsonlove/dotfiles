@@ -14,7 +14,7 @@
 #               timeout_ms: 1800000 })
 #
 # WHAT IT DOES
-#   * A long entry is CUT by this script before the harness can cut it: a line over 480 bytes keeps a whole-character prefix and ends with ` … (N more bytes; read <stamp> in full: <log>)`, so it tells you what to read and where. Entries printed in the same poll are 250 ms apart, so each gets its own notification. (The harness, Claude Code 2.1.284, cuts each Monitor line at exactly 500 characters and adds `...(truncated)`.) Lines printed within 200 ms arrive as one notification, each line cut on its own, and the whole notification is cut at 3000 characters with `...(truncated)` on a line of its own. Every entry line starts with its entry's stamp and heading; a notice line starts with `xlog-follow:`. On a mark at the end of a LINE, read that entry in full. On a mark on its own line at the end of a NOTIFICATION, read every entry from the last stamp shown, that one included: it may have been cut with no mark of its own, and the entries after it are not in the notification at all. Read them in the fleet log, the file every notice line names (`~/obsidian/00-09 System/03 Agents/03.16 Cross-session log/CROSS-SESSION.md` unless --log says otherwise).
+#   * A long entry is CUT by this script before the harness can cut it: a line over 480 bytes keeps a whole-character prefix and ends with ` … (N more bytes; read the entry headed "<heading>" in full: <log>)` (N in the entry's own bytes; the path is left out if it would not fit), so it tells you what to read and where. Lines printed in one poll are paced: after about 2800 bytes the script pauses 0.5 s, so one notification never reaches the harness's 3000 cap. (The harness, Claude Code 2.1.284, cuts each Monitor line at exactly 500 characters and adds `...(truncated)`.) Lines printed within 200 ms arrive as one notification, each line cut on its own, and the whole notification is cut at 3000 characters with `...(truncated)` on a line of its own. Every entry line starts with its entry's stamp and heading; a notice line starts with `xlog-follow:`. On a mark at the end of a LINE, read that entry in full. On a mark on its own line at the end of a NOTIFICATION, read every entry from the last stamp shown, that one included: it may have been cut with no mark of its own, and the entries after it are not in the notification at all. Read them in the fleet log, the file every notice line names (`~/obsidian/00-09 System/03 Agents/03.16 Cross-session log/CROSS-SESSION.md` unless --log says otherwise).
 #   * It starts AT THE END of the log and never replays the entries already there. With --state <file> it saves
 #     where it is (the start of any entry still pending), and a later run on the same file resumes from there. A
 #     gap over 16 KB, or a state file that no longer fits the log, prints one notice line instead.
@@ -76,40 +76,51 @@ fingerprint() { [ "$2" -gt 0 ] || { echo 0; return; }; local from=$(( $2 > FP ? 
 
 NL=$'\n'
 HEAD_GLOB='## [0-9][0-9][0-9][0-9]-'   # the fleet's entry heading: `## YYYY-...`; a plain `## x` in a body is text
-# The harness cuts a Monitor line at 500 characters and joins lines printed within 200 ms into one notification capped at 3000 (Claude Code 2.1.284), so a long entry lost its end with no word of where to read it. The script now cuts first: a line over MAXLINE bytes keeps a whole-character prefix and ends with " … (N more bytes; read <stamp> in full: <log>)". Bytes, because a byte count is never below the character count the harness measures.
+# The harness cuts a Monitor line at 500 characters and joins lines printed within 200 ms into one notification capped at 3000 (Claude Code 2.1.284), so a long entry lost its end with no word of where to read it, and a burst could lose whole entries. So the script cuts first, and paces what it prints.
+# A line over MAXLINE bytes keeps a whole-character prefix and ends with " … (N more bytes; read the entry headed "<heading>" in full: <log>)". Bytes, because a byte count is never below the character count the harness measures; N is counted in the entry's own bytes in the log.
 MAXLINE=480
-byte_at() { local b; b=$(printf '%d' "'$1"); [ "$b" -lt 0 ] && b=$((b + 256)); printf '%s' "$b"; }
-# utf8_cut <text> <max bytes>: the longest prefix of at most that many bytes that ends on a whole UTF-8 character. It counts the continuation bytes at the end and keeps them only if the lead byte before them announces exactly that many.
+BATCH=2800    # bytes printed together before a 0.5 s pause, so one notification never reaches the 3000 cap
+# utf8_cut <text> <max bytes>: sets CUT to the longest prefix of at most that many bytes that ends on a whole UTF-8 character. It counts the continuation bytes at the end and keeps them only if the lead byte before them announces exactly that many. Byte classes by range in the C locale, with no subshell.
 utf8_cut() {
-  local p=${1:0:$2} k=0 b lead need
+  local p=${1:0:$2} k=0 c need
   while [ "$k" -lt 3 ] && [ "${#p}" -gt "$k" ]; do
-    b=$(byte_at "${p:$(( ${#p} - 1 - k )):1}")
-    if [ "$b" -ge 128 ] && [ "$b" -lt 192 ]; then k=$((k + 1)); else break; fi
+    c=${p:$(( ${#p} - 1 - k )):1}
+    case "$c" in [$'\x80'-$'\xbf']) k=$((k + 1)) ;; *) break ;; esac
   done
-  [ "${#p}" -gt "$k" ] || { printf '%s' ""; return 0; }
-  lead=$(byte_at "${p:$(( ${#p} - 1 - k )):1}")
-  if [ "$lead" -lt 128 ]; then need=0
-  elif [ "$lead" -ge 240 ]; then need=3
-  elif [ "$lead" -ge 224 ]; then need=2
-  elif [ "$lead" -ge 192 ]; then need=1
-  else need=-1; fi
-  if [ "$k" = "$need" ]; then printf '%s' "$p"; else printf '%s' "${p:0:$(( ${#p} - k - 1 ))}"; fi
+  if [ "${#p}" -le "$k" ]; then CUT=""; return 0; fi
+  c=${p:$(( ${#p} - 1 - k )):1}
+  case "$c" in
+    [$'\xc0'-$'\xdf']) need=1 ;;
+    [$'\xe0'-$'\xef']) need=2 ;;
+    [$'\xf0'-$'\xf7']) need=3 ;;
+    [$'\x80'-$'\xff']) need=-1 ;;
+    *) need=0 ;;
+  esac
+  if [ "$k" = "$need" ]; then CUT=$p; else CUT=${p:0:$(( ${#p} - k - 1 ))}; fi
 }
-tick_emits=0   # lines printed in this poll: each after the first waits 250 ms, so the harness gives each its own notification
+# pace <bytes>: before a line is printed, pause 0.5 s if it would take this poll's batch over BATCH bytes. Entries and notices both come through here. A batch is reset by each poll's own 1 s sleep.
+batch_bytes=0
+pace() {
+  if [ "$batch_bytes" -gt 0 ] && [ $(( batch_bytes + $1 + 1 )) -gt "$BATCH" ]; then sleep 0.5; batch_bytes=0; fi
+  batch_bytes=$(( batch_bytes + $1 + 1 ))
+}
 emit() {  # print one entry as one line, trailing blank lines trimmed, cut if long; exit if nobody is reading any more
-  local e="$1" stamp tail keep prefix
-  while [ "${e%"$NL"}" != "$e" ]; do e="${e%"$NL"}"; done
-  e="${e//$NL/ ⏎ }"
+  local raw="$1" e head tail where keep shown
+  while [ "${raw%"$NL"}" != "$raw" ]; do raw="${raw%"$NL"}"; done
+  e="${raw//$NL/ ⏎ }"
   [ -n "$e" ] || return 0
   if [ "${#e}" -gt "$MAXLINE" ]; then
-    stamp=${e#"## "}; stamp=${stamp%% *}
-    tail=" … (999999 more bytes; read $stamp in full: $log)"   # the widest the tail can be, for the budget
-    keep=$(( MAXLINE - ${#tail} )); [ "$keep" -gt 80 ] || keep=80
-    prefix=$(utf8_cut "$e" "$keep")
-    e="$prefix … ($(( ${#e} - ${#prefix} )) more bytes; read $stamp in full: $log)"
+    # The entry is named by its heading (stamp, author, kind), capped at 60 bytes: a minute-resolution stamp alone can match several entries.
+    head=${raw%%"$NL"*}; head=${head#"## "}; utf8_cut "$head" 60; head=$CUT
+    where=": $log"
+    tail=" … (999999 more bytes; read the entry headed \"$head\" in full$where)"   # the widest it can be, for the budget
+    if [ $(( MAXLINE - ${#tail} )) -lt 160 ]; then where=" in the fleet log"; tail=" … (999999 more bytes; read the entry headed \"$head\" in full$where)"; fi
+    keep=$(( MAXLINE - ${#tail} )); [ "$keep" -gt 0 ] || keep=0
+    utf8_cut "$e" "$keep"
+    shown=${CUT// ⏎ /$NL}
+    e="$CUT … ($(( ${#raw} - ${#shown} )) more bytes; read the entry headed \"$head\" in full$where)"
   fi
-  if [ "$tick_emits" -gt 0 ]; then sleep 0.25; fi
-  tick_emits=$((tick_emits + 1))
+  pace "${#e}"
   printf '%s\n' "$e" || closed
 }
 is_entry() { case "$1" in $HEAD_GLOB*) return 0 ;; *) return 1 ;; esac; }
@@ -128,7 +139,7 @@ save_state() {
 }
 # closed: the reader is gone. After a builtin printf fails, bash keeps the unsent text in its output buffer, and any later builtin printf, or any $( ) child, flushes it into ITS output (found by the test of a notice lost to a closed pipe: the text landed in the state file). So stdout goes to /dev/null and one echo flushes the leftover there, and only then is the place saved. Every failed write, and the PIPE trap, comes here.
 closed() { exec >/dev/null 2>&1; echo; save_state; exit 0; }
-notice() { printf 'xlog-follow: %s; read the log from your last-read stamp: %s\n' "$1" "$log" || closed; }
+notice() { local m="xlog-follow: $1; read the log from your last-read stamp: $log"; pace "${#m}"; printf '%s\n' "$m" || closed; }
 settle=0        # >0 while waiting for a cut or rewrite to finish: polls with no change still needed
 buf=""          # the entry being collected: empty, or text that starts with a stamped heading
 last_new=$SECONDS
@@ -164,7 +175,7 @@ save_state
 
 while :; do
   sleep 1
-  tick_emits=0
+  batch_bytes=0
   st=$(fstat "$log")
   if [ -z "$st" ]; then continue; fi          # missing for a moment, as during an atomic save
   read -r n_inode n_size n_mtime <<< "$st"
@@ -246,8 +257,8 @@ while :; do
       [ "$found" = 1 ] || break
       emit "$head$body"
       buf="$rest"
+      save_state   # each printed entry is saved as printed, since pacing can make this loop take seconds (review 1 of #92)
     done
-    save_state   # printed entries are saved as printed (review 3 of #77: a kill -9 printed one twice)
   fi
 
   # Quiet for 3 seconds: the pending entry is complete.
