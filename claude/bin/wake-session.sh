@@ -28,9 +28,9 @@
 #
 # Usage:
 #   wake-session.sh --session <id|sessionId> --by "<your session name>" --why "<reason>" \
-#       [--message "<text>"] [--log <path>] [--notebook-dir <path>] [--dry-run]
+#       [--message "<text>"] [--log <path>] [--notebook-dir <path>] [--archive-dir <path>] [--dry-run]
 #   wake-session.sh --all --by "<your session name>" [--resume-stopped --why "<reason>"] \
-#       [--log <path>] [--notebook-dir <path>] [--dry-run]
+#       [--log <path>] [--notebook-dir <path>] [--archive-dir <path>] [--dry-run]
 #
 #   --session  the target's background id or sessionId, as `claude agents --json --all` lists it.
 #              Either form is accepted and resolved to the full sessionId, which is the only value
@@ -50,6 +50,7 @@
 #   --resume-stopped  with --all, resume every stopped session in your line, one log entry each.
 #   --log      the cross-session log to append the record to (default: the fleet log).
 #   --notebook-dir  where the agent notebook lives. For testing only.
+#   --archive-dir   where ended notebook entries live (default: every `03 Agents/03.09*` folder). For testing only.
 #   --jobs-dir  where Claude Code's job state lives, which is where a target's RANK is read from
 #              (`<id>/state.json`, key `template`, through the rank definitions). For testing only, and
 #              REFUSED unless it resolves under /tmp or the system temp directory — see the leash below. It
@@ -98,7 +99,7 @@
 # notebook records, so two sessions sharing a name share a line and the newest entry decides for both.
 # The session that is actually resumed is always picked by its unique id, never by name, so a
 # collision can misjudge permission but can never resume the wrong session.
-# Four flags widen them on purpose, for tests: `--notebook-dir` replaces the reporting-line record,
+# Five flags widen them on purpose, for tests: `--notebook-dir` and `--archive-dir` replace the reporting-line record,
 # `--pause-note` replaces the pause flag, `--jobs-dir` replaces the job state a target's rank is read from,
 # and `--log` sends the record somewhere other than the fleet log. A run that passes any of them is a test, not a fleet act — say so if you use them.
 #
@@ -113,6 +114,18 @@ REPO_ROOT=$(cd "$script_dir/../.." 2>/dev/null && pwd -P) || REPO_ROOT=""
 PAUSE_GATE="$REPO_ROOT/tickle/scripts/_lib/pause-gate.sh"
 JOBS_DIR="$HOME/.claude/jobs"
 NOTEBOOK_DIR="$HOME/obsidian/00-09 System/03 Agents/03.04 Records/Agent notebook"
+# TWO ROOTS, ruled 2026-09-29: a notebook entry that has ENDED moves out of the notebook into the agents
+# archive, `03 Agents/03.09 …/<subfolder>/YYYY-MM/`, while running entries stay in the notebook. A stopped
+# session's entry — and its superiors' entries, for the reporting line — is therefore usually an ended one,
+# so the index reads BOTH roots or it refuses every stopped session after the move. The archive is found by
+# its `03.09` prefix and read recursively, and only files named `Agent session *.md` are taken from either
+# root, so neither the archive's own name nor its subfolder's matters. Which entry wins is unchanged: the
+# newest by the timestamp in the filename, wherever it sits. `--archive-dir` replaces the archive root for
+# tests; `--notebook-dir` without `--archive-dir` reads no archive at all, so a test stays sealed.
+AGENTS_DIR="$HOME/obsidian/00-09 System/03 Agents"
+ARCHIVE_DIR=""
+ARCHIVE_DIR_SET=0
+NOTEBOOK_DIR_SET=0
 # The frontmatter key that records a session's superior. Confirmed by [C0] obsidian, 2026-09-26,
 # and carried by the Session lifecycle block of ~/.claude/CLAUDE.md. One variable, so a rename of
 # the key is one line here and one line in promote-session.sh.
@@ -167,7 +180,8 @@ while [ $# -gt 0 ]; do
     --why)          [ $# -ge 2 ] || die "--why needs a value"; why="$2"; shift 2 ;;
     --message)      [ $# -ge 2 ] || die "--message needs a value"; message="$2"; shift 2 ;;
     --log)          [ $# -ge 2 ] || die "--log needs a value"; log="$2"; shift 2 ;;
-    --notebook-dir) [ $# -ge 2 ] && [ -n "$2" ] || die "--notebook-dir needs a path"; NOTEBOOK_DIR="$2"; shift 2 ;;
+    --notebook-dir) [ $# -ge 2 ] && [ -n "$2" ] || die "--notebook-dir needs a path"; NOTEBOOK_DIR="$2"; NOTEBOOK_DIR_SET=1; shift 2 ;;
+    --archive-dir) [ $# -ge 2 ] && [ -n "$2" ] || die "--archive-dir needs a path"; ARCHIVE_DIR="$2"; ARCHIVE_DIR_SET=1; shift 2 ;;
     --jobs-dir) [ $# -ge 2 ] && [ -n "$2" ] || die "--jobs-dir needs a path"; JOBS_DIR=$(check_jobs_dir "$2"); shift 2 ;;
     --pause-note)   [ $# -ge 2 ] && [ -n "$2" ] || die "--pause-note needs a path"; pause_note="$2"; shift 2 ;;
     --all)          all_mode=1; shift ;;
@@ -346,14 +360,36 @@ FNR == 1 {
 END { flush() }
 '
 
+# The roots the index reads, one per line: the notebook, then the archive roots. Without test flags the
+# archive roots are every directory directly under `03 Agents` whose name begins `03.09`; with
+# `--archive-dir`, that path alone; with `--notebook-dir` and no `--archive-dir`, none.
+notebook_roots() {
+  printf '%s\n' "$NOTEBOOK_DIR"
+  if [ "$ARCHIVE_DIR_SET" = 1 ]; then
+    printf '%s\n' "$ARCHIVE_DIR"
+  elif [ "$NOTEBOOK_DIR_SET" = 0 ]; then
+    local d
+    for d in "$AGENTS_DIR"/03.09*; do
+      [ -d "$d" ] && printf '%s\n' "$d"
+    done
+  fi
+  return 0
+}
+
 build_report_index() {
   [ "$REPORT_INDEX_BUILT" = 0 ] || return 0
   REPORT_INDEX_BUILT=1
-  [ -d "$NOTEBOOK_DIR" ] || return 0
-  # Candidates are files carrying a `session:` key — which `session-status:` does not match, since the key
-  # must be followed by its colon. An entry with NEITHER status key is still indexed, and the index says
-  # `absent` for it; nothing here requires a status.
-  index_files=$(grep -rl -E "^[[:space:]]*session[[:space:]]*:" "$NOTEBOOK_DIR" 2>/dev/null | sort || true)
+  # Candidates are files named `Agent session *.md`, in the notebook and in every archive root, that carry
+  # a `session:` key — which `session-status:` does not match, since the key must be followed by its
+  # colon. An entry with NEITHER status key is still indexed, and the index says `absent` for it; nothing
+  # here requires a status.
+  local entry_files
+  entry_files=$(notebook_roots | while IFS= read -r root; do
+    [ -n "$root" ] && [ -d "$root" ] && find "$root" -type f -name 'Agent session *.md' -print 2>/dev/null
+  done | sort || true)
+  # An empty file list must never reach xargs: with no arguments grep would read stdin and hang.
+  [ -n "$entry_files" ] || return 0
+  index_files=$(printf '%s\n' "$entry_files" | tr '\n' '\0' | xargs -0 grep -l -E "^[[:space:]]*session[[:space:]]*:" 2>/dev/null | sort || true)
   # An empty file list must never reach xargs: with no arguments awk would read stdin and hang.
   [ -n "$index_files" ] || return 0
   REPORT_INDEX=$(printf '%s\n' "$index_files" | tr '\n' '\0' | xargs -0 awk -v key="$REPORTS_TO_KEY" "$index_awk" 2>/dev/null || true)
@@ -394,7 +430,7 @@ check_reporting_line() {  # $1 = target name, $2 = caller name
     chain_so_far=""
     [ -z "$chain_path" ] || chain_so_far=" (the line so far: $chain_path)"
     if ! lookup_reports_to "$chain_cur"; then
-      chain_reason="no notebook entry for '$chain_cur' under $NOTEBOOK_DIR (an entry with session: \"$chain_cur\", whatever its status), so the line cannot be followed past it$chain_so_far; a missing record is not a permission"
+      chain_reason="no notebook entry for '$chain_cur' under $(notebook_roots | paste -sd ';' - | sed 's/;/ or /g') (an entry with session: \"$chain_cur\", whatever its status), so the line cannot be followed past it$chain_so_far; a missing record is not a permission"
       return 1
     fi
     if [ "$rt_count" -gt 1 ]; then
