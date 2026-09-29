@@ -75,9 +75,26 @@ EOF
   live_total="${1:-0}"; live_full="${2:-0}"; live_four="${3:-0}"; live_short="${4:-0}"
   if [ "$live_total" -gt 100 ]; then pass "the population is real ($live_total entries read)"
   else fail "the population is real" "only $live_total entries; this section proves nothing at that size"; fi
-  # THE PROPERTY, not the count: every entry the sweeper could ever act on carries a FULL id. The short ones
-  # are the history — 324 of 351 when this was written — and they must never become candidates.
-  eq "every four-key entry has a full id" "$([ "$live_four" -le "$live_full" ] && echo yes || echo no)" yes
+  # A REAL PROPERTY, not a tautology. The first version compared two counters where one is incremented only
+  # inside the other's branch — true by construction, unable to fail, and the review named it. What actually
+  # matters is that the SHORT ids are the historical bulk and that no entry the sweeper could act on carries
+  # one, so this re-reads the population and asserts that no four-key entry has a short id.
+  bad=$(bash -euo pipefail -c '
+    . "$1"; . "$2"; . "$3"
+    files=$(notebook_entry_files_of "$4/03.04 Records/Agent notebook" 0 "$4/03.09 Archive/Agent notebook" 0)
+    n=0
+    while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      roster_read "$f"
+      [ -n "$roster_session" ] && [ -n "$roster_agent" ] && [ -n "$roster_cwd" ] || continue
+      roster_id_is_full "$roster_id" || n=$((n + 1))
+    done <<EOF
+$files
+EOF
+    printf "%s" "$n"
+  ' _ "$LIB_ROOTS" "$LIB_STATUS" "$LIB_ROSTER" "$REAL_AGENTS" 2>/dev/null)
+  eq "no four-key entry carries a short id" "${bad:-unknown}" 0
+  eq "and the short ids are the historical bulk" "$([ "$live_short" -gt "$live_full" ] && echo yes || echo no)" yes
   printf '      live counts: %s entries, %s with a full id, %s with all four keys, %s short or junk\n' \
     "$live_total" "$live_full" "$live_four" "$live_short"
 else
@@ -103,19 +120,38 @@ E_DISAGREE=$(entry "Agent session 2026-09-29T0406.md" 'session: "[C1-CC] says co
 eq "all four keys read back"       "$(lib 'roster_read "$1"; printf "%s|%s|%s" "$roster_id" "$roster_agent" "$roster_cwd"' "$E_FOUR")" "aaaaaaaa-1111-2222-3333-444444444444|lieutenant|/tmp/four"
 eq "a missing agent reads empty"   "$(lib 'roster_read "$1"; printf "[%s]" "$roster_agent"' "$E_NOAGENT")" "[]"
 eq "a missing cwd reads empty"     "$(lib 'roster_read "$1"; printf "[%s]" "$roster_cwd"' "$E_NOCWD")" "[]"
+# THE ROUND TRIP, which is what the quoting is for: a value carrying a hash and a trailing space comes back
+# exactly as it went in. Unquoted it lost everything from the hash, and a post-rm resume would have started in
+# the wrong directory.
+# A DISTINCT ID: reusing E_FOUR's made this the NEWEST entry for it, so the sweeper case that expected
+# "reads 'running'" correctly read this statusless entry instead. The newest-wins rule working, and my fixture
+# colliding with it.
+E_HASH=$(entry "Agent session 2026-09-29T0409.md" 'session: "[L0-CC] hashy"' 'session-id: 11111111-2222-3333-4444-555555555555' 'agent: "lieutenant"' 'cwd: "/tmp/live #2"')
+eq "a quoted value with a hash survives" "$(lib 'roster_read "$1"; printf "%s" "$roster_cwd"' "$E_HASH")" "/tmp/live #2"
+eq "an unquoted value still drops its comment" "$(lib 'roster_read "$1"; printf "%s" "$roster_agent"' "$E_FOUR")" "lieutenant"
 eq "a full id is accepted"         "$(lib 'roster_read "$1"; roster_id_is_full "$roster_id" && echo yes || echo no' "$E_FOUR")" yes
 eq "a short id is refused"         "$(lib 'roster_read "$1"; roster_id_is_full "$roster_id" && echo yes || echo no' "$E_SHORT")" no
 eq "junk in the id is refused"     "$(lib 'roster_id_is_full "vaultbridge" && echo yes || echo no')" no
+# THE SHAPE, NOT JUST THE LENGTH. The first version tested a 36-character glob whose `?` matches a dash and a
+# character class that allowed dashes anywhere, so a string of 36 dashes was "a full id" — and would have
+# become a sweeper candidate and a resume target.
+eq "36 dashes is not an id"        "$(lib 'roster_id_is_full "------------------------------------" && echo yes || echo no')" no
+eq "dashes in the wrong places"    "$(lib 'roster_id_is_full "aaaaaaa--1111-2222-3333-44444444444a" && echo yes || echo no')" no
+eq "non-hex is not an id"          "$(lib 'roster_id_is_full "zzzzzzzz-1111-2222-3333-444444444444" && echo yes || echo no')" no
+eq "a real id still passes"        "$(lib 'roster_id_is_full "aaaaaaaa-1111-2222-3333-444444444444" && echo yes || echo no')" yes
 
 echo
-echo "=== 3. the rank code against the agent: a disagreement refuses, and `claude` never disagrees"
+# BACKTICKS IN A DOUBLE-QUOTED STRING RUN A COMMAND. This header used to carry `claude` in backticks, so the
+# suite executed the real CLI — the one thing its own header promises it never does. Single quotes now.
+echo '=== 3. the rank code against the agent: a disagreement refuses, and claude never disagrees'
 RANKS="$ROOT/claude/bin/_fleet-ranks.sh"
 rank_lib() {  # same shape as `lib`, with the rank table sourced too
   rl_snippet="$1"; shift
   bash -euo pipefail -c '. "$1"; . "$2"; . "$3"; . "$4"; shift 4
 '"$rl_snippet"'' _ "$LIB_ROOTS" "$LIB_STATUS" "$LIB_ROSTER" "$RANKS" "$@" 2>&1
 }
-out=$(rank_lib 'roster_agent_disagrees "[C1-CC] says commander" "lieutenant" && printf "%s" "$roster_disagreement"')
+# THROUGH THE ENTRY, not a literal pair: `E_DISAGREE` exists for this and was unused.
+out=$(rank_lib 'roster_read "$1"; roster_agent_disagrees "$roster_session" "$roster_agent" && printf "%s" "$roster_disagreement"' "$E_DISAGREE")
 has  "a lieutenant agent under a [C1] name disagrees" "$out" "is not resolved in favour of either"
 has  "and it names the agent"                        "$out" "lieutenant"
 has  "and it names the rank the name carries"        "$out" "rank 1"
@@ -124,10 +160,17 @@ eq   "a matching pair does not disagree"             "$(rank_lib 'roster_agent_d
 # the obsidian captain and the rear admiral among them — so a reader that refused here would refuse their wakes.
 eq   "agent claude under a captain name does not disagree" "$(rank_lib 'roster_agent_disagrees "[C0-OB] obsidian" "claude" && echo yes || echo no')" no
 eq   "agent claude under a lieutenant name either"         "$(rank_lib 'roster_agent_disagrees "[L0-CC] x" "claude" && echo yes || echo no')" no
+# WHICH FACT THE `no` STANDS FOR. Seven different ones used to share one exit code, so the first caller would
+# have read "the rank table was never sourced" as "they agree".
+# `|| true` ON EVERY ONE: six of the seven states return 1, which is the ordinary answer here.
+eq "a real disagreement says disagree"     "$(rank_lib 'roster_agent_disagrees "[C1-CC] x" "lieutenant" || true; printf "%s" "$roster_agree_state"')" disagree
+eq "agreement says agree"                  "$(rank_lib 'roster_agent_disagrees "[L0-CC] x" "lieutenant" || true; printf "%s" "$roster_agree_state"')" agree
+eq "claude says not-a-rank"                "$(rank_lib 'roster_agent_disagrees "[C0-OB] x" "claude" || true; printf "%s" "$roster_agree_state"')" not-a-rank
+eq "no rank table says no-table"           "$(lib 'roster_agent_disagrees "[C1-CC] x" "lieutenant" || true; printf "%s" "$roster_agree_state"')" no-table
+eq "an unreadable name says unknown-name"  "$(rank_lib 'roster_agent_disagrees "no code here" "lieutenant" || true; printf "%s" "$roster_agree_state"')" unknown-name
 
 echo
 echo "=== 4. the ended-entry line: silence unless the newest entry is ended"
-roots4() { printf '%s 1 %s 0' "$NB" "$TMP/no-archive"; }
 ended_line() {  # <id>
   bash -euo pipefail -c '. "$1"; . "$2"; . "$3"; roster_ended_line_for "$4" "$5" 1 "$6" 0; printf "%s" "$roster_ended_line"' \
     _ "$LIB_ROOTS" "$LIB_STATUS" "$LIB_ROSTER" "$1" "$NB" "$TMP/no-archive" 2>&1
@@ -144,6 +187,12 @@ eq  "a short id: no line, no failure"          "$(ended_line dddddddd)" ""
 entry "Agent session 2026-09-28T0101.md" 'session: "[L0-CC] two entries"' 'session-id: 77777777-1111-2222-3333-444444444444' 'agent: lieutenant' 'cwd: /tmp/two' 'status: archived/ended' >/dev/null
 entry "Agent session 2026-09-29T0407.md" 'session: "[L0-CC] two entries"' 'session-id: 77777777-1111-2222-3333-444444444444' 'agent: lieutenant' 'cwd: /tmp/two' 'status: draft/running' >/dev/null
 eq  "two entries for one id: the newest decides" "$(ended_line 77777777-1111-2222-3333-444444444444)" ""
+# AND THE OTHER WAY ROUND, which is the direction a newest-picker bug hides in: an OLDER running entry beside
+# a NEWER ended one must produce the line. An empty expectation is also what a broken lookup returns, so the
+# silent case above proves nothing on its own.
+entry "Agent session 2026-09-27T0101.md" 'session: "[L0-CC] newer ended"' 'session-id: 44444444-1111-2222-3333-444444444444' 'agent: lieutenant' 'cwd: /tmp/ne' 'status: draft/running' >/dev/null
+entry "Agent session 2026-09-29T0408.md" 'session: "[L0-CC] newer ended"' 'session-id: 44444444-1111-2222-3333-444444444444' 'agent: lieutenant' 'cwd: /tmp/ne' 'status: archived/ended' >/dev/null
+has "an older running entry does not hide a newer ended one" "$(ended_line 44444444-1111-2222-3333-444444444444)" "2026-09-29T0408"
 
 echo
 echo "=== 5. where the conversation is: four outcomes, and two of them refuse"
@@ -193,11 +242,10 @@ run_hook() {
 hook_entry; run_hook
 body=$(cat "$HNB/2026-09/Agent session 2026-09-29T0500.md")
 eq   "the hook exits 0"                    "$hook_rc" 0
-has  "it writes the full session-id"       "$body" "session-id: $SID"
-has  "agent comes from the JOB STATE"      "$body" "agent: lieutenant-repository"
-hasnt "not from the registry"              "$body" "agent: lieutenant
-"
-has  "cwd comes from the REGISTRY"         "$body" "cwd: $TMP/live"
+has  "it writes the full session-id, quoted" "$body" 'session-id: "'"$SID"'"'
+has  "agent comes from the JOB STATE"      "$body" 'agent: "lieutenant-repository"'
+hasnt "not from the registry"              "$body" 'agent: "lieutenant"'
+has  "cwd comes from the REGISTRY"         "$body" 'cwd: "'"$TMP/live"'"'
 has  "the body survives"                   "$body" "the body must survive"
 cp "$HNB/2026-09/Agent session 2026-09-29T0500.md" "$TMP/after-first"
 run_hook
@@ -210,7 +258,7 @@ hook_entry; run_hook
 body=$(cat "$HNB/2026-09/Agent session 2026-09-29T0500.md")
 eq    "with no agent anywhere the hook still exits 0" "$hook_rc" 0
 hasnt "and writes no agent key"                        "$body" "agent:"
-has   "but still writes the id"                        "$body" "session-id: $SID"
+has   "but still writes the id"                        "$body" 'session-id: "'"$SID"'"'
 # A RESUME IS NOT A TURN: the keys are READ on a resume, so writing then would race the read.
 printf '{"sessionId":"%s","name":"[L0-CC] roster test","jobId":"abcd1234","cwd":"%s","agent":"lieutenant"}\n' "$SID" "$TMP/live" > "$TMP/sessions/1.json"
 mkdir -p "$TMP/jobs/abcd1234"; printf '{"template":"lieutenant-repository"}\n' > "$TMP/jobs/abcd1234/state.json"
@@ -218,6 +266,11 @@ hook_entry; run_hook "" SessionStart ',"source":"resume"'
 body=$(cat "$HNB/2026-09/Agent session 2026-09-29T0500.md")
 eq    "a resume exits 0"          "$hook_rc" 0
 hasnt "and writes nothing"        "$body" "session-id:"
+# THE POSITIVE CONTROL. "Writes nothing" also passes when the hook exited early for an unrelated reason — a
+# missing jq, an unmatched registry row, a name lookup that failed — so the same fixture is run as a TURN and
+# must write. Without this pair the negative proves only that something did not happen.
+hook_entry; run_hook
+has   "but the same fixture on a TURN does write" "$(cat "$HNB/2026-09/Agent session 2026-09-29T0500.md")" "session-id:"
 
 echo
 echo "=== 7. the sweeper: all four keys, ended, and not alive — or it skips"
@@ -239,12 +292,53 @@ has  "and the skip says why"                   "$out" "reads 'running'"
 has  "a missing agent key is skipped"          "$out" "SKIP  bbbbbbbb"
 has  "a short id is skipped, not refused"      "$out" "SKIP  dddddddd"
 eq   "a dry run removes nothing"               "$([ -f "$TMP/removed.log" ] && echo removed || echo nothing)" nothing
-# ALIVE BEATS EVERYTHING: the same job, with its session in the listing, is skipped whatever its entry says.
-printf '[{"sessionId":"eeeeeeee-1111-2222-3333-444444444444","status":"idle"}]' > "$TMP/listing.json"
+# ALIVE BEATS EVERYTHING, and alive means A LIVE PID — the test `wake-session.sh` uses. A row's `.status` is
+# not the measure: the review showed a live row can carry none, and two readers of one listing disagreeing
+# about who is alive is how a live session gets swept. `$$` is this shell, so the pid is certainly alive.
+printf '[{"sessionId":"eeeeeeee-1111-2222-3333-444444444444","pid":%s}]' "$$" > "$TMP/listing.json"
 out=$(sweep)
-has  "a live session is never swept"           "$out" "SKIP  eeeeeeee"
-has  "and the skip says it is running"         "$out" "in the listing as running"
+has  "a live pid is never swept"               "$out" "SKIP  eeeeeeee"
+has  "and the skip says the pid is live"       "$out" "live pid"
+# A ROW WITH NO `.status` AT ALL is still alive if its pid is: the case that used to read as dead.
+printf '[{"sessionId":"eeeeeeee-1111-2222-3333-444444444444","pid":%s,"name":"x"}]' "$$" > "$TMP/listing.json"
+has  "a live row carrying no status is alive"  "$(sweep)" "SKIP  eeeeeeee"
+# A DEAD PID IS NOT ALIVE: pid 1 is init, which this test cannot own; use an id no process has.
+printf '[{"sessionId":"eeeeeeee-1111-2222-3333-444444444444","pid":999999,"status":"idle"}]' > "$TMP/listing.json"
+has  "a row whose pid is gone is sweepable"    "$(sweep)" "WOULD REMOVE  eeeeeeee"
 printf '[]' > "$TMP/listing.json"
+
+# THE LISTING MUST BE READABLE AND AN ARRAY, or the sweeper REFUSES. Every one of these used to resolve to
+# "not running", which is the unsafe direction for a script that deletes.
+FAKE_FAIL="$TMP/fake-claude-fail"
+printf '#!/usr/bin/env bash\nexit 1\n' > "$FAKE_FAIL"; chmod +x "$FAKE_FAIL"
+out=$("$SWEEP" --jobs-dir "$SJOBS" --notebook-dir "$NB" --claude-bin "$FAKE_FAIL" --log "$TMP/sweeplog.md" 2>&1); rc=$?
+eq   "a failed listing refuses"                "$rc" 2
+has  "and says it will not sweep blind"        "$out" "refusing to sweep without knowing"
+printf '{"sessions":[{"sessionId":"eeeeeeee-1111-2222-3333-444444444444","status":"idle"}]}' > "$TMP/listing.json"
+out=$(sweep); rc=$?
+eq   "a listing that is not an array refuses"  "$rc" 2
+has  "and says why"                            "$out" "not a JSON array"
+printf '[]' > "$TMP/listing.json"
+
+# TWO ENTRIES FOR ONE ID: the NEWEST decides. An older `archived/ended` beside a newer `draft/running` used to
+# sweep the job, because the index took the first match in oldest-filename order.
+entry "Agent session 2026-09-20T0100.md" 'session: "[L0-CC] two for one"' 'session-id: 66666666-1111-2222-3333-444444444444' 'agent: lieutenant' 'cwd: /tmp/two' 'status: archived/ended' >/dev/null
+entry "Agent session 2026-09-29T2300.md" 'session: "[L0-CC] two for one"' 'session-id: 66666666-1111-2222-3333-444444444444' 'agent: lieutenant' 'cwd: /tmp/two' 'status: draft/running' >/dev/null
+mkjob 66666666 66666666-1111-2222-3333-444444444444 "[L0-CC] two for one"
+out=$(sweep)
+has  "the newest entry decides, not the first" "$out" "SKIP  66666666"
+has  "and the skip quotes the newest state"    "$out" "reads 'running'"
+
+# THE ARCHIVE ROOT IS READ IN PRODUCTION. An ended entry MOVES there, so a sweeper that reads only the
+# notebook skips exactly the population it exists for — which is what the first version did, with
+# `--agents-dir` accepted and ignored.
+AR="$TMP/agents"; mkdir -p "$AR/03.04 Records/Agent notebook/2026-09" "$AR/03.09 Archive/Agent notebook/2026-09"
+printf -- '---\nsession: "[L0-CC] in the archive"\nsession-id: 88888888-1111-2222-3333-444444444444\nagent: lieutenant\ncwd: /tmp/arch\nstatus: archived/ended\n---\n' \
+  > "$AR/03.09 Archive/Agent notebook/2026-09/Agent session 2026-09-28T0100.md"
+mkjob 88888888 88888888-1111-2222-3333-444444444444 "[L0-CC] in the archive"
+out=$("$SWEEP" --jobs-dir "$SJOBS" --agents-dir "$AR" --claude-bin "$FAKE" --log "$TMP/sweeplog.md" 2>&1)
+has  "--agents-dir is honoured, not ignored"   "$out" "WOULD REMOVE  88888888"
+has  "and the archive root is read"            "$out" "03.09 Archive"
 # --go NEEDS --by, because a removal is an act and an act is attributed.
 out=$(sweep --go 2>&1); rc=$?
 eq   "--go without --by refuses"               "$rc" 2
@@ -255,5 +349,12 @@ eq   "and it called claude rm with the SHORT id" "$(cat "$TMP/removed.log" 2>/de
 has  "and wrote one release line"              "$(cat "$TMP/sweeplog.md" 2>/dev/null)" "— release"
 has  "naming the entry it read"                "$(cat "$TMP/sweeplog.md" 2>/dev/null)" "Agent session 2026-09-29T0405.md"
 
-printf '\n%s checks, %s failed, %s skipped\n' "$n" "$fails" "$skips"
+# THE COUNT IS PART OF THE PROOF. `claude/tests/README.md` requires it because a suite in this directory once
+# printed "0 failed" while two of its assertions never ran at all — a section swallowed by a `set -u` abort
+# still ends with a happy total. Update EXPECTED deliberately when you add a case.
+# 80, TAKEN FROM A CLEAN RUN rather than guessed. The first value here was a guess and the guard fired on its
+# own suite — which is the right failure, and the reason to set this from a run you have just watched pass.
+EXPECTED=80
+printf '\n%s checks, %s failed, %s skipped (expected %s checks)\n' "$n" "$fails" "$skips" "$EXPECTED"
+[ "$n" = "$EXPECTED" ] || { printf 'FAIL  the suite ran %s checks, not the %s it expects — a section did not run\n' "$n" "$EXPECTED"; exit 1; }
 [ "$fails" = 0 ] || exit 1

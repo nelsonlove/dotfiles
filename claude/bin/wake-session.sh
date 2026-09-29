@@ -796,7 +796,11 @@ if [ -n "$ships" ]; then
     if ship_is_known "$one_ship"; then
       print_ship_block "$one_ship" "SHIP $one_ship"
     else
-      print_ship_block "$one_ship" "SHIP $one_ship — not one of the known ships ($KNOWN_SHIPS); listed as the name spells it"
+      # THE LIST COMES FROM THE VARIABLE, never from a hand-written one, and it is readable: with four codes
+      # `CC OB HS FL` reads fine, with the twelve #72 adds it does not. `ships_in_words` in the shared table
+      # is the right home for the wording and does not exist on this base yet — when it lands, this becomes
+      # one call. What must never appear here is a list somebody typed out.
+      print_ship_block "$one_ship" "SHIP $one_ship — not one of the known ships ($(printf '%s' "$KNOWN_SHIPS" | sed -E 's/ /, /g')); listed as the name spells it"
     fi
   done <<EOF
 $ships

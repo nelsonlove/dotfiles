@@ -98,6 +98,28 @@ roster_write() {  # $1 = this session's running entry
   rw_entry="$1"
   [ -n "$rw_entry" ] && [ -f "$rw_entry" ] && [ -w "$rw_entry" ] || return 0
 
+  # IT MUST BE OUR ENTRY, AND THE TEST IS THE ID — NOT THE NAME. The loop that found this file matched on the
+  # DISPLAY NAME and took the first entry reading `running`, in directory order. A name recurs: eleven sessions
+  # shared one on 2026-09-26, and a stale `draft/running` entry from an earlier session sorts first. The review
+  # of #71 proved the consequence — today's facts written over another session's record, today's real entry
+  # left with nothing. So: an entry that already carries a DIFFERENT `session-id` is never touched. An entry
+  # with no id is adopted, because that is what an entry written before this ruling looks like, and an entry
+  # carrying our own id is ours to keep current.
+  rw_existing=$(awk 'NR == 1 { if ($0 !~ /^---[ \t\r]*$/) exit 1; next }
+                     /^---[ \t\r]*$/ { exit }
+                     /^session-id[ \t]*:/ { sub(/^session-id[ \t]*:[ \t]*/, ""); gsub(/\r/, ""); gsub(/^["\047]|["\047][ \t]*$/, ""); print; exit }' "$rw_entry" 2>/dev/null || true)
+  if [ -n "$rw_existing" ] && [ "$rw_existing" != "$sid" ]; then
+    printf 'notebook-name-sync: %s carries session-id %s, not this session; nothing written\n' "$rw_entry" "$rw_existing" >&2
+    return 0
+  fi
+
+  # AND THE FRONTMATTER MUST BE CLOSED. Without a closing fence there is no block, only a file — and the first
+  # version of this stayed "inside frontmatter" to the end of it, rewriting body lines that happened to begin
+  # `agent:` or `cwd:`. A record whose prose is edited is worse than a key that never lands.
+  awk 'NR == 1 { if ($0 !~ /^---[ \t\r]*$/) exit 1; next }
+       /^---[ \t\r]*$/ { found = 1; exit }
+       END { exit (found ? 0 : 1) }' "$rw_entry" 2>/dev/null || return 0
+
   # The agent: job state first, registry second, nothing if neither says.
   rw_job_id=$(jq -r '.jobId // ""' "$reg_file" 2>/dev/null || echo "")
   [ -n "$rw_job_id" ] || rw_job_id=$(printf '%s' "$sid" | cut -c1-8)
@@ -108,20 +130,35 @@ roster_write() {  # $1 = this session's running entry
   rw_cwd=$(jq -r '.cwd // ""' "$reg_file" 2>/dev/null || echo "")
   [ -n "$rw_cwd" ] || rw_cwd=$(jq -r '.cwd // ""' "$JOBS_DIR/$rw_job_id/state.json" 2>/dev/null || echo "")
 
+  # A VALUE GOES IN QUOTED, OR NOT AT ALL. Unquoted, a trailing space or a ` #` was lost on the round trip —
+  # and the reader strips exactly those — so a post-rm resume would have started in the wrong directory. A
+  # value carrying a newline, a double quote or a backslash is REFUSED rather than escaped: nothing in a cwd
+  # or an agent name legitimately holds one, and a quoting bug in a vault note breaks the note's properties.
+  # ONE CHARACTER PER ALTERNATIVE, no nested quoting. The first version built this class through two layers of
+  # shell quoting and came out matching a plain `n`, so every path containing one — every real path — was
+  # thrown away and `cwd` was silently never written. The suite caught it within the minute: two keys landed
+  # and the third did not. A quoting trick that needs explaining is a bug waiting for a reader.
+  case "$rw_agent" in *'"'*) rw_agent="" ;; esac
+  case "$rw_agent" in *'\\'*) rw_agent="" ;; esac
+  case "$rw_cwd" in *'"'*) rw_cwd="" ;; esac
+  case "$rw_cwd" in *'\\'*) rw_cwd="" ;; esac
+
   rw_tmp="$rw_entry.roster.$$"
   if ! awk -v sid="$sid" -v agent="$rw_agent" -v cwd="$rw_cwd" '
-    # Only inside the frontmatter block, and only the three keys. Everything else passes through byte for
-    # byte, including the body, because this is a record and nothing here is entitled to rewrite it.
-    NR == 1 { if ($0 !~ /^---[ \t\r]*$/) { bad = 1; exit 1 } print; infm = 1; next }
+    function q(v) { return "\"" v "\"" }
+    # Only inside the frontmatter block, only at column zero, and only these three keys. Column zero matters:
+    # `^[ \t]*cwd:` also matches a key nested under a parent mapping, and rewriting that hoists it out and
+    # destroys the parent — the review found it, with the line count unchanged so the guard below passed.
+    NR == 1 { print; infm = 1; next }
     infm && /^---[ \t\r]*$/ {
-      if (!seen_id && sid != "")     print "session-id: " sid
-      if (!seen_agent && agent != "") print "agent: " agent
-      if (!seen_cwd && cwd != "")    print "cwd: " cwd
+      if (!seen_id && sid != "")      print "session-id: " q(sid)
+      if (!seen_agent && agent != "") print "agent: " q(agent)
+      if (!seen_cwd && cwd != "")     print "cwd: " q(cwd)
       infm = 0; print; next
     }
-    infm && /^[ \t]*session-id[ \t]*:/ { seen_id = 1;    if (sid   != "") { print "session-id: " sid; next } }
-    infm && /^[ \t]*agent[ \t]*:/      { seen_agent = 1; if (agent != "") { print "agent: " agent;    next } }
-    infm && /^[ \t]*cwd[ \t]*:/        { seen_cwd = 1;   if (cwd   != "") { print "cwd: " cwd;        next } }
+    infm && /^session-id[ \t]*:/ { if (!seen_id)    { seen_id = 1;    if (sid   != "") { print "session-id: " q(sid); next } } }
+    infm && /^agent[ \t]*:/      { if (!seen_agent) { seen_agent = 1; if (agent != "") { print "agent: " q(agent);    next } } }
+    infm && /^cwd[ \t]*:/        { if (!seen_cwd)   { seen_cwd = 1;   if (cwd   != "") { print "cwd: " q(cwd);        next } } }
     { print }
   ' "$rw_entry" > "$rw_tmp" 2>/dev/null; then
     rm -f "$rw_tmp" 2>/dev/null || true
