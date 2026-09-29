@@ -191,6 +191,21 @@ case "$(head -1 "$OUT")" in *"read the log"*) r=notice ;; *) r="$(head -1 "$OUT"
 eq "a stalled rewrite gives at most one notice line" "$(lines)|$r" "1|notice"
 stop
 
+# 9l. Review 3 of #77: a small resume gap with many short entries prints them all; the per-tick cap is for
+# rewrites, not for a gap that --state has already checked.
+seed; ST4="$T/state4"; start --state "$ST4"; stop
+for i in $(seq 10 21); do entry "2026-09-29T08:$i" "Short $i."; done
+start --state "$ST4"; waitfor 12
+eq "a checked resume gap of 12 short entries prints all 12" "$(lines)" 12
+stop
+# 9m. An entry printed after quiet is saved as printed: a kill -9 then does not print it again.
+seed; ST5="$T/state5"; start --state "$ST5"
+entry "2026-09-29T08:30" "Once."; waitfor 1; sleep 1
+kill -KILL "$PID" 2>/dev/null; wait "$PID" 2>/dev/null; PID=""
+start --state "$ST5"; sleep 4
+eq "after kill -9, the printed entry is not printed again" "$(lines)" 0
+stop
+
 # 9h. GNU stat: with a GNU `stat` first on PATH, it still follows (tested with gstat where it exists).
 if command -v gstat >/dev/null 2>&1; then
   mkdir -p "$T/gnu"; ln -sf "$(command -v gstat)" "$T/gnu/stat"
@@ -214,7 +229,7 @@ if kill -0 "$HP" 2>/dev/null; then eq "a closed pipe ends it" alive gone; killal
 left=$(pgrep -f "xlog-follow.sh --log $LOG" | wc -l | tr -d ' ')
 eq "no follower is left running" "$left" 0
 
-EXPECTED=34
+EXPECTED=36
 printf '\n%s checks (expected %s), %s failed\n' "$n" "$EXPECTED" "$fails"
 [ "$n" = "$EXPECTED" ] || { echo "FAIL  the check count is $n, expected $EXPECTED"; exit 1; }
 [ "$fails" = 0 ] || exit 1

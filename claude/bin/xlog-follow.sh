@@ -98,6 +98,7 @@ notice() { printf 'xlog-follow: %s; read the log from your last-read stamp: %s\n
 settle=0        # >0 while waiting for a cut or rewrite to finish: polls with no change still needed
 buf=""          # the entry being collected: empty, or text that starts with a stamped heading
 last_new=$SECONDS
+resumed=0
 RESUME_MAX=16384   # a resume gap, or one tick's growth, bigger than this prints one notice instead of the entries
 MAX_HEADS=10       # more stamped headings than this in one tick's growth is a notice too
 
@@ -112,6 +113,7 @@ if [ -n "$state" ] && [ -f "$state" ]; then
       notice "$(( offset - s_offset )) bytes of new entries arrived since the last run, too many to print here"
     else
       offset=$s_offset; fp=$s_fp   # the loop reads the gap on its first tick
+      resumed=1                    # that gap passed the fingerprint and size checks: no per-tick heading cap on it
     fi
   else
     # The log was replaced, cut or rewritten since the last run: what came in between cannot be told apart from
@@ -165,9 +167,17 @@ while :; do
     while case "$rest_c" in *"$NL"$HEAD_GLOB*) true ;; *) false ;; esac; do
       heads=$(( heads + 1 )); rest_c="${rest_c#*"$NL"$HEAD_GLOB}"; [ "$heads" -le "$MAX_HEADS" ] || break
     done
+    # The heading cap does not apply to the first read after a good resume: that gap came in over time, and
+    # --state already checked it (review 3 of #77).
+    [ "$resumed" = 1 ] && heads=0
+    resumed=0
     if [ $(( n_size - offset )) -gt "$RESUME_MAX" ] || [ "$heads" -gt "$MAX_HEADS" ]; then
       if is_entry "$buf"; then emit "$buf"; fi
-      notice "$(( n_size - offset )) bytes with more than $MAX_HEADS entries arrived at once, too many to be appends"
+      if [ "$heads" -gt "$MAX_HEADS" ]; then
+        notice "more than $MAX_HEADS entries arrived at once, too many to be appends"
+      else
+        notice "$(( n_size - offset )) bytes arrived at once, too many to be appends"
+      fi
       buf=""; offset=$n_size; fp=$(fingerprint "$log" "$offset"); last_new=$SECONDS; save_state
       continue
     fi
@@ -198,11 +208,13 @@ while :; do
       emit "$head$body"
       buf="$rest"
     done
+    save_state   # printed entries are saved as printed (review 3 of #77: a kill -9 printed one twice)
   fi
 
   # Quiet for 3 seconds: the pending entry is complete.
   if [ -n "$buf" ] && [ $(( SECONDS - last_new )) -ge 3 ]; then
     if is_entry "$buf"; then emit "$buf"; fi
     buf=""
+    save_state
   fi
 done
