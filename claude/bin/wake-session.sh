@@ -202,6 +202,13 @@ NOTEBOOK_ROOTS_LIB="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)/../lib/noteboo
 bash -n "$NOTEBOOK_ROOTS_LIB" 2>/dev/null || die "the notebook-roots library at $NOTEBOOK_ROOTS_LIB does not parse; refusing rather than reading half a notebook"
 # shellcheck source=../lib/notebook-roots.sh
 . "$NOTEBOOK_ROOTS_LIB" || die "the notebook-roots library at $NOTEBOOK_ROOTS_LIB could not be sourced"
+# THE bg-id PARSER, the one reader of the new id in `claude --bg` output (shared by promote-session.sh and wake-session.sh). Guarded as the other libraries are: readable, parses, defines bg_id.
+BG_ID_LIB="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)/../lib/bg-id.sh"
+[ -r "$BG_ID_LIB" ] || die "the bg-id parser is missing or unreadable at $BG_ID_LIB"
+bash -n "$BG_ID_LIB" 2>/dev/null || die "the bg-id parser at $BG_ID_LIB does not parse; refusing"
+# shellcheck source=../lib/bg-id.sh
+. "$BG_ID_LIB" || die "the bg-id parser at $BG_ID_LIB could not be sourced"
+command -v bg_id >/dev/null 2>&1 || die "the bg-id parser at $BG_ID_LIB parsed but defined no bg_id; refusing"
 for fn in notebook_roots_of entries_in_root notebook_dir_for archive_dir_for; do
   command -v "$fn" >/dev/null 2>&1 || die "the notebook-roots library at $NOTEBOOK_ROOTS_LIB parsed but defined no $fn; refusing"
 done
@@ -640,7 +647,8 @@ wake_stopped() {  # uses row_*; $1 = the message
   # second session running, which is the very hazard the live path exists to avoid.
   out_clean=$(printf '%s' "$out" | tr -d '\r' | sed -E $'s/\x1b\\[[0-9;?]*[A-Za-z]//g')
   copy_id=$(printf '%s\n' "$out_clean" | sed -n -E 's/.*started a copy as ([0-9a-f]{6,}).*/\1/p' | head -n 1)
-  bg_id=$(printf '%s\n' "$out_clean" | awk '/^backgrounded/ { for (i = 1; i <= NF; i++) if ($i ~ /^[0-9a-f]{6,}$/) { print $i; exit } }')
+  # The id it backgrounded comes from the shared parser. No id, or two, is a refusal. The session may be running, so `woken_unlogged` stays set and the exit trap names it for a record by hand.
+  bg_id=$(printf '%s' "$out" | bg_id) || die "could not read the backgrounded id from the resume of $row_id (bg-id says why, above); $row_id may be running now, so check \`claude agents --json\` before anything else; nothing was logged. Resume output: $out"
   forked_id="$copy_id"
   if [ -z "$forked_id" ] && [ -n "$bg_id" ] && [ "$bg_id" != "$row_id" ]; then forked_id="$bg_id"; fi
   if [ -n "$forked_id" ]; then

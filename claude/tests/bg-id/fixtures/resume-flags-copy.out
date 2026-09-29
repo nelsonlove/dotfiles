@@ -1,0 +1,6 @@
+note: background session 05ab1bf4 keeps its own saved options, so the flags you passed started a copy as 236a4f0e. Without flags, the same command continues 05ab1bf4 itself.
+backgrounded · [36m236a4f0e[39m · [L0-CC] bg-id rename test
+[2m  claude agents             list sessions[22m
+[2m  claude attach 236a4f0e    open in this terminal[22m
+[2m  claude logs 236a4f0e      show recent output[22m
+[2m  claude stop 236a4f0e      stop this session[22m
