@@ -38,7 +38,7 @@ Only `id` is required. A birthday with no year is written `--MM-DD`. Labels may 
 
 ## Keys
 
-The job owns the vCard keys of the families in `keys`: `FN`, `N.GN`, `N.MN`, `N.FN`, `ORG`, `ROLE`, `TEL[…]`, `EMAIL[…]`, `ADR[…].STREET/LOCALITY/REGION/POSTAL/COUNTRY`, `URL[…]`, `BDAY` and `ANNIVERSARY`. It also owns `modified` and the two status keys. It never writes `uid`, `title`, `aliases`, `tags`, `source`, `UID`, `VERSION`, `messages`, `last-contacted`, `photos-faces` or the body. An unchanged key keeps its line exactly as it was. A key the card no longer has is removed.
+The job owns the vCard keys of the families in `keys`. Today that is the people ship's list: `FN`, `N.GN`, `N.MN`, `N.FN`, `ORG`, `ROLE`, `TEL[…]`, `BDAY` and `ANNIVERSARY`. `EMAIL`, `ADR` and `URL` keys are not on it, so the job leaves them as they are. The reader may still print them, and adding a family to `keys` puts it under the job. It also owns `modified` and the two status keys. It never writes `uid`, `title`, `aliases`, `tags`, `source`, `UID`, `VERSION`, `messages`, `last-contacted`, `photos-faces` or the body. An unchanged key keeps its line exactly as it was. A key the card no longer has is removed.
 
 A note whose card is gone gets `contact-status: missing-from-contacts` and `contact-missing-since: <date>`, and nothing else changes. The job never deletes, trashes or moves a note. If the card comes back, it removes both keys.
 

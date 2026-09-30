@@ -1,10 +1,25 @@
 {
-  "_comment": "contacts-mirror settings. 'reader' is the command that prints the cards as JSON (schema in README.md); it is a placeholder until Nelson picks the reader road. 'keys' is the list of vCard key families the mirror carries: the people ship will send its list, and this is the only place to change it. 'create' is who gets a new note: only 'none' exists until the people ship rules. The job never writes a key outside 'keys', except 'modified', 'contact-status' and 'contact-missing-since'.",
-  "reader": ["/usr/bin/false"],
+  "_comment": "contacts-mirror settings. 'reader' is the command that prints the cards as JSON (schema in README.md); it is a placeholder until Nelson picks the reader road. 'keys' is the list of vCard key families the mirror carries: the people ship will send its list, and this is the only place to change it. 'create' is who gets a new note: only 'none' exists until the people ship rules. The job never writes a key outside 'keys', except 'modified', 'contact-status' and 'contact-missing-since'. The key list is the people ship's (2026-09-30): FN, the N keys, TEL, ORG, ROLE, BDAY, ANNIVERSARY. EMAIL, ADR and URL keys are not on it, so the job leaves them as they are. source, UID and VERSION wait on a ruling (the obsidian ship says the job never writes source).",
+  "reader": [
+    "/usr/bin/false"
+  ],
   "reader_timeout": 120,
   "folder": "20-29 People/27 PRM/27.20 Contacts",
   "vault": "obsidian",
-  "bridge": ["/opt/homebrew/bin/node", "/Users/nelson/.claude/vault-mcp/bridge.mjs"],
-  "keys": ["FN", "N.GN", "N.MN", "N.FN", "ORG", "ROLE", "TEL", "EMAIL", "ADR", "URL", "BDAY", "ANNIVERSARY"],
+  "bridge": [
+    "/opt/homebrew/bin/node",
+    "/Users/nelson/.claude/vault-mcp/bridge.mjs"
+  ],
+  "keys": [
+    "FN",
+    "N.GN",
+    "N.MN",
+    "N.FN",
+    "ORG",
+    "ROLE",
+    "TEL",
+    "BDAY",
+    "ANNIVERSARY"
+  ],
   "create": "none"
 }

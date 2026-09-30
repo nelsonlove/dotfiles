@@ -154,6 +154,13 @@ class Rewrite(unittest.TestCase):
         self.assertEqual(sorted(changed), ["contact-missing-since", "contact-status"])
         self.assertNotIn("contact-", new)
 
+    def test_family_not_carried_is_left_alone(self):
+        pp = ["FN", "N.GN", "N.MN", "N.FN", "ORG", "ROLE", "TEL", "BDAY", "ANNIVERSARY"]  # the people ship's list
+        card = dict(ADA_CARD, email=[], adr=[])  # the card has no email or address at all
+        new, changed = mirror.rewrite(ADA, mirror.card_keys(card, pp), mirror.owned_pattern(pp), None, self.STAMP)
+        self.assertEqual(changed, [])
+        self.assertEqual(new, ADA)  # EMAIL and ADR lines kept: not the job's keys
+
     def test_quoting(self):
         for v in ("+1 555 0100", "00001", "1990-01-02", "true", "a: b", "#x", "O'Brien", "Ümlaut"):
             y = mirror.yaml_value(v)
