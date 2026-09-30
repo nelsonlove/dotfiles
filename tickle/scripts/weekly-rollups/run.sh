@@ -27,7 +27,7 @@
 #
 # The queue item road: written straight to disk, created with noclobber so a second run never overwrites or duplicates it. Not through vault-mcp: a scheduled shell job has no MCP client, and a create-only write needs no `if_rev`.
 #
-# Test seams (environment): WR_VAULT (vault root), WR_FLEET_GATE (the fleet gate command), WR_CLAUDE (the claude binary), WR_DISPATCH_CWD (the dispatch directory), WR_CLAUDE_JSON (the file holding workspace trust), WR_DISPATCH_TIMEOUT (seconds allowed for `claude --bg`, default 300), WR_CONFIRM_TRIES and WR_CONFIRM_SLEEP (how long to wait for the dispatched session to appear), WR_LOCK (the lock file), PAUSE_NOTE (passed to pause-gate.sh), and WR_TEST_DAEMON_KEY_PIDS (the pids guard 8 reports as holding the key, in place of the real scan; set, even empty, it REPLACES the scan, so it is for the tests only).
+# Test seams (environment): WR_VAULT (vault root), WR_FLEET_GATE_LIB (a stand-in for claude/lib/fleet-gate.sh), WR_CLAUDE (the claude binary), WR_DISPATCH_CWD (the dispatch directory), WR_CLAUDE_JSON (the file holding workspace trust), WR_DISPATCH_TIMEOUT (seconds allowed for `claude --bg`, default 180), WR_CONFIRM_CALL_TIMEOUT (seconds per confirm listing, default 20), WR_CONFIRM_TRIES and WR_CONFIRM_SLEEP (how long to wait for the dispatched session to appear), WR_LOCK (the lock file), PAUSE_NOTE (passed to pause-gate.sh), and WR_TEST_DAEMON_KEY_PIDS (the pids guard 8 reports as holding the key, in place of the real scan; set, even empty, it REPLACES the scan, so it is for the tests only).
 #
 # Written for /bin/bash 3.2 (macOS): no associative arrays, no mapfile, no ${var,,}.
 
@@ -79,7 +79,6 @@ done
 
 here=$(cd "$(dirname "$0")" && pwd -P) || finish 2 "cannot resolve the script directory"
 PAUSE_GATE="$here/../_lib/pause-gate.sh"
-FLEET_GATE="${WR_FLEET_GATE:-$HOME/.claude/bin/fleet-gate}"
 # The shared libraries in claude/lib/, found by walking up to the repo root as pause-gate.sh does: the frontmatter reader
 # (read_frontmatter, fm_value) and the one `claude --bg` id parser (bg_id).
 root="$here"
@@ -188,6 +187,7 @@ respond() {
   awk -v st="$st" -v nd="$rn" '
       BEGIN { ln = ENVIRON["WR_LN"] }
       BEGIN { fm = 0; inr = 0; done = 0; sawn = 0 }
+      { sub(/\r$/, "") }
       fm < 2 && /^---$/ { if (fm == 1 && !sawn) print "needs: " nd; fm++; print; next }
       fm == 1 && /^needs:/ { print "needs: " nd; sawn = 1; next }
       fm == 1 && /^modified:/ { print "modified: " st; next }
@@ -214,8 +214,9 @@ file_queue_item() {
     return 0
   fi
   if [ "$kind" = "not started" ] && [ -z "$suffix" ]; then
-    open1=$(open_not_started "$qw" | while IFS= read -r f; do is_ours "$f" && printf '%s\n' "$f"; done | head -1)
-    [ -n "$open1" ] || open1=$(open_not_started "$qw" | head -1)   # none of ours: a foreign one, so respond() files a dated one of ours
+    opens=$(open_not_started "$qw")
+    open1=$(printf '%s\n' "$opens" | while IFS= read -r f; do [ -n "$f" ] && is_ours "$f" && printf '%s\n' "$f"; done | head -1)
+    [ -n "$open1" ] || open1=$(printf '%s\n' "$opens" | grep . | head -1)   # none of ours: a foreign one, so respond() files a dated one of ours
     if [ -n "$open1" ]; then
       if [ "$dry" = "1" ]; then say "would add the new cause to queue item: $open1"; return 0; fi
       respond "$open1" ruling "Failed again: $why"
@@ -297,6 +298,7 @@ check_previous() {
     say "previous week $prev missing:$missing"
     # Last week's lieutenant, with guard 4's filter: only one at work (busy, or idle and not done) and younger than 24 h holds the "missed" item back. One that is finished, or at work for 24 h or more (stuck), does not: the item is filed and says so. This is where a scheduled run sees last week's stuck lieutenant.
     prev_work=0; prev_other=0
+    fetch_agents   # only here, when last week is incomplete: so a lieutenant still writing it is seen, on every path
     if [ -n "${agents:-}" ]; then
       pc=$(printf '%s' "$agents" | jq -r --arg n "$LT_BASE $prev" --argjson now "${now_ms:-0}" '
         [.[] | select((.name // "") | startswith($n))] as $m
@@ -336,26 +338,32 @@ case "$prc" in
 esac
 
 # ---- 2. the fleet load gate (Nelson's "a", log 2026-09-30T05:32: the 5-minute load under 8 AND fewer than 20 live sessions) ----
-[ -x "$FLEET_GATE" ] || finish 2 "the fleet gate is missing or not executable: $FLEET_GATE"
-gate_msg=$(env -u ANTHROPIC_API_KEY "$FLEET_GATE" 2>&1)
+# Asked through the shared caller, claude/lib/fleet-gate.sh (fleet_gate_check), from the same repo root as the other libraries, and under an alarm (WR_CLAUDE_TIMEOUT), because the gate lists the sessions through `claude` and a wedged daemon must not hang the run while it holds the lock. The gate exits 1 both when it holds and when it cannot check, so its LINE tells them apart: only the load-and-sessions verdict is a skip; anything else (a listing it could not read, a bad limit, a gate that is missing or timed out) is exit 2.
+FG_LIB="${WR_FLEET_GATE_LIB:-$root/claude/lib/fleet-gate.sh}"
+[ -r "$FG_LIB" ] || finish 2 "the fleet gate library is missing: $FG_LIB"
+gate_msg=$(env -u ANTHROPIC_API_KEY FG_LIB="$FG_LIB" /usr/bin/perl -e 'alarm shift; exec @ARGV or exit 127' "${WR_CLAUDE_TIMEOUT:-60}" \
+  /bin/bash -c '. "$FG_LIB" || exit 3; fleet_gate_check; rc=$?; printf "%s" "$FLEET_GATE_VERDICT"; exit $rc' </dev/null 2>&1)
 grc=$?
 case "$grc" in
   0) say "fleet gate: open" ;;
-  1) finish 0 "SKIPPED — ${gate_msg:-the fleet gate is holding}" ;;
-  *) finish 2 "the fleet gate failed (exit $grc): $gate_msg" ;;
+  1) if printf '%s' "$gate_msg" | grep -Eq '^fleet-gate: 5-min load [0-9.]+ \(limit [0-9.]+\), [0-9]+ live sessions \(limit [0-9]+\); holding$'; then
+       finish 0 "SKIPPED — $gate_msg"
+     fi
+     finish 2 "the fleet gate could not check: ${gate_msg:-(no reason given)}" ;;
+  *) finish 2 "the fleet gate failed (exit $grc; above 128 means it timed out): ${gate_msg:-(no reason given)}" ;;
 esac
 
 # ---- 3. no overwrite ----
-if [ "$(missing_parts "$week")" != " notebook cross-session" ]; then
+wm=$(missing_parts "$week")
+if [ "$wm" != " notebook cross-session" ]; then
   exists=""
-  [ -e "$(nb_file "$week")" ] && exists="$exists $(nb_file "$week")"
-  [ -e "$(xs_file "$week")" ] && exists="$exists $(xs_file "$week")"
-  if complete "$week"; then
+  case "$wm" in *notebook*) ;; *) exists="$exists $(nb_file "$week")" ;; esac
+  case "$wm" in *cross-session*) ;; *) exists="$exists $(xs_file "$week")" ;; esac
+  if [ -z "$wm" ]; then
     [ "$dry" = "1" ] || settle "$week" complete
   else
     say "only one of the two $week rollups exists (a lieutenant may still be writing); nothing settled, nothing filed — next week's guard 5 reports the week if it stays half-written"
   fi
-  fetch_agents   # so check_previous sees a lieutenant for last week that is still writing
   check_previous
   finish 0 "SKIPPED — $week already has a rollup, nothing overwritten, nothing dispatched:$exists"
 fi
@@ -435,7 +443,7 @@ if [ -n "${WR_TEST_DAEMON_KEY_PIDS+set}" ] && [ -n "${WR_CLAUDE:-}" ]; then keye
 fi
 keyed=$(printf '%s' "$keyed" | sed 's/ *$//')
 
-cmd=(env -u ANTHROPIC_API_KEY /usr/bin/perl -e 'alarm shift; exec @ARGV or exit 127' "${WR_DISPATCH_TIMEOUT:-300}" "$CLAUDE" --bg --agent lieutenant --name "$LT_NAME" -- "$brief")
+cmd=(env -u ANTHROPIC_API_KEY /usr/bin/perl -e 'alarm shift; exec @ARGV or exit 127' "${WR_DISPATCH_TIMEOUT:-180}" "$CLAUDE" --bg --agent lieutenant --name "$LT_NAME" -- "$brief")
 
 if [ "$dry" = "1" ]; then
   say "environment: claude = $(command -v "$CLAUDE"); PATH = $PATH"
@@ -460,34 +468,28 @@ fi
 out=$(cd "$DISPATCH_CWD" && "${cmd[@]}" 2>&1)
 drc=$?
 say "dispatch output: $out"
-if [ "$drc" -ne 0 ]; then
-  # A dispatch killed by the alarm (or failing late) may still have registered: guard 4 found none of this name before, and the lock keeps other runs out, so one listed now is ours.
-  late=$(cl agents --json 2>/dev/null | jq -r --arg n "$LT_NAME" '[.[] | select((.name // "") | startswith($n))] | length' 2>/dev/null) || late=0
-  if [ "${late:-0}" -ge 1 ] 2>/dev/null; then
-    say "claude --bg exited $drc, but a session named $LT_NAME is now listed: taking it as started"
-    settle "$week" started
-    finish 0 "dispatched $LT_NAME for $week (claude --bg exited $drc, the session is listed)"
-  fi
-  file_queue_item "not started" "$week" "\`claude --bg\` exited $drc, so no lieutenant was started."
-  finish 4 "claude --bg exited $drc"
-fi
 
-# The id `claude --bg` prints, read by the one shared parser (claude/lib/bg-id.sh, #104); the confirm matches that id, not a name, so a hand dispatch of the same name at the same moment can never confirm this one.
-new_id=$(printf '%s' "$out" | bg_id 2>/dev/null) || new_id=""
+# The id `claude --bg` printed, read by the one shared parser (claude/lib/bg-id.sh, #104). The confirm matches that ID, never a name, so a hand dispatch of the same name can never confirm this one. A dispatch that exited non-zero (the alarm, or a late error) is still confirmed if it printed an id and that id appears.
+bg_parse <<<"$out" || true
+new_id="$BG_NEW"
+[ -z "$BG_COPY" ] || say "claude --bg reports a copy started as $BG_COPY"
 if [ -z "$new_id" ]; then
-  file_queue_item "not started" "$week" "\`claude --bg\` exited 0 but its output held no session id the shared parser could read, so the job cannot confirm a lieutenant started. Output: $out"
-  finish 4 "could not read the new session id from: $out"
+  why="\`claude --bg\` exited $drc and its output held no session id the shared parser could read (${BG_ERR:-no reason}), so the job cannot confirm a lieutenant started. If one is listed as $LT_NAME in \`claude agents\`, it may have started after all."
+  file_queue_item "not started" "$week" "$why"
+  finish 4 "no session id from claude --bg (exit $drc): ${BG_ERR:-$out}"
 fi
 tries="${WR_CONFIRM_TRIES:-10}"; nap="${WR_CONFIRM_SLEEP:-3}"; seen=0; i=0
 while [ "$i" -lt "$tries" ]; do
-  n=$(cl agents --json 2>/dev/null | jq -r --arg id "$new_id" '[.[] | select(.id == $id or ((.sessionId // "") | startswith($id)))] | length' 2>/dev/null) || n=0
+  n=$(env -u ANTHROPIC_API_KEY /usr/bin/perl -e 'alarm shift; exec @ARGV or exit 127' "${WR_CONFIRM_CALL_TIMEOUT:-20}" "$CLAUDE" agents --json 2>/dev/null \
+      | jq -r --arg id "$new_id" '[.[] | select(.id == $id or ((.sessionId // "") | startswith($id)))] | length' 2>/dev/null) || n=0
   [ "${n:-0}" -ge 1 ] 2>/dev/null && { seen=1; break; }
   i=$((i + 1)); [ "$i" -lt "$tries" ] && sleep "$nap"
 done
 if [ "$seen" != "1" ]; then
-  file_queue_item "not started" "$week" "\`claude --bg\` returned 0, but its session $new_id did not appear in \`claude agents --json\`."
-  finish 4 "claude --bg returned 0 but session $new_id did not appear in 'claude agents --json'"
+  file_queue_item "not started" "$week" "\`claude --bg\` exited $drc and printed session $new_id, but that session did not appear in \`claude agents --json\`."
+  finish 4 "claude --bg (exit $drc) printed $new_id, but it did not appear in 'claude agents --json'"
 fi
+[ "$drc" = 0 ] || say "claude --bg exited $drc, but its session $new_id is listed: taken as started"
 settle "$week" started
 
 finish 0 "dispatched $LT_NAME for $week"
