@@ -1,0 +1,2 @@
+# Raw claude --bg output, byte for byte: the CRs and escape codes are what the parser is tested on, so git must not normalise line ends here.
+* -text

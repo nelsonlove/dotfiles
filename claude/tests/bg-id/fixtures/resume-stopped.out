@@ -1,0 +1,6 @@
+note: woke session 2dae6ecc with its saved options (--name, --model, --permission-mode).
+backgrounded · [36m2dae6ecc[39m · [L0-CC] bg-id test
+[2m  claude agents             list sessions[22m
+[2m  claude attach 2dae6ecc    open in this terminal[22m
+[2m  claude logs 2dae6ecc      show recent output[22m
+[2m  claude stop 2dae6ecc      stop this session[22m
