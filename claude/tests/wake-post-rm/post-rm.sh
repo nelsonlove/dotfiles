@@ -176,6 +176,7 @@ touch "$T/projects/$(enc "$T/work")/$ID.jsonl"
 reset; wake "$ID"
 eq  "a transcript written just now: exit 3, not resumed" "$rc" 3
 eq  "and nothing was run" "$(cat "$T/calls")" ""
+lacks "and the SendMessage text for a maybe-live session carries no ended-entry line" "$out" "was ended while you were stopped"
 touch -t 202601010000 "$T/projects/$(enc "$T/work")/$ID.jsonl"
 # A copy at the recorded cwd AND another elsewhere is two places, not "here".
 transcript "$T/other" "$ID"
@@ -199,9 +200,39 @@ reset; wake "$ID"
 eq  "a job record that still exists: the wake succeeds" "$rc" 0
 case "$(head -n 1 "$T/calls")" in "$T/work|--bg --resume $ID hello"*) pass "and it resumes FLAGLESS, from the entry's cwd" ;; *) fail "and it resumes FLAGLESS, from the entry's cwd" "got $(head -n 1 "$T/calls")" ;; esac
 has "and it says why" "$out" "its job record is still at"
-/usr/bin/trash "$T/jobs/11111111"
 
-EXPECTED=48
+echo
+echo "=== 10. what the second review of #108 found"
+# The job path reads the rank from the job's template, and the admiral rule still applies to it.
+printf '{"template":"admiral","cwd":"%s"}\n' "$T/work" > "$T/jobs/11111111/state.json"
+reset; wake "$ID" "human:nelson"
+has "a job template of admiral under a non-admiral name is refused" "$out" "only Nelson makes an admiral"
+eq  "and nothing was run" "$(cat "$T/calls")" ""
+# The job path needs the transcript where it resumes: a stale entry cwd falls back to the job's own cwd.
+/usr/bin/trash "$T/projects/$(enc "$T/work")/$ID.jsonl"; transcript "$T/other" "$ID"
+printf '{"template":"lieutenant","cwd":"%s"}\n' "$T/other" > "$T/jobs/11111111/state.json"
+reset; wake "$ID"
+eq  "a stale entry cwd with the transcript under the job's cwd: the wake succeeds" "$rc" 0
+case "$(head -n 1 "$T/calls")" in "$T/other|--bg --resume $ID hello"*) pass "and it resumes flagless from the job's cwd" ;; *) fail "and it resumes flagless from the job's cwd" "got $(head -n 1 "$T/calls")" ;; esac
+printf '{"template":"lieutenant","cwd":"%s"}\n' "$T/work" > "$T/jobs/11111111/state.json"
+reset; wake "$ID"
+has "neither cwd holds the transcript: refused as elsewhere" "$out" "is not under the recorded cwd"
+eq  "and nothing was run" "$(cat "$T/calls")" ""
+/usr/bin/trash "$T/projects/$(enc "$T/other")/$ID.jsonl"; transcript "$T/work" "$ID"
+# The job path does not need the entry's agent: the job supplies it.
+entry "Agent session 2026-09-30T0700" "[L0-CC] noagent" "88888888-9999-0000-1111-222222222222" "" "$T/work"
+transcript "$T/work" "88888888-9999-0000-1111-222222222222"
+mkdir -p "$T/jobs/88888888"; printf '{"template":"lieutenant","cwd":"%s"}\n' "$T/work" > "$T/jobs/88888888/state.json"
+reset; wake "88888888-9999-0000-1111-222222222222"
+eq  "an entry with no agent, while the job lives: the wake succeeds" "$rc" 0
+/usr/bin/trash "$T/jobs/11111111" "$T/jobs/88888888"
+# A projects root with a space in it is one place, not two.
+mkdir -p "$T/pro jects/$(enc "$T/work")"; : > "$T/pro jects/$(enc "$T/work")/$ID.jsonl"; touch -t 202601010000 "$T/pro jects/$(enc "$T/work")/$ID.jsonl"
+reset; out=$(HOME="$T/home" PATH="$T/stubbin:$PATH" bash "$BIN/wake-session.sh" --session "$ID" --by "[C0-CC] claude code" --why x \
+  --jobs-dir "$T/jobs" --log "$T/log.md" --pause-note "$T/pause.md" --notebook-dir "$T/nb" --archive-dir "$T/ar" --projects-dir "$T/pro jects" --message hello 2>&1); rc=$?
+eq  "a projects root with a space: one copy, the wake succeeds" "$rc" 0
+
+EXPECTED=57
 [ "$n" = "$EXPECTED" ] || { fails=$((fails + 1)); echo "FAIL  the check count is $n, expected $EXPECTED"; }
 printf '\n%s checks (expected %s), %s failed\n' "$n" "$EXPECTED" "$fails"
 [ "$fails" = 0 ] || exit 1

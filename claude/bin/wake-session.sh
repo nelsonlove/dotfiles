@@ -652,6 +652,9 @@ settle_stopped() {  # uses row_id; 0 when no pid comes back (or the row is gone)
 # and no new id may have appeared, because a new id means the resume forked a copy instead.
 wake_stopped() {  # uses row_*; $1 = the message
   wake_message="$1"
+  # AN ENTRY ENDED WHILE IT SLEPT is said in the message, so the woken session opens a new entry rather than reopening the closed one (session-roster.sh: every resume path adds this line). Only here and in post_rm_resume, never in the text printed for a live session, which was not stopped.
+  roster_ended_line_for "$row_session_id" "$NOTEBOOK_DIR" "$NOTEBOOK_DIR_SET" "$ARCHIVE_DIR" "$ARCHIVE_DIR_SET"
+  [ -z "$roster_ended_line" ] || wake_message="$wake_message $roster_ended_line"
   # Never resume with an empty or short id. `claude --bg --resume ""` does not fail: it starts a NEW
   # session with the message as its prompt, which is how a junk session appears under the target's
   # cwd. The full sessionId is the only value this may pass.
@@ -708,17 +711,17 @@ EOF
 
 # --- a session with no job record: read it from its notebook entry ---------------------------------
 # Fills row_* the way load_row does, from the newest notebook entry for a FULL id, or dies naming what is missing. row_id is the first 8 characters of the id, which is how a short id is derived when there is no row (session-roster.sh says so, and says it is an observed regularity, not a contract): it is only a label here, since the resume uses the full id.
-load_post_rm() {  # $1 = the full sessionId
+load_post_rm() {  # $1 = the full sessionId; $2 = 1 when the entry must carry `agent` (a resume with flags), 0 when a job record supplies it
   roster_newest_entry_for_id "$1" "$NOTEBOOK_DIR" "$NOTEBOOK_DIR_SET" "$ARCHIVE_DIR" "$ARCHIVE_DIR_SET"
   [ -n "$roster_entry" ] || die "no background session with id or sessionId '$1' in claude agents --json --all, and no notebook entry carries session-id '$1' in either root, so there is nothing to resume it from"
   [ "${roster_entry_ambiguous:-0}" = 0 ] || die "the job record of '$1' is gone and its newest notebook entry cannot be told: ${roster_order_reason:-the entries cannot be ordered}; refusing rather than guessing which record is the session"
   [ "${roster_entry_unreadable:-0}" = 0 ] || die "the job record of '$1' is gone and its newest notebook entry ${roster_entry##*/} cannot be read (no closed frontmatter carrying that session-id); refusing"
   post_rm_missing=""
   [ -n "$roster_session" ] || post_rm_missing="$post_rm_missing session"
-  [ -n "$roster_agent" ] || post_rm_missing="$post_rm_missing agent"
+  [ -n "$roster_agent" ] || [ "${2:-1}" = 0 ] || post_rm_missing="$post_rm_missing agent"
   [ -n "$roster_cwd" ] || post_rm_missing="$post_rm_missing cwd"
   [ -z "$post_rm_missing" ] || die "the job record of '$1' is gone and its notebook entry ${roster_entry##*/} lacks:$post_rm_missing. A resume needs all three and never guesses one; refusing"
-  if roster_agent_disagrees "$roster_session" "$roster_agent"; then
+  if [ -n "$roster_agent" ] && roster_agent_disagrees "$roster_session" "$roster_agent"; then
     die "the job record of '$1' is gone and its notebook entry ${roster_entry##*/} disagrees with itself: $roster_disagreement; refusing"
   fi
   row_id=$(printf '%s' "$1" | cut -c1-8)
@@ -729,19 +732,52 @@ load_post_rm() {  # $1 = the full sessionId
   row_agent="$roster_agent"
   if [ "$row_agent" = claude ]; then row_rank=$(rank_of_name "$row_name"); else row_rank=$(rank_of_agent "$row_agent"); fi
   [ "$row_rank" != 9 ] || row_rank=$(rank_of_name "$row_name")
+  post_rm_admiral_check
+  post_rm_entry="$roster_entry"
+}
+
+# The admiral rule of load_row, for a rank read without a row: a rank of -1 under a name that is not an admiral's cannot be read (review 1 of #88).
+post_rm_admiral_check() {
   row_why=""
   if [ "$row_rank" = -1 ] && ! is_admiral "$row_name"; then
-    row_why="has an [A0] name or the admiral definition without an admiral's name"
+    if [ "$(rank_of_name "$row_name")" = -1 ]; then row_why="has an [A0] name that is not an admiral's name"
+    else row_why="runs the admiral definition under a name that is not an admiral's name"; fi
     row_rank=9
   fi
-  post_rm_entry="$roster_entry"
+}
+
+# WHERE THE CONVERSATION IS, for a session with no row: the first candidate cwd whose project directory holds the transcript becomes row_cwd. Every copy is counted first, with an integer (a path may hold a space), and two or more are refused whichever one sits at a candidate: the check below stops at the first, and which copy is the conversation is the question two copies raise. A candidate whose directory is gone is refused, saying so.
+post_rm_find_transcript() {  # $@ = candidate cwds, the entry's first
+  local c n=0 all="" first_state="" first_found=""
+  for c in "$PROJECTS_DIR"/*/"$row_session_id.jsonl"; do
+    [ -f "$c" ] || continue
+    n=$((n + 1)); all="$all${all:+; }$c"
+  done
+  [ "$n" -lt 2 ] || die "refused: the transcript of $row_session_id is in more than one place ($all), and which one is the conversation is not this script's to guess"
+  for c in "$@"; do
+    [ -n "$c" ] || continue
+    roster_transcript_check "$row_session_id" "$c" "$PROJECTS_DIR"
+    if [ "$roster_transcript_state" = here ]; then
+      [ -d "$c" ] || die "refused: the transcript of $row_session_id is under the project directory of '$c', but that directory no longer exists (a removed worktree, most likely), and the resume must run there; recreate it, or correct the entry's cwd"
+      row_cwd="$c"; post_rm_transcript="$roster_transcript_found"
+      return 0
+    fi
+    [ -n "$first_state" ] || { first_state="$roster_transcript_state"; first_found="$roster_transcript_found"; }
+  done
+  case "$first_state" in
+    elsewhere) die "refused: the transcript of $row_session_id is not under the recorded cwd '$1' but under $first_found, and a project directory cannot be turned back into a path; resume it by hand from the right directory, or correct the entry's cwd" ;;
+    *) die "refused: no transcript of $row_session_id under $PROJECTS_DIR, so a resume would start a NEW session, not continue this one" ;;
+  esac
 }
 
 # The resume of a session with no job record, with the flags the entry gave, from the directory the transcript is under. Nothing forks here that is not stopped again: the listing must show the SAME sessionId under the new id, or the copy is stopped and the wake refused.
 post_rm_resume() {  # uses row_*; $1 = the message
+  post_rm_msg="$1"
+  roster_ended_line_for "$row_session_id" "$NOTEBOOK_DIR" "$NOTEBOOK_DIR_SET" "$ARCHIVE_DIR" "$ARCHIVE_DIR_SET"
+  [ -z "$roster_ended_line" ] || post_rm_msg="$post_rm_msg $roster_ended_line"
   post_rm_args=(--bg --resume "$row_session_id")
   [ "$row_agent" = claude ] || post_rm_args+=(--agent "$row_agent")
-  post_rm_args+=(--name "$row_name" "$1")
+  post_rm_args+=(--name "$row_name" "$post_rm_msg")
   out=$(cd "$row_cwd" && claude "${post_rm_args[@]}" </dev/null 2>&1) || die "claude --bg --resume failed: $out"
   woken_unlogged="$row_name ($row_session_id)"
   if bg_parse <<<"$out"; then parsed=1; else parsed=0; fi
@@ -797,7 +833,8 @@ if [ "$all_mode" = 0 ]; then
     load_row "$row"
   else
     roster_id_is_full "$session" || die "no background session with id or sessionId '$session' in claude agents --json --all; if its job record is gone, wake it by its FULL 36-character sessionId, because a short id cannot find its notebook entry or its transcript"
-    load_post_rm "$session"
+    post_rm_short=$(printf '%s' "$session" | cut -c1-8)
+    if [ -f "$JOBS_DIR/$post_rm_short/state.json" ]; then load_post_rm "$session" 0; else load_post_rm "$session" 1; fi
     post_rm=1
     # THE JOB MAY STILL EXIST. The listing drops rows whose job lives on (settle_stopped says so), and while a job exists its saved options come back only with a FLAGLESS resume; any flag forks a copy (the hand rule in session-roster.sh). So a job state under the derived short id sends this down the ordinary stopped path, flagless, with the entry supplying only the cwd and the name.
     if [ -f "$JOBS_DIR/$row_id/state.json" ]; then
@@ -806,6 +843,9 @@ if [ "$all_mode" = 0 ]; then
       row_agent=$(jq -r '.template // "bg"' "$JOBS_DIR/$row_id/state.json" 2>/dev/null || echo bg)
       row_rank=$(rank_of_agent "$row_agent")
       if [ "$row_rank" = 9 ] || [ "$row_agent" = bg ]; then row_rank=$(rank_of_name "$row_name"); fi
+      post_rm_admiral_check
+      # And the conversation must be where the resume runs: the entry's cwd first, then the directory the job started in.
+      post_rm_find_transcript "$row_cwd" "$(jq -r '.cwd // empty' "$JOBS_DIR/$row_id/state.json" 2>/dev/null)"
     fi
   fi
 
@@ -831,9 +871,6 @@ if [ "$all_mode" = 0 ]; then
   [ "$dry_run" = 1 ] || check_pause
 
   [ -n "$message" ] || message=$(default_message_for "$row_name")
-  # AN ENTRY ENDED WHILE IT SLEPT is said in the message, so the woken session opens a new entry rather than reopening the closed one (session-roster.sh: every resume path adds this line).
-  roster_ended_line_for "$row_session_id" "$NOTEBOOK_DIR" "$NOTEBOOK_DIR_SET" "$ARCHIVE_DIR" "$ARCHIVE_DIR_SET"
-  [ -z "$roster_ended_line" ] || message="$message $roster_ended_line"
 
   printf 'wake: %s (%s, %s, %s) in %s\n' "$row_name" "$row_id" "$row_agent" "$(word_of_rank "$row_rank")" "$row_cwd"
   [ -z "$post_rm_job_note" ] || printf '  %s\n' "$post_rm_job_note"
@@ -843,22 +880,8 @@ if [ "$all_mode" = 0 ]; then
   if [ "$post_rm" = 1 ]; then
     printf '  it has NO job record, so it is read from its notebook entry %s\n' "$post_rm_entry"
     [ -d "$row_cwd" ] || die "refused: the recorded cwd '$row_cwd' no longer exists (a removed worktree, most likely), and the resume must run there; recreate it, or correct the entry's cwd"
-    roster_transcript_check "$row_session_id" "$row_cwd" "$PROJECTS_DIR"
-    # A COPY AT THE CWD DOES NOT SETTLE IT when another copy exists too: the check stops at the first, and which one is the conversation is exactly the question two copies raise.
-    if [ "$roster_transcript_state" = here ]; then
-      post_rm_all=""
-      for post_rm_c in "$PROJECTS_DIR"/*/"$row_session_id.jsonl"; do
-        [ -f "$post_rm_c" ] || continue
-        post_rm_all="${post_rm_all:+$post_rm_all }$post_rm_c"
-      done
-      case "$post_rm_all" in *" "*) roster_transcript_state=many; roster_transcript_found="$post_rm_all" ;; esac
-    fi
-    case "$roster_transcript_state" in
-      here) ;;
-      elsewhere) die "refused: the transcript of $row_session_id is not under the recorded cwd '$row_cwd' but under $roster_transcript_found, and a project directory cannot be turned back into a path; resume it by hand from the right directory, or correct the entry's cwd" ;;
-      many) die "refused: the transcript of $row_session_id is in more than one place ($roster_transcript_found), and which one is the conversation is not this script's to guess" ;;
-      *) die "refused: no transcript of $row_session_id under $PROJECTS_DIR, so a resume would start a NEW session, not continue this one" ;;
-    esac
+    post_rm_find_transcript "$row_cwd"
+    roster_transcript_found="$post_rm_transcript"
     # A TRANSCRIPT WRITTEN IN THE LAST TWO MINUTES may belong to a session that is running with no job row (one Nelson opened in a terminal): a resume would put a second process on it. Refused, like a live row.
     post_rm_age=$(( $(date +%s) - $(stat -f %m "$roster_transcript_found" 2>/dev/null || echo 0) ))
     if [ "$post_rm_age" -lt 120 ]; then
