@@ -48,7 +48,7 @@ mkdir -p "$LOGDIR" "$NB" "$AR" "$H/.claude/jobs" "$H/.claude/sessions" "$T/stubb
 LOG="$LOGDIR/CROSS-SESSION.md"
 printf '#!/bin/sh\ncat "%s/listing.json" 2>/dev/null || echo "[]"\n' "$T" > "$T/stubbin/claude"; chmod +x "$T/stubbin/claude"
 echo '[]' > "$T/listing.json"
-day=$(date +%Y-%m-%d)
+day=$(date -v-1d +%Y-%m-%d)  # yesterday: every fixture stamp is in the past, whatever the hour, so the clamp to now never touches them
 sid() { printf '%s-0000-0000-0000-000000000000' "$1"; }
 job() { mkdir -p "$H/.claude/jobs/$1"; printf '{"template":"%s"}\n' "$2" > "$H/.claude/jobs/$1/state.json"; }
 reg() {  # reg <8-hex id> <name> [former name]: one registry row, as ~/.claude/sessions/<pid>.json holds it
@@ -216,6 +216,46 @@ for seed in range(6):
     if seen != {t for _, t in rows}:
         print("seed %d: never shown %s" % (seed, sorted({t for _, t in rows} - seen))); sys.exit(1)
 PY2
+
+echo
+echo "=== 7b. the heading grammar (agreed with the obsidian ship, 2026-09-30): one check per case"
+gram=$(python3 - "$HOOK" <<'PY2'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("hook", sys.argv[1]); hook = importlib.util.module_from_spec(spec); spec.loader.exec_module(hook)
+if not hasattr(hook, "marks"): print("no-marks"); sys.exit()
+h = "## 2026-09-30T05:00 · [A0] rear admiral — ruling"
+cases = [
+  ("fleet is canonical",                          h + " · fleet",                          ([], set(), True)),
+  ("ships: fleet is accepted as fleet",           h + " · ships: fleet",                   ([], set(), True)),
+  ("ships: comma-separated, spaces optional",     h + " · ships: PE,HH, ob",               ([], {"PE", "HH", "OB"}, False)),
+  ("for: takes ONE label, a comma stays in it",   h + " · for: [L0-CC] a, b",              (["[L0-CC] a, b"], set(), False)),
+  ("for: repeats for several labels",             h + " · for: [L0-CC] a · for: [C1-CC] b", (["[L0-CC] a", "[C1-CC] b"], set(), False)),
+  ("segments combine as a union",                 h + " · for: [L0-CC] a · ships: MA · fleet", (["[L0-CC] a"], {"MA"}, True)),
+  ("an unrecognised segment is ignored",          h + " · ships: MA · urgent",              ([], {"MA"}, False)),
+  ("a lone typo (ship:) is no marker",            h + " · ship: PE",                       ([], set(), False)),
+  ("no marker is no marker",                      h,                                       ([], set(), False)),
+  ("a note in brackets before the marks",         h + " (correction) · ships: MA",         ([], {"MA"}, False)),
+]
+for name, head, want in cases:
+    got = hook.marks(head)
+    print(("ok " if (got[0], got[1], got[2]) == want else "BAD ") + name + ("" if (got[0], got[1], got[2]) == want else " -> %r" % (got,)))
+PY2
+)
+case "$gram" in no-marks) fail "the hook has a heading-grammar parser (marks)" "none on this hook" ;;
+  *) while IFS= read -r line; do case "$line" in "ok "*) pass "grammar: ${line#ok }" ;; *) fail "grammar: ${line#BAD }" ;; esac; done <<EOF
+$gram
+EOF
+  ;; esac
+job 99999999 lieutenant; reg 99999999 "[L0-CC] typo reader"
+{ printf -- '---\naudience: fleet\n---\n\n'
+  r 05:00 " · ship: PE" "RULE-TYPO-MARK"
+  r 05:01 " · ships: PE" "RULE-SHIPS-PE"
+  printf '## %sT05:02 · [L0-CC] x — claim · for: [L0-CC] typo reader\nCLAIM-FOR-ME\n\n' "$day"
+} > "$LOG"
+seed 99999999 "${day}T00:00"; out=$(inject 99999999)
+has   "end to end: a heading whose only segment is a typo goes to everyone (fail-open for a slip)" "$out" "RULE-TYPO-MARK"
+lacks "end to end: a correct ships: PE does not reach a CC lieutenant" "$out" "RULE-SHIPS-PE"
+lacks "only ruling headings are read for marks: a claim marked for: this session is still a claim" "$out" "CLAIM-FOR-ME"
 
 echo
 echo "=== 8. a session whose own label cannot be told: nothing is filtered"

@@ -96,7 +96,7 @@ def listing_name(session_id):
     return _LISTING[session_id]
 
 
-# THE AUDIENCE FILTER (Nelson, 2026-09-30, "a for all", on `01.65 Operator's console/Decide who sees each ruling — the filer and its chain by default.md`). BELOW CAPTAIN ONLY: captains, admirals and a session whose rank cannot be told keep the full delta. A ruling's heading may carry its audience after the kind, as ` · for: <label>`, ` · ships: <codes>` (comma or space; `fleet` among them means the fleet) or ` · fleet`. A session below captain is shown a ruling when:
+# THE AUDIENCE FILTER (Nelson, 2026-09-30, "a for all", on `01.65 Operator's console/Decide who sees each ruling — the filer and its chain by default.md`). BELOW CAPTAIN ONLY: captains, admirals and a session whose rank cannot be told keep the full delta. A ruling's heading may carry its audience after the kind, as ` · for: <label>` (one label per segment), ` · ships: <codes>` (comma-separated; `fleet` among them means the fleet) or ` · fleet`; the grammar is in `marks` below. A session below captain is shown a ruling when:
 #   * `for:` names it, or a session whose chain UP includes it (the chain is the notebook entries' `reports-to`, read now); a cycle or a missing link means "not shown by `for:`", and the other rules still apply;
 #   * `ships:` holds its own ship code;
 #   * it says `fleet`;
@@ -108,7 +108,6 @@ SESSIONS_DIR = Path.home() / ".claude/sessions"
 AGENTS_DIR = VAULT / "00-09 System" / "03 Agents"
 NOTEBOOK_ROOTS = Path(__file__).resolve().parent.parent / "lib" / "notebook-roots.sh"
 MARK_SPLIT = re.compile(r"\s·\s")
-LABEL_LIST = re.compile(r",\s*(?=\[)")
 BARE = re.compile(r"^\[[^\]]*\]\s*")
 SHIP = re.compile(r"^\[[A-Za-z][0-9]-([A-Za-z]{1,4})\]")  # the same pattern as ship_of_name in claude/bin/_fleet-ranks.sh
 # THE RENAME LEDGER, the exact lines `claude/bin/rename-notebook.sh` writes: a heading `## <stamp> · <new name> — notebook entry renamed to match the session's name` (or `— notebook entry's keys repaired after an interrupted rename`), and in the body "(sessionId <full id>)"; a rename's body also reads "Renamed `<old file>` to `<new file>`". The heading's name is a LABEL the session held; the old file's name carries only the bare name (no rank code), since the entry's filename drops it.
@@ -128,7 +127,7 @@ def ship_of(label):
 
 
 def marks(heading):
-    """The audience marks after the kind: (for-labels, ship codes, fleet?)."""
+    """The audience marks, by the grammar agreed with the obsidian ship (2026-09-30): ` · `-separated segments after the kind; `fleet` (canonical) or `ships: fleet`; `ships: PE, HH` (comma-separated codes, spaces optional, upper-cased); `for: <label>`, ONE label per segment, repeated for several (no comma split: a label may hold a comma). Segments combine as a union. Any other segment is ignored, so a heading whose only segment is a typo (`· ship: PE`) carries no mark and goes to everyone: fail-open holds for a slip. Returns (for-labels, ship codes, fleet?)."""
     fors, ships, fleet = [], set(), False
     for seg in MARK_SPLIT.split(heading)[2:]:
         seg = seg.strip()
@@ -136,9 +135,12 @@ def marks(heading):
         if low == "fleet":
             fleet = True
         elif low.startswith("for:"):
-            fors += [x.strip() for x in LABEL_LIST.split(seg[4:].strip()) if x.strip()]
-        elif low.startswith("ships:") or low.startswith("ship:"):
-            for code in re.split(r"[,\s]+", seg.split(":", 1)[1]):
+            label = seg[4:].strip()
+            if label:
+                fors.append(label)
+        elif low.startswith("ships:"):
+            for code in seg[6:].split(","):
+                code = code.strip()
                 if code.lower() == "fleet":
                     fleet = True
                 elif code:
