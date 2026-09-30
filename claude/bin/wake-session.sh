@@ -65,11 +65,11 @@
 # Exit codes: 0 done; 2 refused or failed; 3 the target is alive, so SendMessage it (the command is
 # printed) — nothing was touched.
 #
-# The admiral rank, `[A0]`, rank -1: first the rear admiral Nelson placed between himself and the captains on 2026-09-26, a rank of its own since 2026-09-29, held by `[A0] rear admiral` and `[A0] areas admiral`. The table is numbered rather than shifted so C0..L0 keep their numbers in both scripts (`_fleet-ranks.sh` is where a renumbering belongs). An admiral may wake any rank below a captain and a captain too, because captains report to it, but only on its own ships: `ship_refusal` in the table keeps each admiral to its ships and refuses DV for every caller. Any other `[A0] …` name is refused, and a ship-coded `[A0-CC]` is not an admiral at all. `[A0]` is never a target this script would be asked for, since an admiral outranks every caller it could have.
+# The admiral rank, `[A0]`, rank -1: first the rear admiral Nelson placed between himself and the captains on 2026-09-26, a rank of its own since 2026-09-29, held by `[A0] rear admiral` and `[A0] areas admiral`. The table is numbered rather than shifted so C0..L0 keep their numbers in both scripts (`_fleet-ranks.sh` is where a renumbering belongs). An admiral may wake any rank below a captain and a captain too, because captains report to it, but only on its own ships: `ship_refusal` in the table keeps each admiral to its ships and refuses DV to every caller but `[A0] areas admiral`. Any other `[A0] …` name is refused, and a ship-coded `[A0-CC]` is not an admiral at all. `[A0]` is never a target this script would be asked for, since an admiral outranks every caller it could have.
 #
 # What it refuses, and why:
 #   * A target at or above the caller's rank, and a `[C0]` target for every caller but an admiral: only Nelson or an admiral wakes a captain, and the script cannot verify that it is Nelson.
-#   * The ship rule, from the table (`ship_refusal`): a target on DV (80-89 Divorce), for every caller, because only Nelson starts a session there; and a target outside the calling admiral's own ships (`[A0] rear admiral`: CC, OB, HS, MA, FL and bare names; `[A0] areas admiral`: the area ships). A survey leaves such rows out.
+#   * The ship rule, from the table (`ship_refusal`): a target on DV (80-89 Divorce), for every caller but `[A0] areas admiral` (Nelson, 2026-09-30: "i dont care if the areas admiral wakes the divorce captain, i just want to restrict writes"); and a target outside the calling admiral's own ships (`[A0] rear admiral`: CC, OB, HS, MA, FL and bare names; `[A0] areas admiral`: the area ships). A survey leaves such rows out.
 #   * An `[A0] …` caller that is not one of the two admirals, and a target that reads as rank -1 but is not one of them (an `[A0]` name, or the admiral definition under another name).
 #   * `--all` from the accept verbs' write path (rank -2). That caller sits above every rank, so a survey
 #     would list the whole fleet and `--resume-stopped` would resume it; the verb needs one named session at
@@ -694,8 +694,8 @@ if [ "$all_mode" = 0 ]; then
   [ "$row_name" != "$by" ] || die "refused: '$session' is $by itself; a session does not wake itself"
   [ -z "$row_why" ] || die "refused: \`$row_name\` $row_why; only Nelson makes an admiral, so its rank cannot be read"
   [ "$row_rank" != 9 ] || die "cannot tell the target's rank from its agent ('$row_agent') or its name ('$row_name'); refusing rather than guessing"
-  # THE SHIP RULE, the table's one sentence (`ship_refusal`): DV is refused for every caller, and each admiral reaches only its own ships (the areas ruling, 2026-09-29).
-  r=$(ship_refusal "$by" "$by_rank" "$(ship_of_name "$row_name")"); [ -z "$r" ] || die "$r"
+  # THE SHIP RULE, the table's one sentence (`ship_refusal … wake`): DV is woken only by `[A0] areas admiral` (Nelson, 2026-09-30, "B"), and each admiral reaches only its own ships (the areas ruling, 2026-09-29).
+  r=$(ship_refusal "$by" "$by_rank" "$(ship_of_name "$row_name")" wake); [ -z "$r" ] || die "$r"
   # A captain is woken by Nelson, or by an admiral (`[A0] rear admiral` or `[A0] areas admiral`, each on its own ships): captains report to an admiral, so an A0 caller waking one is the chain working, not a breach of it. Every other caller is refused, as before, because the script cannot verify Nelson. `-gt -1` rather than `!= -1`: an admiral is -1 and the accept verbs' write path is -2, and both sit above a captain. Testing for equality with -1 refused the verb's own notice to a stopped captain, which is the case the notifier exists for.
   if [ "$row_rank" = 0 ] && [ "$by_rank" -gt -1 ]; then
     die "refused: \`$row_name\` is a captain; only Nelson or an admiral (\`[A0] rear admiral\` or \`[A0] areas admiral\`, on its own ships) wakes a captain, and this script cannot verify that it is Nelson calling"
@@ -770,9 +770,9 @@ while IFS= read -r one_row; do
   fi
   # The survey hides captains from everyone but an admiral, for the same reason the single target refuses them: a captain is woken by Nelson or by A0, so only an A0 caller is shown one.
   if [ "$row_rank" = 0 ] && [ "$by_rank" -gt -1 ]; then continue; fi   # above a captain: A0 (-1) and the verb path (-2)
-  # The ship rule, as for a single target: DV is never offered, and an admiral sees only its own ships.
+  # The ship rule, as for a single target: DV is offered only to the areas admiral, and an admiral sees only its own ships.
   row_ship=$(ship_of_name "$row_name")
-  if [ -n "$(ship_refusal "$by" "$by_rank" "$row_ship")" ]; then continue; fi
+  if [ -n "$(ship_refusal "$by" "$by_rank" "$row_ship" wake)" ]; then continue; fi
   [ "$row_rank" -gt "$by_rank" ] || continue
   if ! check_reporting_line "$row_name" "$by"; then
     outside_list="$outside_list    $row_id  $row_name — $chain_reason

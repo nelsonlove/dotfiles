@@ -23,10 +23,35 @@ cat > "$T/listing.json" <<JSON
 JSON
 printf '#!/bin/sh\ncat "%s"\n' "$T/listing.json" > "$T/stubbin/claude"; chmod +x "$T/stubbin/claude"
 
-decide() {  # decide <command>: prints deny or allow
+# THE CALLER. The hook lets a DV start through only for the session its registry records as `[A0] areas admiral`
+# with agent `admiral`. The registry here is a FIXTURE directory under $T, reached through the hook's test-only
+# seam DV_TRIPWIRE_SESSIONS_DIR (honoured only under a temp directory); the real ~/.claude/sessions is never read.
+# CALLER is the session_id the hook is given; the default is a caller with no record, so every case above the
+# caller section is a non-admiral caller.
+SESS="$T/sessions"; mkdir -p "$SESS"
+AAID=aaaaaaaa-0000-0000-0000-000000000000   # the areas admiral, both keys right
+NAID=aaaaaaa1-0000-0000-0000-000000000000   # the areas admiral's name, agent null (the real one, measured 2026-09-30)
+RAID=bbbbbbbb-0000-0000-0000-000000000000   # the rear admiral
+C0ID=c0c0c0c0-0000-0000-0000-000000000000   # a captain
+TWID=aaaaaaa2-0000-0000-0000-000000000000   # two records: one right, one renamed
+NKID=aaaaaaa3-0000-0000-0000-000000000000   # the areas admiral's name with no agent key at all
+rec() { printf '%s\n' "$2" > "$SESS/$1.json"; }
+rec 101 "{\"sessionId\":\"$AAID\",\"name\":\"[A0] areas admiral\",\"agent\":\"admiral\",\"kind\":\"bg\"}"
+rec 102 "{\"sessionId\":\"$NAID\",\"name\":\"[A0] areas admiral\",\"nameSource\":\"peer\",\"agent\":null,\"kind\":\"bg\"}"
+rec 103 "{\"sessionId\":\"$RAID\",\"name\":\"[A0] rear admiral\",\"agent\":\"admiral\",\"kind\":\"bg\"}"
+rec 104 "{\"sessionId\":\"$C0ID\",\"name\":\"[C0-PE] personal\",\"agent\":\"captain\",\"kind\":\"bg\"}"
+rec 105 "{\"sessionId\":\"$TWID\",\"name\":\"[A0] areas admiral\",\"agent\":\"admiral\"}"
+rec 106 "{\"sessionId\":\"$TWID\",\"name\":\"[L0-PE] renamed\",\"agent\":\"admiral\"}"
+rec 107 "{\"sessionId\":\"$NKID\",\"name\":\"[A0] areas admiral\"}"
+printf 'not json' > "$SESS/108.json"
+CALLER=""; SESSDIR="$SESS"
+
+decide() {  # decide <command>: prints deny or allow, for the caller $CALLER and the registry $SESSDIR
   local json out
-  json=$(CMD="$1" /usr/bin/python3 -c 'import json,os; print(json.dumps({"tool_name":"Bash","tool_input":{"command":os.environ["CMD"]}}))')
-  out=$(printf '%s' "$json" | PATH="$T/stubbin:$PATH" bash "$HOOK" 2>/dev/null)
+  json=$(CMD="$1" SID="$CALLER" /usr/bin/python3 -c 'import json,os; d={"tool_name":"Bash","tool_input":{"command":os.environ["CMD"]}}
+if os.environ["SID"]: d["session_id"]=os.environ["SID"]
+print(json.dumps(d))')
+  out=$(printf '%s' "$json" | DV_TRIPWIRE_SESSIONS_DIR="$SESSDIR" PATH="$T/stubbin:$PATH" bash "$HOOK" 2>/dev/null)
   case "$out" in *'"permissionDecision": "deny"'*|*'"permissionDecision":"deny"'*) echo deny ;; *) echo allow ;; esac
 }
 case_() {  # case_ <want> <command>
@@ -151,6 +176,40 @@ case_ allow 'echo "$(claude --version)"'
 case_ allow ''
 
 echo
+echo "=== the caller: only the session registered as [A0] areas admiral with agent admiral starts or resumes DV"
+DVSTART='claude --bg --agent captain --name "[C0-DV] divorce" "start"'
+DVRESUME="claude --bg --resume $DVID"
+DVRESUME_BYNAME='claude --resume abc --name "[C0-DV] divorce"'
+CALLER=$AAID
+case_ allow "$DVSTART"
+case_ allow "$DVRESUME"
+case_ allow "$DVRESUME_BYNAME"
+case_ allow "bash -c 'claude --resume $DVID'"
+case_ allow 'claude --bg --name "[C0-PE] personal" x'   # its own ships, as before
+CALLER=$NAID;  case_ deny "$DVSTART"; case_ deny "$DVRESUME"   # the name without agent admiral
+CALLER=$NKID;  case_ deny "$DVSTART"                           # the name with no agent key
+CALLER=$RAID;  case_ deny "$DVSTART"; case_ deny "$DVRESUME"   # the rear admiral
+CALLER=$C0ID;  case_ deny "$DVSTART"; case_ deny "$DVRESUME"   # a captain
+CALLER=ffffffff-0000-0000-0000-000000000000; case_ deny "$DVSTART"   # no record: an unknown caller
+CALLER=$TWID;  case_ deny "$DVSTART"                           # two records that disagree
+CALLER="";     case_ deny "$DVSTART"                           # no session_id at all
+# The registry itself: unreadable, missing, or outside the seam's leash. Each is a refusal (fail closed).
+CALLER=$AAID
+SESSDIR="$T/no-such-dir";       case_ deny "$DVSTART"
+mkdir -p "$T/locked"; cp "$SESS/101.json" "$T/locked/"; chmod 000 "$T/locked"
+SESSDIR="$T/locked";            case_ deny "$DVSTART"
+chmod 700 "$T/locked"
+mkdir -p "$HOME/.dv-tripwire-leash-test.$$" && cp "$SESS/101.json" "$HOME/.dv-tripwire-leash-test.$$/"
+SESSDIR="$HOME/.dv-tripwire-leash-test.$$"; case_ deny "$DVSTART"   # outside a temp dir: the seam is not honoured
+/usr/bin/trash "$HOME/.dv-tripwire-leash-test.$$" 2>/dev/null || true
+SESSDIR="$SESS"; CALLER=""
+# The refusal names the one allowed caller.
+n=$((n + 1))
+why=$(printf '{"tool_input":{"command":"claude --bg --name \\"[C0-DV] x\\" y"}}' | DV_TRIPWIRE_SESSIONS_DIR="$SESS" PATH="$T/stubbin:$PATH" bash "$HOOK" 2>/dev/null)
+case "$why" in *"[A0] areas admiral"*"admiral"*) printf 'PASS  the refusal names the one allowed caller\n' ;;
+  *) fails=$((fails + 1)); printf 'FAIL  the refusal does not name the allowed caller: %s\n' "$why" ;; esac
+
+echo
 echo "=== registered: the REPO's claude/settings.json runs the hook on every Bash call (the live ~/.claude/settings.json is whatever the main checkout holds)"
 n=$((n + 1))
 reg=$(python3 - "$HERE/../../settings.json" <<'PYX'
@@ -164,6 +223,6 @@ PYX
 if [ "$reg" = ok ]; then printf 'PASS  the repo settings.json has one Bash PreToolUse entry for dv-tripwire.sh, timeout 1-10 s\n'; else fails=$((fails + 1)); printf 'FAIL  settings.json: %s\n' "$reg"; fi
 
 printf '\n%s checks, %s failed, %s known limits let through\n' "$n" "$fails" "$known"
-EXPECTED=87
+EXPECTED=106
 [ "$n" = "$EXPECTED" ] || { echo "FAIL  the check count is $n, expected $EXPECTED"; exit 1; }
 [ "$fails" = 0 ] || exit 1

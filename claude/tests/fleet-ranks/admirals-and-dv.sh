@@ -4,11 +4,13 @@
 # then "A, A". Two A0 sessions, matched by FULL NAME, not by the bare code:
 #
 #   `[A0] rear admiral`   reaches CC OB HS MA and FL, and their lower ranks;
-#   `[A0] areas admiral`  reaches the eight area ships, minus DV;
+#   `[A0] areas admiral`  reaches the eight area ships, DV for a WAKE only;
 #   neither reaches the other's ships, and any other `[A0] …` name is refused.
 #
-# DV (80-89 Divorce) is guarded: its captain starts only when Nelson starts it, so both scripts refuse EVERY
-# caller that would wake or promote a session on DV or into DV. The only way into DV is Nelson.
+# DV (80-89 Divorce) is guarded. Nelson, 2026-09-30: "we can have a divorce captain same as the other areas. that
+# captain should only make writes with my approval is all", then "B. i dont care if the areas admiral wakes the
+# divorce captain, i just want to restrict writes". So only `[A0] areas admiral` wakes a session on DV, and no
+# caller promotes a session on DV or into DV. The writes are his to approve; nothing here tests them.
 #
 # WHAT THIS DOES NOT PROVE, said here so no green is read as more than it is: `--by` is self-declared, so the
 # scripts bind honest callers only; a SendMessage to a stopped session wakes it with no script; and a bare
@@ -86,6 +88,12 @@ has "DV: the rear admiral is refused"      "$(ship_refusal '[A0] rear admiral' -
 has "DV: the areas admiral is refused"     "$(ship_refusal '[A0] areas admiral' -1 DV)" "$REFUSE_DV"
 has "DV: a DV captain is refused"          "$(ship_refusal '[C0-DV] divorce' 0 DV)"     "$REFUSE_DV"
 has "DV: Nelson's verb path is refused"    "$(ship_refusal 'human:nelson' -2 DV)"       "$REFUSE_DV"
+eq  "DV wake: the areas admiral may"        "$(ship_refusal '[A0] areas admiral' -1 DV wake)" ""
+has "DV wake: the rear admiral is refused"  "$(ship_refusal '[A0] rear admiral' -1 DV wake)"  "only '[A0] areas admiral' wakes"
+has "DV wake: a DV captain is refused"      "$(ship_refusal '[C0-DV] divorce' 0 DV wake)"     "only '[A0] areas admiral' wakes"
+has "DV wake: the areas admiral's name at another rank is refused" "$(ship_refusal '[A0] areas admiral' 0 DV wake)" "only '[A0] areas admiral' wakes"
+has "DV promote: the areas admiral is refused, said outright" "$(ship_refusal '[A0] areas admiral' -1 DV promote)" "no script promotes"
+has "DV: a missing act is read as a promotion" "$(ship_refusal '[A0] areas admiral' -1 DV)" "no script promotes"
 eq "a captain on its own ship: no word here" "$(ship_refusal '[C0-CC] claude code' 0 CC)" ""
 # A refusal names only the ships the caller can actually reach: never a guarded one (review 2 of #73).
 eq "the areas admiral's reach, as printed" "$(ship_refusal '[A0] areas admiral' -1 CC)" "refused: [A0] areas admiral does not reach ship CC; it reaches PE PP HH FN ED WK HB, and the other admiral's ships are not its own"
@@ -156,7 +164,6 @@ WAKE_CASES=(
   "[L0-PE] t|[A0] rear admiral|$REFUSE_REACH PE"
   "[L0-CC] t|[A0] areas admiral|$REFUSE_REACH CC"
   "[L0] t|[A0] areas admiral|carries no ship code"
-  "[L0-DV] t|[A0] areas admiral|$REFUSE_DV"
   "[L0-DV] t|[A0] rear admiral|$REFUSE_DV"
   "[L0-DV] t|[C0-DV] divorce|$REFUSE_DV"
   "[L0-DV] t|human:nelson|$REFUSE_DV"
@@ -168,7 +175,7 @@ for c in "${WAKE_CASES[@]}"; do
   has "wake: $by on \`$tgt\` is refused" "$out" "$want"
 done
 # The admitted directions: the gate lets these through. Whether the target is then woken or sent a message is the rest of the script's business, so the assertion is only that no ship refusal fired.
-for c in "[L0-PE] t|[A0] areas admiral" "[L0-CC] t|[A0] rear admiral"; do
+for c in "[L0-PE] t|[A0] areas admiral" "[L0-CC] t|[A0] rear admiral" "[L0-DV] t|[A0] areas admiral" "[C0-DV] divorce|[A0] areas admiral"; do
   IFS='|' read -r tgt by <<<"$c"
   out=$(run_wake "$tgt" "$by")
   # Admitted means it went PAST the ship gate to the next one, the reporting line (these fixtures build none), not merely that no ship refusal was printed (review 1 of #88).
@@ -205,7 +212,7 @@ case "$msg" in *"without restating"*) r=silent ;; *) r=missing ;; esac
 eq "the default wake message says to dispose of entries without restating them" "$r" silent
 
 # The count is asserted and is part of the summary line (tests/README.md rule 1).
-EXPECTED=88
+EXPECTED=95
 [ "$n" = "$EXPECTED" ] || { fails=$((fails + 1)); echo "FAIL  the check count is $n, expected $EXPECTED: a line was lost or added without updating EXPECTED"; }
 printf '\n%s checks (expected %s), %s failed\n' "$n" "$EXPECTED" "$fails"
 [ "$fails" = 0 ] || exit 1
