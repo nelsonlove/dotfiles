@@ -5,7 +5,6 @@
     ],
     "defaultMode": "auto"
   },
-  "model": "claude-fable-5[1m]",
   "hooks": {
     "PreToolUse": [
       {
@@ -156,7 +155,7 @@
     "plugin-dev@claude-plugins-official": true,
     "code-review@claude-plugins-official": true,
     "github@claude-plugins-official": true,
-    "agent-approvals@claude-code-plugins-mac": true,
+    "agent-approvals@claude-code-plugins-mac": false,
     "safari@claude-code-plugins-mac": true,
     "mail@claude-code-plugins-mac": true,
     "apple-mail@claude-code-plugins-mac": true,
@@ -200,6 +199,7 @@
   "autoMemoryDirectory": "~/obsidian/00-09 System/03 Agents/03.17 Claude Code memories",
   "skipDangerousModePermissionPrompt": true,
   "theme": "dark",
+  "editorMode": "normal",
   "remoteControlAtStartup": true,
   "inputNeededNotifEnabled": true,
   "agentPushNotifEnabled": true,
