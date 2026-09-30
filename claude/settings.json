@@ -64,6 +64,16 @@
         ]
       },
       {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/nelson/.claude/hooks/dv-tripwire.sh",
+            "timeout": 10
+          }
+        ]
+      },
+      {
         "matcher": "mcp__vault-mcp__.*",
         "hooks": [
           {

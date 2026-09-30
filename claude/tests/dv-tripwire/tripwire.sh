@@ -34,6 +34,13 @@ case_() {  # case_ <want> <command>
   if [ "$got" = "$1" ]; then printf 'PASS  %-5s %s\n' "$1" "$2"
   else fails=$((fails + 1)); printf 'FAIL  %-5s %s   (got %s)\n' "$1" "$2" "$got"; fi
 }
+# known_limit <command>: a DV start the hook is KNOWN to let through. Counted apart, never as a pass; the day the hook refuses it, this fails, so move it to the deny list and out of the header's limits.
+known=0
+known_limit() {
+  n=$((n + 1)); local got; got=$(decide "$1")
+  if [ "$got" = allow ]; then known=$((known + 1)); printf 'KNOWN-LIMIT  let through, as the header says: %s\n' "$1"
+  else fails=$((fails + 1)); printf 'FAIL  a known limit is now refused, so it is fixed: move it to the deny list: %s\n' "$1"; fi
+}
 
 echo "=== refused: a DV session named on the line"
 case_ deny  'claude --bg --agent captain --name "[C0-DV] divorce" "start"'
@@ -86,6 +93,26 @@ case_ deny  $'cat <<EOF >> n.md\nNelson\'s note: $(claude --bg --name "[C0-DV] x
 case_ deny  $'echo hi # it\'s fine\necho "$(claude --bg --name \'[C0-DV] x\' y)"'
 # Review 5 of #73: a quoted `)` inside `$( )` does not end it.
 case_ deny  'echo "$(printf ")"; claude --bg --name "[C0-DV] x" y)"'
+# Review 2 of #86: the file system ignores case, and bash joins a quoted or escaped name back together.
+case_ deny  'Claude --bg --name "[C0-DV] x" y'
+case_ deny  'CLAUDE --bg --name "[C0-DV] x" y'
+case_ deny  'c\laude --bg --name "[C0-DV] x" y'
+case_ deny  'cl""aude --bg --name "[C0-DV] x" y'
+case_ deny  "'cl'aude --bg --name \"[C0-DV] x\" y"
+# Review 3 of #86: a program the shell builds from ANSI-C quotes, a substitution, or a glob.
+case_ deny  "\$'claude' --bg --name \"[C0-DV] x\" y"
+case_ deny  "\$'\\x63laude' --bg --name \"[C0-DV] x\" y"
+case_ deny  "claude --bg --name \$'[C0-\\x44V] x' y"
+case_ deny  '"$(command -v claude)" --bg --name "[C0-DV] x" y'
+case_ deny  '$(echo claude) --bg --name "[C0-DV] x" y'
+case_ deny  '`echo claude` --bg --name "[C0-DV] x" y'
+case_ deny  '/opt/homebrew/bin/claud* --bg --name "[C0-DV] x" y'
+case_ deny  '/opt/homebrew/bin/cl[a]ude --bg --name "[C0-DV] x" y'
+# Review 4 of #86: a glob with no "cl" or "ude" in it, and an apostrophe earlier on the line.
+case_ deny  '/opt/homebrew/bin/c*de --bg --name "[C0-DV] x" y'
+case_ deny  '/opt/homebrew/bin/c?a?d? --bg --name "[C0-DV] x" y'
+case_ deny  'echo "it'"'"'s"; "$(command -v claude)" --bg --name "[C0-DV] x" y'
+case_ deny  $'# it\'s\n$(echo claude) --bg --name "[C0-DV] x" y'
 echo
 echo "=== refused: a DV session reached through the id it resumes"
 case_ deny  "claude --resume $DVID"
@@ -115,9 +142,28 @@ case_ allow 'claude --bg 2>/dev/null --name "[L0-CC] x" y'
 case_ allow "echo 'see \`claude --bg --name \"[C0-DV] x\"\` in docs' >> notes.md"
 case_ allow "printf '%s\\n' '\$(claude --bg --name \"[C0-DV] x\")' >> notes.md"
 case_ allow $'cat <<\'EOF\' > x.md\n$(claude --bg --name "[C0-DV] x" y)\nEOF'
+# KNOWN LIMITS, found by the DV soak of 2026-09-29 and the review of #86: the hook reads the command's text and does not run the shell, so it cannot see a name or a program built by the shell.
+known_limit "n='[L0-DV] var'; claude --bg --name \"\$n\" y"
+known_limit "c=claude; \$c --bg --name \"[C0-DV] x\" y"
+# A substitution that runs claude for its output is not a start.
+case_ allow 'x=$(claude agents --json --all); echo "$x" | jq length'
+case_ allow 'echo "$(claude --version)"'
 case_ allow ''
 
-printf '\n%s checks, %s failed\n' "$n" "$fails"
-EXPECTED=65
+echo
+echo "=== registered: the REPO's claude/settings.json runs the hook on every Bash call (the live ~/.claude/settings.json is whatever the main checkout holds)"
+n=$((n + 1))
+reg=$(python3 - "$HERE/../../settings.json" <<'PYX'
+import json, sys
+d = json.load(open(sys.argv[1]))
+hits = [h for e in d.get("hooks", {}).get("PreToolUse", []) if e.get("matcher") == "Bash"
+        for h in e.get("hooks", []) if h.get("command") == "/Users/nelson/.claude/hooks/dv-tripwire.sh"]
+print("ok" if len(hits) == 1 and hits[0].get("type") == "command" and isinstance(hits[0].get("timeout"), int) and 1 <= hits[0]["timeout"] <= 10 else "missing or wrong: %r" % hits)
+PYX
+)
+if [ "$reg" = ok ]; then printf 'PASS  the repo settings.json has one Bash PreToolUse entry for dv-tripwire.sh, timeout 1-10 s\n'; else fails=$((fails + 1)); printf 'FAIL  settings.json: %s\n' "$reg"; fi
+
+printf '\n%s checks, %s failed, %s known limits let through\n' "$n" "$fails" "$known"
+EXPECTED=87
 [ "$n" = "$EXPECTED" ] || { echo "FAIL  the check count is $n, expected $EXPECTED"; exit 1; }
 [ "$fails" = 0 ] || exit 1

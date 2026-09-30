@@ -21,22 +21,43 @@
 # WHAT IT CANNOT SEE. A SendMessage to a stopped DV session wakes it without any Bash command, so no Bash hook
 # sees it; nothing guards SendMessage. `claude -c` / `--continue` resumes the latest conversation of the
 # working directory without naming it, and is not checked. A line that does not parse is skipped.
+# Nor does it see what the SHELL builds, because it reads the command's text and does not run the shell: a name in a variable (`n='[L0-DV] x'; claude --bg --name "$n"`, found by the DV soak of 2026-09-29), or the program itself in a variable (`c=claude; $c --bg …`, found by the review of #86). ANSI-C quotes (`$'…'`), a `$( )` or backtick span that names claude, and a glob that matches claude ARE read: the hook does those three expansions itself. The test suite lets each through as a KNOWN-LIMIT, so a future fix shows up.
 #
 # Fail-open on everything else: no `claude` word, bad JSON, or a listing that cannot be read lets the call
 # through, because a tripwire that blocks unrelated work would be switched off, and then it guards nothing.
 
-input=$(cat)
-cmd=$(printf '%s' "$input" | /usr/bin/python3 -c 'import json,sys
-try: print(json.load(sys.stdin).get("tool_input",{}).get("command",""))
-except Exception: pass' 2>/dev/null) || exit 0
+# ONE python3 process for the whole hook, since it runs on every Bash call: the program is read into a variable
+# with the builtin `read` (no extra process), and python3 reads the tool call from stdin itself.
+IFS= read -r -d '' PROG <<'PYEOF' || true
+import codecs, fnmatch, json, os, re, shlex, subprocess, sys
 
-# Fast path: the line never says `claude`, not even inside quotes (a shell's -c string is checked too).
-printf '%s' "$cmd" | grep -q 'claude' || exit 0
-
-TRIP_CMD="$cmd" /usr/bin/python3 - <<'PYEOF'
-import json, os, re, shlex, subprocess, sys
-
-cmd = os.environ.get("TRIP_CMD", "")
+try:
+    cmd = json.load(sys.stdin).get("tool_input", {}).get("command", "") or ""
+except Exception:
+    sys.exit(0)
+# Fast path: no `claude` WORD anywhere, quotes included (a shell's -c string is checked too). A path such as
+# ~/.claude/hooks or dotfiles/claude/tests is not the word, so most fleet commands leave here (review of #86).
+# Two more things the shell does that the text does not show (review 2 of #86): the file system ignores case, so `Claude` runs Claude Code; and bash joins `c\laude`, `cl""aude` and `'cl'aude` back into `claude`. So the fast path looks at the text as written and with backslashes and quotes removed, in any case.
+WORD = re.compile(r"(^|[^.A-Za-z0-9_-])claude([^/A-Za-z0-9_.-]|$)", re.I)
+ANSI_C = re.compile(r"\$'((?:[^'\\]|\\.)*)'")
+def decode_ansi_c(text):
+    # bash turns $'...' into its decoded text; so does this, so `$'\x63laude'` reads as claude (review 3 of #86).
+    def one(m):
+        try:
+            body = codecs.decode(m.group(1).encode("utf-8"), "unicode_escape").encode("latin-1", "replace").decode("utf-8", "replace")
+        except Exception:
+            body = m.group(1)
+        return "'" + body.replace("'", "") + "'"
+    return ANSI_C.sub(one, text)
+plain = decode_ansi_c(cmd)
+# The slow path also runs when a word holds glob characters near "cl": `/opt/homebrew/bin/claud*` has no whole word.
+def glob_is_claude(word):
+    base = os.path.basename(word).lower()
+    return any(ch in base for ch in "*?[") and fnmatch.fnmatchcase("claude", base)
+# The slow path also runs for any glob word that bash could expand to claude; the same test effective() uses (review 4 of #86).
+if not (WORD.search(cmd) or WORD.search(plain) or WORD.search(re.sub(r"[\\'\"]", "", plain))
+        or any(glob_is_claude(w) for w in re.findall(r"[^\s;&|()<>`'\"]*[*?\[][^\s;&|()<>`'\"]*", plain))):
+    sys.exit(0)   # both texts: removing the quotes of -S'claude …' glues the word to -S
 DV = re.compile(r"-dv\]", re.I)
 
 def deny(reason):
@@ -62,7 +83,7 @@ def name_of(ident):
     global listing
     if listing is None:
         try:
-            out = subprocess.run(["claude", "agents", "--json", "--all"], capture_output=True, text=True, timeout=8).stdout
+            out = subprocess.run(["claude", "agents", "--json", "--all"], capture_output=True, text=True, timeout=5).stdout   # well inside the hook's 10 s
             listing = json.loads(out) if out.strip() else []
         except Exception:
             listing = []
@@ -115,10 +136,13 @@ def effective(c):
         i += 1
     if i >= len(c):
         return "", []
-    prog = os.path.basename(c[i])
+    prog = os.path.basename(c[i]).lower()
+    # A glob that bash expands to claude (`/opt/homebrew/bin/claud*`, `cl[a]ude`) is claude (review 3 of #86).
+    if prog != "claude" and glob_is_claude(prog):
+        prog = "claude"
     if prog in WRAPPERS:
         for j in range(i + 1, len(c)):
-            w = os.path.basename(c[j])
+            w = os.path.basename(c[j]).lower()
             if w == "claude" or w in SHELLS or w == "eval":
                 return effective(c[j:])
     return prog, c[i + 1:]
@@ -126,7 +150,7 @@ def effective(c):
 def runs_shell(prog):
     return prog in SHELLS or prog == "eval"
 
-def substitutions(line, quotes=True):
+def sub_spans(line, quotes=True):
     # Every `$( … )` and backtick span the shell would run, found in the raw text so one inside DOUBLE quotes
     # is checked too (shlex keeps a quoted string as one word). Inside SINGLE quotes they are literal text and
     # are skipped, and so is an escaped `\$(` (review 3 of #73). Nested spans are found when each inner
@@ -162,16 +186,19 @@ def substitutions(line, quotes=True):
                     if c2 == "(": depth += 1
                     elif c2 == ")": depth -= 1
                 j += 1
-            out.append(line[i + 2:j - 1] if depth == 0 else line[i + 2:])
+            out.append((i, j, line[i + 2:j - 1] if depth == 0 else line[i + 2:]))
             i = j
         elif ch == "`":
             j = line.find("`", i + 1)
             if j < 0:
-                out.append(line[i + 1:]); break
-            out.append(line[i + 1:j]); i = j + 1
+                out.append((i, n, line[i + 1:])); break
+            out.append((i, j + 1, line[i + 1:j])); i = j + 1
         else:
             i += 1
     return out
+
+def substitutions(line, quotes=True):
+    return [inner for _, _, inner in sub_spans(line, quotes)]
 
 HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
 def line_feeds_shell(ln):
@@ -285,6 +312,18 @@ def check_segment(c, sep, here, prev, depth):
                     check(w, depth + 1)
                 check(" ".join(words), depth + 1)
 
+def stand_in(line):
+    # For TOKENIZING only: a $( ) or backtick span that holds the claude word stands in as the word itself, so
+    # `"$(command -v claude)" --bg …` and `$(echo claude) --bg …` read as a claude call (review 3 of #86). The span's
+    # inside is still checked on its own by substitutions(). The spans come from sub_spans(), the same quote-aware
+    # scanner substitutions() uses, so there is one quote-tracking loop, not two that drift (review 4 of #86).
+    out, last = [], 0
+    for start, end, inner in sub_spans(line):
+        if WORD.search(inner):
+            out.append(line[last:start]); out.append("claude"); last = end
+    out.append(line[last:])
+    return "".join(out)
+
 def check(line, depth=0):
     if depth > 4:
         return
@@ -296,6 +335,7 @@ def check(line, depth=0):
             check(sub, depth + 1)
     for sub in substitutions(line):
         check(sub, depth + 1)
+    line = stand_in(decode_ansi_c(line))
     try:
         segs = list(segments(tokenize(line)))
     except ValueError:
@@ -315,3 +355,4 @@ def check(line, depth=0):
 check(cmd)
 sys.exit(0)
 PYEOF
+exec /usr/bin/python3 -c "$PROG"
