@@ -88,6 +88,14 @@ def _label(raw: Optional[str], default: str) -> str:
     return s or default
 
 
+VCARD_DATE = re.compile(r"^(?:\d{4}-|--)(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$")
+
+
+def vcard_date(v) -> Optional[str]:
+    v = str(v).strip() if v is not None else ""
+    return v if VCARD_DATE.match(v) else None
+
+
 def card_keys(card: dict, carry: List[str]) -> Dict[str, str]:
     """The owned keys a card yields, in a stable order, as plain strings. Only keys whose family is in `carry`."""
     out: Dict[str, str] = {}
@@ -125,10 +133,12 @@ def card_keys(card: dict, carry: List[str]) -> Dict[str, str]:
         for part, field in (("STREET", "street"), ("LOCALITY", "locality"), ("REGION", "region"),
                             ("POSTAL", "postal"), ("COUNTRY", "country")):
             put(f"ADR[{tag}].{part}", a.get(field))
-    put("BDAY", card.get("bday"))
+    # Dates in the vCard form only, the obsidian ship's rule: YYYY-MM-DD, or --MM-DD when the year is unknown. Any other
+    # form is left out rather than guessed. Of the labelled dates, only "anniversary" is written, as ANNIVERSARY.
+    put("BDAY", vcard_date(card.get("bday")))
     for d in card.get("dates") or []:
         if _label(d.get("label"), "") == "ANNIVERSARY":
-            put("ANNIVERSARY", d.get("value"))
+            put("ANNIVERSARY", vcard_date(d.get("value")))
             break
     return out
 

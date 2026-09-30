@@ -75,6 +75,26 @@ class Keys(unittest.TestCase):
                                                                       {"label": "_$!<Anniversary>!$_", "value": "2010-05-06"}]}, CARRY)
         self.assertEqual(k, {"BDAY": "--03-04", "ANNIVERSARY": "2010-05-06"})
 
+    def test_date_forms(self):
+        for good in ("1984-03-07", "--03-07"):
+            k = mirror.card_keys({"id": "x", "bday": good, "dates": [{"label": "anniversary", "value": good}]}, CARRY)
+            self.assertEqual(k, {"BDAY": good, "ANNIVERSARY": good}, good)
+            self.assertEqual(mirror.yaml_value(good), f'"{good}"')  # always a quoted YAML string
+        for bad in ("1984-3-7", "03/07/1984", "--13-01", "1984-02-30T00:00", "", None):
+            self.assertEqual(mirror.card_keys({"id": "x", "bday": bad}, CARRY), {}, bad)
+
+    def test_only_anniversary_of_the_labelled_dates(self):
+        k = mirror.card_keys({"id": "x", "dates": [{"label": "_$!<Other>!$_", "value": "2001-01-01"},
+                                                   {"label": "graduation", "value": "2002-02-02"}]}, CARRY)
+        self.assertEqual(k, {})
+
+    def test_date_lines_written_quoted(self):
+        new, _ = mirror.rewrite(ADA, mirror.card_keys(dict(ADA_CARD, bday="--03-07", dates=[{"label": "_$!<Anniversary>!$_", "value": "2010-05-06"}]), CARRY), owned(), None, "2026-10-01T04:20:00-04:00")
+        self.assertIn('BDAY: "--03-07"\n', new)
+        self.assertIn('ANNIVERSARY: "2010-05-06"\n', new)
+        again, changed = mirror.rewrite(new, mirror.card_keys(dict(ADA_CARD, bday="--03-07", dates=[{"label": "anniversary", "value": "2010-05-06"}]), CARRY), owned(), None, "x")
+        self.assertEqual(changed, [])  # a quoted date reads back equal: no churn on the next run
+
     def test_carry_limits_families(self):
         k = mirror.card_keys(ADA_CARD, ["FN"])
         self.assertEqual(k, {"FN": "Ada Example"})
