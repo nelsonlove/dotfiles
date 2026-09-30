@@ -320,6 +320,29 @@ case "$unit" in no-table) fail "the hook has a ship table" "none" ;; *)
   has "after one failed call the table makes no more calls" "$unit" "calls=1" ;; esac
 
 echo
+echo "=== 7e. a renamed superior: its subordinates' reports-to still names the old label"
+job efefefef commander; reg efefefef "[C1-CC] new boss"
+entry "$NB" 0120 "sub" "[L0-CC] sub" "[C1-CC] old boss"
+{ printf -- '---\naudience: fleet\n---\n\n'
+  printf '## %sT07:00 · [C1-CC] new boss — notebook entry renamed to match the session'"'"'s name\n\nRenamed `Agent session 2026-09-30T0119 old boss.md` to `Agent session 2026-09-30T0119 new boss.md` by `rename-notebook.sh` (sessionId %s): mv.\n\n' "$day" "$(sid efefefef)"
+  r 07:01 " · for: [L0-CC] sub" "RULE-FOR-SUB-OF-RENAMED"
+} > "$LOG"
+seed efefefef "${day}T00:00"; out=$(inject efefefef)
+has "for: a subordinate whose reports-to is the superior's old label reaches the renamed superior" "$out" "RULE-FOR-SUB-OF-RENAMED"
+unit=$(HOME="$H" PATH="$T/stubbin:$PATH" python3 - "$HOOK" "$(sid efefefef)" "$LOG" <<'PY2'
+import importlib.util, sys
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("hook", sys.argv[1]); hook = importlib.util.module_from_spec(spec); spec.loader.exec_module(hook)
+if not hasattr(hook, "ShipTable"): print("no-table"); sys.exit()
+entries = hook.split_entries(open(sys.argv[3]).read())
+aud = hook.Audience(sys.argv[2], 1, entries)
+hook.FLEET_RANKS = Path("/nonexistent/_fleet-ranks.sh")
+print("JOIN=%s dead=%s" % ("yes" if aud.is_me("[C1-CC] old boss") else "no", aud.table.dead))
+PY2
+)
+has "with the ship table dead, a bare pre-rename name still joins its session (fail open)" "$unit" "JOIN=yes dead=True"
+
+echo
 echo "=== 8. a session whose own label cannot be told: nothing is filtered"
 job 77777777 lieutenant
 { printf -- '---\naudience: fleet\n---\n\n'; r 03:00 " · for: [C1-OB] spec" "RULE-UNKNOWN-SELF"; } > "$LOG"

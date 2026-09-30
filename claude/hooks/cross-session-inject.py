@@ -139,6 +139,7 @@ class ShipTable:
         self.tried = False
         self.calls = 0
         self.dead = False
+        self.unanswered = set()  # labels given "no ship" only because the table was dead or spent, not because they have none
 
     def prime(self, labels):
         # KEYED BY THE NORMALISED LABEL, so `[L0-CC] Before` and `[l0-cc] before` are one entry and never cost two calls (`ship_of_name` reads the code case-blind and upper-cases it).
@@ -149,6 +150,7 @@ class ShipTable:
         if self.dead or self.calls >= self.MAX_CALLS:
             for l in want:
                 self.cache[l] = None
+            self.unanswered.update(want)
             return
         self.tried = True
         self.calls += 1
@@ -163,10 +165,14 @@ class ShipTable:
             self.known = None
             for l in want:
                 self.cache[l] = None
+            self.unanswered.update(want)
             return
         self.known = set(lines[0].upper().split()) or None
         for l, code in zip(want, lines[1:]):
             self.cache[l] = code.strip().upper() or None
+
+    def unanswered_for(self, label):
+        return nl(label) in self.unanswered
 
     def ship(self, label):
         key = nl(label)
@@ -284,7 +290,11 @@ class Aliases:
             self.table.prime([label] + [raw for raw, _ in hits])
             mine = self.table.ship(label)
             for raw, renamed in hits:
-                if mine and mine == self.table.ship(raw):
+                theirs = self.table.ship(raw)
+                if mine and mine == theirs:
+                    return self.find(renamed)
+                # A SHIP THE TABLE COULD NOT GIVE (dead, or out of calls) is not a mismatch: the join is made, which shows more, never less.
+                if self.table.unanswered_for(label) or self.table.unanswered_for(raw):
                     return self.find(renamed)
         return label
 
@@ -409,6 +419,8 @@ class Audience:
         if fors and a.old_bare:
             rows = self._rows()
             want += [l for l, _, _ in rows or [] if l not in a.parent and bare(l) in a.old_bare]
+            # The chain walk also looks up every `reports-to` value, so those that match a bare pre-rename name go in the same call.
+            want += [r for _, _, r in rows or [] if r and r not in a.parent and bare(r) in a.old_bare]
         self.table.prime(want)
 
     def _rows(self):
