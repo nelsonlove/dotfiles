@@ -301,6 +301,25 @@ lacks "a ruling's author segment does not count as naming it" "$out" "RULE-AUTHO
 has   "a body that names it whole reaches it" "$out" "RULE-NAMES-IT"
 
 echo
+echo "=== 7d. the ship table unreadable: every ships: ruling shown to every rank, and the calls stop after the first failure"
+unit=$(HOME="$H" PATH="$T/stubbin:$PATH" python3 - "$HOOK" "$(sid 22222222)" <<'PY2'
+import importlib.util, sys
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("hook", sys.argv[1]); hook = importlib.util.module_from_spec(spec); spec.loader.exec_module(hook)
+if not hasattr(hook, "ShipTable"): print("no-table"); sys.exit()
+hook.FLEET_RANKS = Path("/nonexistent/_fleet-ranks.sh")
+aud = hook.Audience(sys.argv[2], 3, [])
+e = "## 2026-09-30T05:00 · [A0] rear admiral — ruling · ships: HS\nbody"
+print("l0-shown" if aud.shows(e) else "l0-hidden")
+for i in range(5): aud.table.prime(["[L0-CC] x%d" % i])
+print("calls=%d" % aud.table.calls)
+PY2
+)
+case "$unit" in no-table) fail "the hook has a ship table" "none" ;; *)
+  has "an unreadable table shows a ships: ruling to a lieutenant" "$unit" "l0-shown"
+  has "after one failed call the table makes no more calls" "$unit" "calls=1" ;; esac
+
+echo
 echo "=== 8. a session whose own label cannot be told: nothing is filtered"
 job 77777777 lieutenant
 { printf -- '---\naudience: fleet\n---\n\n'; r 03:00 " · for: [C1-OB] spec" "RULE-UNKNOWN-SELF"; } > "$LOG"

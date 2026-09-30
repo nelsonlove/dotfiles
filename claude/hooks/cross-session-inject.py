@@ -131,16 +131,27 @@ def bare(label):
 class ShipTable:
     """Ship codes, from `claude/bin/_fleet-ranks.sh` (sourced, never copied): `ship_of_name` for each label and `KNOWN_SHIPS`, in ONE bash call for a batch of labels, cached, and made only when a ruling needs a ship. The hook runs under a 15-second SessionStart timeout, so no call is made for a start whose rulings carry no `ships:` mark and no rename alias. If the table cannot be read, `known` is None and every ship is None, which the filter turns into showing more."""
 
+    MAX_CALLS = 2  # a hard bound on the time this table can cost one start: 2 x 3 s
+
     def __init__(self):
         self.cache = {}
         self.known = None
         self.tried = False
+        self.calls = 0
+        self.dead = False
 
     def prime(self, labels):
-        want = [l for l in dict.fromkeys(labels) if l and l not in self.cache]
+        # KEYED BY THE NORMALISED LABEL, so `[L0-CC] Before` and `[l0-cc] before` are one entry and never cost two calls (`ship_of_name` reads the code case-blind and upper-cases it).
+        want = [l for l in dict.fromkeys(nl(x) for x in labels if x) if l and l not in self.cache]
         if not want and self.tried:
             return
+        # DEAD OR SPENT: after a failed or timed-out call, or once the call budget is used, no more calls are made; every new label reads as "no ship", which the filter turns into showing more.
+        if self.dead or self.calls >= self.MAX_CALLS:
+            for l in want:
+                self.cache[l] = None
+            return
         self.tried = True
+        self.calls += 1
         try:
             out = subprocess.run(["bash", "-c", '. "$1" >/dev/null 2>&1 || exit 9; shift; printf "%s\\n" "$KNOWN_SHIPS"; for l in "$@"; do printf "%s\\n" "$(ship_of_name "$l")"; done', "_", str(FLEET_RANKS)] + want,
                                  capture_output=True, text=True, timeout=3)
@@ -148,6 +159,8 @@ class ShipTable:
             out = None
         lines = out.stdout.split("\n") if out is not None and out.returncode == 0 else []
         if len(lines) < len(want) + 1:
+            self.dead = True
+            self.known = None
             for l in want:
                 self.cache[l] = None
             return
@@ -156,9 +169,10 @@ class ShipTable:
             self.cache[l] = code.strip().upper() or None
 
     def ship(self, label):
-        if label not in self.cache:
-            self.prime([label])
-        return self.cache.get(label)
+        key = nl(label)
+        if key not in self.cache:
+            self.prime([key])
+        return self.cache.get(key)
 
 
 def marks(heading):
@@ -381,13 +395,35 @@ class Audience:
     def is_me(self, label):
         return self.aliases().root(nl(label)) in self.own_roots()
 
+    def prepare(self, rulings):
+        """ONE CALL to the ship table for the whole start, before any ruling is filtered, and only when a ruling carries a mark: this session's name, every `for:` label, every label the rename ledger holds, and every notebook label that matches a bare pre-rename name. Later lookups hit the cache."""
+        fors, any_mark = [], False
+        for _, e in rulings:
+            f, sh, fl = marks(e.split("\n", 1)[0])
+            fors += f
+            any_mark = any_mark or bool(f or sh)
+        if not any_mark:
+            return
+        a = self.aliases()
+        want = [self.name] + fors + [raw for hits in a.old_bare.values() for raw, _ in hits]
+        if fors and a.old_bare:
+            rows = self._rows()
+            want += [l for l, _, _ in rows or [] if l not in a.parent and bare(l) in a.old_bare]
+        self.table.prime(want)
+
+    def _rows(self):
+        if not hasattr(self, "_raw_rows"):
+            self._raw_rows = reporting_lines()
+        return self._raw_rows
+
     def lines(self):
         if self._lines is None:
-            rows = reporting_lines()
+            rows = self._rows()
             if rows is None:
                 self._lines = False
             else:
                 a = self.aliases()
+                self.table.prime([l for l, _, _ in rows if l not in a.parent and bare(l) in a.old_bare])
                 self._lines = {}
                 for label, stamp, r in rows:
                     self._lines.setdefault(a.root(label), []).append((stamp, r))
@@ -448,8 +484,8 @@ class Audience:
             return True
         if ships:
             self.table.prime([self.name])
-            # A CODE THE TABLE DOES NOT KNOW (`ships: OBS`) is a slip: shown to everyone, an L0 included, as `fleet` is.
-            if self.table.known is not None and not ships <= self.table.known:
+            # A CODE THE TABLE DOES NOT KNOW (`ships: OBS`) is a slip: shown to everyone, an L0 included, as `fleet` is. And when the table cannot be read at all, no code can be checked, so every `ships:` ruling is shown to every rank.
+            if self.table.known is None or not ships <= self.table.known:
                 return True
             # A session whose name carries no ship code (or an unreadable table) cannot be matched by `ships:`, so it is shown them: fail toward more reading.
             if self.rank < 3 and (not self.ship or self.ship in ships):
@@ -591,6 +627,8 @@ def main():
         # THE AUDIENCE FILTER, then the stamp rules unchanged over what it leaves. A ruling the filter drops is NOT FOR this session, so the stamp may pass it exactly as it passes a claim; a ruling it keeps is treated exactly as every ruling was before, so the stamp never passes one of those unshown (the cap floor below is taken from the kept rulings only). If this session's own label cannot be told, nothing is dropped.
         audience = Audience(session_id, rank, entries)
         all_rulings = [(s, e) for s, e in unread if is_ruling(e.split("\n", 1)[0])]
+        if audience.known:
+            audience.prepare(all_rulings)
         rulings = [(s, e) for s, e in all_rulings if not audience.known or audience.shows(e)]
         dropped = len(all_rulings) - len(rulings)
         if first_run and rulings:
