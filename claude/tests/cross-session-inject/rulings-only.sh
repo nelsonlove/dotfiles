@@ -78,6 +78,9 @@ inject() {  # inject <8-hex id>: the hook's additionalContext for that session
 try: print(json.load(sys.stdin)["hookSpecificOutput"]["additionalContext"])
 except Exception: print("")'
 }
+seed() {  # seed <8-hex id> <stamp>: a later run, not a first one (a first run gets the newest rulings; section 5)
+  mkdir -p "$H/.local/share/cross-session-hook"; printf '%s' "$2" > "$H/.local/share/cross-session-hook/$(sid "$1")"
+}
 state_of() { cat "$H/.local/share/cross-session-hook/$(sid "$1")" 2>/dev/null; }
 
 echo
@@ -121,7 +124,7 @@ echo "=== 3. the cap, and the stamp never passes an unshown ruling"
     printf '## %sT01:%s · [L0-CC] a — claim\nC%s.\n\n' "$day" "$((i + 30))" "$i"
   done
 } > "$LOG"
-job 11111111 lieutenant
+job 11111111 lieutenant; seed 11111111 "${day}T00:00"
 seen=""; rounds=0; capped=ok
 while [ "$rounds" -lt 12 ]; do
   out=$(inject 11111111); rounds=$((rounds + 1))
@@ -146,7 +149,7 @@ echo "=== 4. ties, dash variants, and the channel list"
   for i in 1 2 3 4; do printf '## %sT02:00 · [A0] rear admiral — ruling\nT%s %s\n\n' "$day" "$i" "$(python3 -c 'print("t" * 900)')"; done
   printf '## %sT02:05 · [A0] rear admiral — ruling\nT5 after the tie.\n\n' "$day"
 } > "$LOG"
-job 22222222 lieutenant
+job 22222222 lieutenant; seed 22222222 "${day}T00:00"
 seen=""; rounds=0
 while [ "$rounds" -lt 8 ]; do
   out=$(inject 22222222); rounds=$((rounds + 1))
@@ -165,7 +168,7 @@ if [ "$all" = "T1 T2 T3 T4 T5 " ]; then pass "rulings tied on one stamp over the
   printf '## %sT03:05 · [A0] rear admiral — rulings: two of them\nPLURAL rulings.\n\n' "$day"
   printf '## %sT03:06 · [A0] rear admiral — ruling and release in one\nCOMBINED ruling.\n\n' "$day"
 } > "$LOG"
-job 33333333 lieutenant
+job 33333333 lieutenant; seed 33333333 "${day}T00:00"
 out=$(inject 33333333)
 has   "a ruling marked with an en dash is shown" "$out" "EN dash ruling."
 has   "a ruling marked with a hyphen and a note is shown" "$out" "HYPHEN ruling."
@@ -175,7 +178,74 @@ has   "a plural 'rulings:' is shown" "$out" "PLURAL rulings."
 has   "a combined 'ruling and release in one' is shown" "$out" "COMBINED ruling."
 has   "a lieutenant still gets the channel list" "$out" "Cross-session channels discovered"
 
-EXPECTED=28
+echo
+echo "=== 5. a FIRST run below captain gets the newest rulings, and the older ones are never paged later"
+{ printf -- '---\naudience: fleet\n---\n\n'
+  for i in 10 11 12 13 14 15 16 17 18 19; do
+    printf '## %sT04:%s · [A0] rear admiral — ruling\nF%s %s\n\n' "$day" "$i" "$i" "$(python3 -c 'print("f" * 600)')"
+  done
+  printf '## %sT04:30 · [L0-CC] a — claim\nTrailing claim.\n\n' "$day"
+} > "$LOG"
+job 44444444 lieutenant
+out=$(inject 44444444)
+has   "a first run over the cap gets the newest ruling" "$out" "F19 "
+lacks "a first run over the cap does not get the oldest ruling" "$out" "F10 "
+has   "a first run says the older rulings will not come back" "$out" "will not come back"
+first=$(printf '%s' "$out" | grep -oE '^F[0-9]+' | head -1)
+if [ "$first" = F19 ]; then pass "a first run shows the newest ruling first"; else fail "a first run shows the newest ruling first" "first shown: $first"; fi
+st=$(state_of 44444444)
+if [ "$st" = "${day}T04:19" ]; then pass "a first run sets the stamp to the newest ruling"; else fail "a first run sets the stamp to the newest ruling" "stamp $st"; fi
+printf '## %sT04:40 · [A0] rear admiral — ruling\nF40 later.\n\n' "$day" >> "$LOG"
+out=$(inject 44444444)
+has   "a second run gets the ruling after the stamp" "$out" "F40 later."
+lacks "a second run does not page the older rulings" "$out" "F10 "
+lacks "a second run does not reshow the first run's rulings" "$out" "F19 "
+
+{ printf -- '---\naudience: fleet\n---\n\n'
+  printf '## %sT05:01 · [A0] rear admiral — ruling\nSMALL one.\n\n' "$day"
+  printf '## %sT05:02 · [L0-CC] a — claim\nClaim.\n\n' "$day"
+  printf '## %sT05:03 · [A0] rear admiral — ruling\nSMALL two.\n\n' "$day"
+} > "$LOG"
+job 55555555 lieutenant
+out=$(inject 55555555)
+has "a first run under the cap gets every ruling (the older)" "$out" "SMALL one."
+has "a first run under the cap gets every ruling (the newer)" "$out" "SMALL two."
+
+# The NEWEST stamp group is kept whole over the cap; an OLDER tied group is not (it would add text for nothing: it is passed either way).
+{ printf -- '---\naudience: fleet\n---\n\n'
+  printf '## %sT06:00 · [A0] rear admiral — ruling\nOLD %s\n\n' "$day" "$(python3 -c 'print("o" * 900)')"
+  for i in 1 2 3 4 5; do printf '## %sT06:10 · [A0] rear admiral — ruling\nMID%s %s\n\n' "$day" "$i" "$(python3 -c 'print("m" * 900)')"; done
+  for i in 1 2 3 4; do printf '## %sT06:20 · [A0] rear admiral — ruling\nTOP%s %s\n\n' "$day" "$i" "$(python3 -c 'print("t" * 900)')"; done
+} > "$LOG"
+job 66666666 lieutenant
+out=$(inject 66666666)
+tops=$(printf '%s' "$out" | grep -cE '^TOP[0-9]')
+if [ "$tops" = 4 ]; then pass "a first run keeps the newest stamp group whole over the cap"; else fail "a first run keeps the newest stamp group whole over the cap" "$tops of 4 shown"; fi
+has   "an older-ruling count of more than one reads in the plural" "$out" "6 older rulings from"
+{ printf -- '---\naudience: fleet\n---\n\n'
+  for i in 1 2 3 4 5; do printf '## %sT06:10 · [A0] rear admiral — ruling\nMID%s %s\n\n' "$day" "$i" "$(python3 -c 'print("m" * 900)')"; done
+  printf '## %sT06:20 · [A0] rear admiral — ruling\nTOP short.\n\n' "$day"
+} > "$LOG"
+job 67676767 lieutenant
+out=$(inject 67676767)
+mids=$(printf '%s' "$out" | grep -cE '^MID[0-9]')
+if [ "$mids" -lt 5 ]; then pass "a first run does not stretch the cap for an older tied group ($mids of 5 shown)"; else fail "a first run does not stretch the cap for an older tied group" "all 5 shown"; fi
+
+# A ruling stamped in the future (the harness clock runs a day ahead after 20:00 local) must not carry a first run's stamp past now.
+tomorrow=$(python3 -c 'import datetime; print((datetime.date.today() + datetime.timedelta(days=1)).isoformat())')
+{ printf -- '---\naudience: fleet\n---\n\n'
+  printf '## %sT00:30 · [A0] rear admiral — ruling\nTODAY one.\n\n' "$day"
+  printf '## %sT23:59 · [A0] rear admiral — ruling\nFUTURE one.\n\n' "$tomorrow"
+} > "$LOG"
+job 77777777 lieutenant
+out=$(inject 77777777)
+st=$(state_of 77777777)
+if [ "$st" \< "${tomorrow}T00:00" ]; then pass "a future-stamped ruling does not carry a first run's stamp past now"; else fail "a future-stamped ruling does not carry a first run's stamp past now" "stamp $st"; fi
+out=$(inject 77777777)
+st=$(state_of 77777777)
+if [ "$st" \< "${tomorrow}T00:00" ]; then pass "nor a later run's stamp"; else fail "nor a later run's stamp" "stamp $st"; fi
+
+EXPECTED=43
 [ $((n)) = "$EXPECTED" ] || { fails=$((fails + 1)); echo "FAIL  the check count is $n, expected $EXPECTED"; }
 printf '\n%s checks (expected %s), %s failed, %s skipped\n' "$n" "$EXPECTED" "$fails" "$skips"
 [ "$fails" = 0 ] || exit 1
