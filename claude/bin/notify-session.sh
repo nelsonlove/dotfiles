@@ -288,9 +288,16 @@ fi
 # flow list (`["a", "b"]`) and a scalar, at column zero, first occurrence.
 first_session() {
   printf '%s\n' "$flag_block" | awk '
-    function unq(v) {
+    # THE SAME NORMALISATION AS `roster_value` in claude/lib/session-roster.sh (review of #110): a QUOTED value ends at its
+    # first closing quote, so a trailing ` # comment` after it goes; only an UNQUOTED value loses ` # …` by itself.
+    function unq(v,   q, i) {
       sub(/^[ \t]+/, "", v); sub(/[ \t]+$/, "", v)
-      if (v ~ /^".*"$/ || v ~ /^\047.*\047$/) { v = substr(v, 2, length(v) - 2) }
+      q = substr(v, 1, 1)
+      if (q == "\"" || q == "\047") {
+        i = index(substr(v, 2), q)
+        if (i > 0) return substr(v, 2, i - 1)
+      }
+      sub(/[ \t]+#.*$/, "", v); sub(/[ \t]+$/, "", v)
       return v
     }
     !found && /^session[ \t]*:/ {
@@ -462,18 +469,30 @@ outcome_clause() {  # $1 = display name, $2 = sessionId, $3 = status
 # --- the dedupe: lock, check, notice, record --------------------------------------------------------
 # The order is the header's: lock, check, notice, record only if the notice was written, unlock; the wake comes after.
 lock_held=0
+lock_is_stale() {  # $1 = a lock directory: stale if its pid is dead, or it is older than LOCK_STALE seconds
+  ls_pid=$(cat "$1/pid" 2>/dev/null || true)
+  if [ -n "$ls_pid" ] && ! kill -0 "$ls_pid" 2>/dev/null; then return 0; fi
+  ls_m=$(stat -f %m "$1" 2>/dev/null || true)
+  [ -n "$ls_m" ] && [ $(( $(date +%s) - ls_m )) -gt "$LOCK_STALE" ]
+}
 lock_take() {
   mkdir -p "$STATE_DIR" 2>/dev/null || return 1
   lt_tries=0
   while ! mkdir "$LOCK" 2>/dev/null; do
-    lt_pid=$(cat "$LOCK/pid" 2>/dev/null || true)
-    lt_stale=0
-    if [ -n "$lt_pid" ] && ! kill -0 "$lt_pid" 2>/dev/null; then lt_stale=1; fi
-    lt_m=$(stat -f %m "$LOCK" 2>/dev/null || true)
-    if [ -n "$lt_m" ] && [ $(( $(date +%s) - lt_m )) -gt "$LOCK_STALE" ]; then lt_stale=1; fi
-    if [ "$lt_stale" = 1 ]; then
-      # BROKEN BY A RENAME, which only one breaker can win; the loser's `mv` fails and it simply tries `mkdir` again.
-      mv "$LOCK" "$LOCK.stale.$$" 2>/dev/null && rm -rf "$LOCK.stale.$$"
+    if lock_is_stale "$LOCK"; then
+      # BROKEN UNDER A SECOND LOCK, and judged stale AGAIN inside it (review of #110). A check followed by a rename was not
+      # atomic: two callers could both judge the dead holder's lock stale, the first break it and take a fresh one, and the
+      # second then rename the first's LIVE lock away, so both notified. Inside `sent.lock.break` only one breaker acts, and
+      # a lock a winner has just made (fresh mtime, a live pid or none yet) is not stale on the re-check.
+      if mkdir "$LOCK.break" 2>/dev/null; then
+        if lock_is_stale "$LOCK"; then
+          mv "$LOCK" "$LOCK.stale.$$" 2>/dev/null && rm -rf "$LOCK.stale.$$"
+        fi
+        rmdir "$LOCK.break" 2>/dev/null || true
+      elif lock_is_stale "$LOCK.break"; then
+        # A breaker that died inside the break lock (a few lines of shell) leaves it behind; the same age rule clears it.
+        rmdir "$LOCK.break" 2>/dev/null || true
+      fi
       continue
     fi
     lt_tries=$((lt_tries + 1))
@@ -576,19 +595,20 @@ if [ -n "$target_name" ]; then
     elif [ -z "$row_line" ]; then
       # BY LABEL: the newest entry whose `session:` is this label, by the stamp in its filename. A tie or an unstamped
       # candidate leaves it unknown. `grep -lF` narrows the files first, so ~500 entries cost one pass, not 500 parses.
-      best=""; best_stamp=""; tie=0
+      best=""; best_stamp=""; tie=0; unstamped=0
       while IFS= read -r f; do
         [ -n "$f" ] || continue
         roster_read "$f"
         [ "$roster_session" = "$target_name" ] || continue
         st=$(printf '%s' "${f##*/}" | sed -n -E 's/.*([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{4}).*/\1/p')
-        if [ -z "$st" ]; then tie=1; continue; fi
+        # AN UNSTAMPED CANDIDATE IS STICKY (review of #110): it cannot be ordered, so no later stamp can make the answer known.
+        if [ -z "$st" ]; then unstamped=1; continue; fi
         if [ -z "$best" ] || [ "$st" \> "$best_stamp" ]; then best="$f"; best_stamp="$st"; tie=0
         elif [ "$st" = "$best_stamp" ]; then tie=1; fi
       done <<EOF
 $(notebook_entry_files_of "$NB_ROOT" 1 "$AR_ROOT" 1 | tr '\n' '\0' | xargs -0 grep -lF -- "$target_name" 2>/dev/null)
 EOF
-      [ "$tie" = 1 ] || l0_entry="$best"
+      [ "$tie" = 1 ] || [ "$unstamped" = 1 ] || l0_entry="$best"
     fi
     if [ -n "$l0_entry" ]; then
       session_status_of "$l0_entry"

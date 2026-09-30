@@ -161,7 +161,9 @@ done
 if [ "$good" = 8 ]; then pass "three racing calls, eight rounds: one notice, one log entry, one key each time"
 else fail "three racing calls, eight rounds: one notice, one log entry, one key each time" "$good of 8 rounds were clean"; fi
 # A lock left behind by a dead process is broken, not waited on forever.
-mkdir -p "$NOTIFY_STATE_DIR/sent.lock"; printf '99999\n' > "$NOTIFY_STATE_DIR/sent.lock/pid"
+# A pid that is certainly dead: a child that has exited and been reaped (a fixed number could be a live process).
+sh -c 'exit 0' & deadpid=$!; wait "$deadpid"
+mkdir -p "$NOTIFY_STATE_DIR/sent.lock"; printf '%s\n' "$deadpid" > "$NOTIFY_STATE_DIR/sent.lock/pid"
 b=$(lines "$NOTIFY_NOTICES_DIR/$SID_RUN.md")
 start=$(date +%s)
 run --note "$N1" --uid "$UID1" --event verified --at 2026-09-30T09:00:00-04:00 >/dev/null
@@ -257,6 +259,31 @@ br=$(lines "$NOTIFY_NOTICES_DIR/$SID_RA.md")
 out=$(run --note "$N6" --event verified --at 2026-09-30T06:24)
 check "free text, no ship known: the rear admiral is told" [ "$(lines "$NOTIFY_NOTICES_DIR/$SID_RA.md")" = $((br + 1)) ]
 case "$(last_heading)" in *"· for: [A0] rear admiral") pass "free text, no ship: the heading is for the rear admiral" ;; *) fail "free text, no ship: the heading is for the rear admiral" "$(last_heading)" ;; esac
+
+echo
+echo "=== review of #110: a trailing comment, and an unstamped entry beside an ended one"
+NC=$(qnote comment "" 'session: "[C1-CC] running one"  # filer')
+b=$(lines "$NOTIFY_NOTICES_DIR/$SID_RUN.md")
+run --note "$NC" --event verified --at 2026-09-30T06:40 >/dev/null
+check "a scalar label with a trailing # comment is the filer" [ "$(lines "$NOTIFY_NOTICES_DIR/$SID_RUN.md")" = $((b + 1)) ]
+NC2=$(qnote comment2 "" 'session:
+  - "[C1-CC] running one" # filer')
+run --note "$NC2" --event verified --at 2026-09-30T06:41 >/dev/null
+check "a list item with a trailing # comment is the filer" [ "$(lines "$NOTIFY_NOTICES_DIR/$SID_RUN.md")" = $((b + 2)) ]
+cat > "$NB/Agent session resumed copy.md" <<EOF
+---
+session: "[L0-CC] gone"
+status: draft/running
+session-id: 12345678-1111-2222-3333-444444444444
+reports-to: "[C1-CC] plugins"
+---
+EOF
+entry 2026-09-30T0500 "$AR" "[L0-CC] gone" "12345678-1111-2222-3333-444444444444" archived/ended "[C1-CC] plugins"
+NG=$(qnote gone "" 'session: "[L0-CC] gone"')
+bc=$(lines "$NOTIFY_NOTICES_DIR/$SID_C1.md")
+run --note "$NG" --event verified --at 2026-09-30T06:42 >/dev/null
+check "an unstamped entry beside an ended one leaves it unknown: the dispatcher is NOT told as for an ended L0" [ "$(lines "$NOTIFY_NOTICES_DIR/$SID_C1.md")" = "$bc" ]
+case "$(log_tail)" in *"archived/ended"*) fail "and the log does not claim the entry ended" "$(log_tail | cut -c1-200)" ;; *) pass "and the log does not claim the entry ended" ;; esac
 
 echo
 echo "=== old callers with no --uid: as today, and the log says it cannot dedupe"
