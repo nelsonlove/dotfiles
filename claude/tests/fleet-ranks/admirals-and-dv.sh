@@ -199,6 +199,17 @@ CALLER_SID="";     has "wake: --by areas admiral with no session id is refused a
 CALLER_SID=$NAID;  out=$(run_wake "[L0-PE] t" "[A0] areas admiral")
 case "$out" in *"reporting line"*) r=admitted ;; *) r="$out" ;; esac
 eq "wake: the registry check does not touch a non-DV wake" "$r" admitted
+# The survey road (`--all`, and so `--all --resume-stopped`) hides a DV row from a false --by, and shows it to the registered areas admiral (review 2 of the re-review of #107).
+run_survey() {
+  printf '[{"id":"dd000000","sessionId":"dd000000-0000-0000-0000-000000000000","name":"[L0-DV] survey","cwd":"%s","status":"stopped"}]\n' "$T/cwd" > "$T/listing.json"
+  CLAUDE_CODE_SESSION_ID="$CALLER_SID" STUB_LISTING="$T/listing.json" HOME="$T/home" PATH="$T/stubbin:$PATH" \
+    bash "$BIN/wake-session.sh" --all --by "[A0] areas admiral" --jobs-dir "$T/jobs" --log "$T/log.md" \
+      --pause-note "$T/pause.md" --agents-dir "$T/agents" --notebook-dir "$T/agents/Agent notebook" --archive-dir "$T/archive" --dry-run 2>&1
+}
+CALLER_SID=$NAID; out=$(run_survey); case "$out" in *"[L0-DV] survey"*) r=shown ;; *"survey by"*) r=hidden ;; *) r="$out" ;; esac
+eq "survey: a DV row is hidden from --by areas admiral with agent null" "$r" hidden
+CALLER_SID=$AAID; out=$(run_survey); case "$out" in *"[L0-DV] survey"*) r=shown ;; *) r="$out" ;; esac
+eq "survey: a DV row is shown to the registered areas admiral" "$r" shown
 CALLER_SID=$AAID
 # The admiral DEFINITION needs an [A0] name, as in promote-session (#80): a session that runs it under another name has no rank the script can read, and one under an [A0] name is an admiral (so it is not below a captain caller).
 mkdir -p "$T/jobs/zz000000"; printf '{"template":"admiral"}\n' > "$T/jobs/zz000000/state.json"
@@ -230,7 +241,7 @@ case "$msg" in *"without restating"*) r=silent ;; *) r=missing ;; esac
 eq "the default wake message says to dispose of entries without restating them" "$r" silent
 
 # The count is asserted and is part of the summary line (tests/README.md rule 1).
-EXPECTED=99
+EXPECTED=101
 [ "$n" = "$EXPECTED" ] || { fails=$((fails + 1)); echo "FAIL  the check count is $n, expected $EXPECTED: a line was lost or added without updating EXPECTED"; }
 printf '\n%s checks (expected %s), %s failed\n' "$n" "$EXPECTED" "$fails"
 [ "$fails" = 0 ] || exit 1
