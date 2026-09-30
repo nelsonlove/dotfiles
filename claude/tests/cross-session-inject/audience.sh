@@ -72,6 +72,7 @@ entry "$NB" 0101 "claude code" "[C0-CC] claude code" "[A0] rear admiral"
 entry "$NB" 0102 "plugins" "[C1-CC] plugins" "[C0-CC] claude code"
 entry "$AR" 0103 "worker" "[L0-CC] worker" "[C1-CC] plugins"
 entry "$NB" 0104 "spec" "[C1-OB] spec" "[C0-OB] obsidian"
+entry "$NB" 0105 "stranger" "[L0-CC] stranger" "[C1-CC] plugins"
 job 11111111 commander;  reg 11111111 "[C1-CC] plugins"
 job 22222222 lieutenant; reg 22222222 "[L0-CC] worker"
 job 33333333 commander;  reg 33333333 "[C1-OB] spec"
@@ -233,6 +234,8 @@ cases = [
   ("segments combine as a union",                 h + " · for: [L0-CC] a · ships: MA · fleet", (["[L0-CC] a"], {"MA"}, True)),
   ("an unrecognised segment is ignored",          h + " · ships: MA · urgent",              ([], {"MA"}, False)),
   ("a lone typo (ship:) is no marker",            h + " · ship: PE",                       ([], set(), False)),
+  ("a ships: value that is not a code goes to everyone", h + " · ships: MA (dotfiles)",   ([], set(), True)),
+  ("ships: MA and CC is not a code list: everyone",   h + " · ships: MA and CC",         ([], set(), True)),
   ("no marker is no marker",                      h,                                       ([], set(), False)),
   ("a note in brackets before the marks",         h + " (correction) · ships: MA",         ([], {"MA"}, False)),
 ]
@@ -256,6 +259,42 @@ seed 99999999 "${day}T00:00"; out=$(inject 99999999)
 has   "end to end: a heading whose only segment is a typo goes to everyone (fail-open for a slip)" "$out" "RULE-TYPO-MARK"
 lacks "end to end: a correct ships: PE does not reach a CC lieutenant" "$out" "RULE-SHIPS-PE"
 lacks "only ruling headings are read for marks: a claim marked for: this session is still a claim" "$out" "CLAIM-FOR-ME"
+
+echo
+echo "=== 7c. the review's fail-open cases: a slip or an unreadable record shows more, never less"
+{ printf -- '---\naudience: fleet\n---\n\n'
+  r 06:00 " · for: [L0-CC] nobody we know" "RULE-FOR-UNKNOWN-LABEL"
+  r 06:01 " · for: \`[C1-CC] Plugins\`" "RULE-FOR-BACKTICKED-CASE"
+  r 06:02 " · ships: MA (dotfiles)" "RULE-SHIPS-JUNK"
+  r 06:03 " · for: [L0-CC] worker" "RULE-FOR-WORKER-AGAIN"
+} > "$LOG"
+seed 33333333 "${day}T00:00"; out=$(inject 33333333)
+has   "a for: label the fleet has no record of goes to everyone (a slip)" "$out" "RULE-FOR-UNKNOWN-LABEL"
+has   "a ships: value that is not a code goes to everyone" "$out" "RULE-SHIPS-JUNK"
+lacks "a known for: label on another ship still does not reach it" "$out" "RULE-FOR-WORKER-AGAIN"
+seed 11111111 "${day}T00:00"; out=$(inject 11111111)
+has   "a for: label in backticks and another case still matches" "$out" "RULE-FOR-BACKTICKED-CASE"
+# The notebook cannot be read: both roots moved away for one run.
+mv "$AG/03.04 Records" "$T/hide-records"; mv "$AG/03.09 Archive" "$T/hide-archive"
+seed 33333333 "${day}T00:00"; out=$(inject 33333333)
+mv "$T/hide-records" "$AG/03.04 Records"; mv "$T/hide-archive" "$AG/03.09 Archive"
+has   "with the notebook unreadable, a for: ruling is shown (fail open)" "$out" "RULE-FOR-WORKER-AGAIN"
+# A commander whose name carries no ship code is shown ships: rulings.
+job abababab commander; reg abababab "[C1] shipless"
+{ printf -- '---\naudience: fleet\n---\n\n'; r 06:10 " · ships: HS" "RULE-SHIPS-FOR-SHIPLESS"; } > "$LOG"
+seed abababab "${day}T00:00"; out=$(inject abababab)
+has   "a session whose name has no ship code is shown ships: rulings" "$out" "RULE-SHIPS-FOR-SHIPLESS"
+# Naming is a whole label in the body, not inside a longer one and not the heading's author.
+job cdcdcdcd lieutenant; reg cdcdcdcd "[L0-CC] dot"
+{ printf -- '---\naudience: fleet\n---\n\n'
+  r 06:20 " · ships: MA" "RULE-NAMES-LONGER: the [L0-CC] dotfiles session acts."
+  printf '## %sT06:21 · [L0-CC] dot — ruling · ships: OB\nRULE-AUTHORED-BY-IT\n\n' "$day"
+  r 06:22 " · ships: MA" "RULE-NAMES-IT: [L0-CC] dot acts."
+} > "$LOG"
+seed cdcdcdcd "${day}T00:00"; out=$(inject cdcdcdcd)
+lacks "a longer label does not count as naming a shorter one" "$out" "RULE-NAMES-LONGER"
+lacks "a ruling's author segment does not count as naming it" "$out" "RULE-AUTHORED-BY-IT"
+has   "a body that names it whole reaches it" "$out" "RULE-NAMES-IT"
 
 echo
 echo "=== 8. a session whose own label cannot be told: nothing is filtered"

@@ -109,25 +109,37 @@ AGENTS_DIR = VAULT / "00-09 System" / "03 Agents"
 NOTEBOOK_ROOTS = Path(__file__).resolve().parent.parent / "lib" / "notebook-roots.sh"
 MARK_SPLIT = re.compile(r"\s·\s")
 BARE = re.compile(r"^\[[^\]]*\]\s*")
-SHIP = re.compile(r"^\[[A-Za-z][0-9]-([A-Za-z]{1,4})\]")  # the same pattern as ship_of_name in claude/bin/_fleet-ranks.sh
+SHIP_CODE = re.compile(r"^[A-Za-z]{1,4}$")  # the code shape `ship_of_name` accepts
 # THE RENAME LEDGER, the exact lines `claude/bin/rename-notebook.sh` writes: a heading `## <stamp> · <new name> — notebook entry renamed to match the session's name` (or `— notebook entry's keys repaired after an interrupted rename`), and in the body "(sessionId <full id>)"; a rename's body also reads "Renamed `<old file>` to `<new file>`". The heading's name is a LABEL the session held; the old file's name carries only the bare name (no rank code), since the entry's filename drops it.
 RENAME_HEAD = re.compile(r"^## \S+ · (.+?) — notebook entry(?: renamed to match the session's name|'s keys repaired after an interrupted rename)\s*$")
 RENAME_ID = re.compile(r"\(sessionId ([0-9A-Fa-f-]{36})\)")
 RENAME_OLD = re.compile(r"Renamed `([^`]+)` to `")
 ENTRY_STAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{4}")
+# THE BUDGET. The hook runs under the 15-second SessionStart timeout in settings.json, and a killed hook shows NO rulings. So the notebook read is given 3 seconds, and a read that fails or times out turns `for:` into fail-open (shown), never into "not shown".
+LINES_TIMEOUT = 3
+
+
+def nl(label):
+    """One form of a label for comparison: quotes and backticks off the ends, spaces collapsed, case folded. A writer's `for: \`[C1-CC] Plugins\`` still names `[C1-CC] plugins`."""
+    return re.sub(r"\s+", " ", (label or "").strip().strip("`'\"").strip()).casefold()
 
 
 def bare(label):
-    return BARE.sub("", label or "").strip()
+    return BARE.sub("", nl(label)).strip()
 
 
 def ship_of(label):
-    m = SHIP.match(label or "")
-    return m.group(1).upper() if m else None
+    """The ship code, from `ship_of_name` in claude/bin/_fleet-ranks.sh (sourced, never copied); None when there is none."""
+    try:
+        out = subprocess.run(["bash", "-c", '. "$1" >/dev/null 2>&1 || exit 9; ship_of_name "$2"', "_", str(FLEET_RANKS), label or ""],
+                             capture_output=True, text=True, timeout=3).stdout.strip()
+    except Exception:
+        return None
+    return out.upper() or None
 
 
 def marks(heading):
-    """The audience marks, by the grammar agreed with the obsidian ship (2026-09-30): ` · `-separated segments after the kind; `fleet` (canonical) or `ships: fleet`; `ships: PE, HH` (comma-separated codes, spaces optional, upper-cased); `for: <label>`, ONE label per segment, repeated for several (no comma split: a label may hold a comma). Segments combine as a union. Any other segment is ignored, so a heading whose only segment is a typo (`· ship: PE`) carries no mark and goes to everyone: fail-open holds for a slip. Returns (for-labels, ship codes, fleet?)."""
+    """The audience marks, by the grammar agreed with the obsidian ship (2026-09-30): ` · `-separated segments after the kind; `fleet` (canonical) or `ships: fleet`; `ships: PE, HH` (comma-separated codes, spaces optional, upper-cased); `for: <label>`, ONE label per segment, repeated for several (no comma split: a label may hold a comma). Segments combine as a union. Any other segment is ignored, so a heading whose only segment is a typo (`· ship: PE`) carries no mark and goes to everyone: fail-open holds for a slip. A `ships:` value holding anything that is not a code (`ships: MA (dotfiles)`, `ships: MA and CC`) is a slip inside a known key, and it too goes to everyone: returned as fleet. Returns (for-labels, ship codes, fleet?)."""
     fors, ships, fleet = [], set(), False
     for seg in MARK_SPLIT.split(heading)[2:]:
         seg = seg.strip()
@@ -140,21 +152,42 @@ def marks(heading):
                 fors.append(label)
         elif low.startswith("ships:"):
             for code in seg[6:].split(","):
-                code = code.strip()
+                code = code.strip().strip("`'\"").strip()
                 if code.lower() == "fleet":
                     fleet = True
-                elif code:
+                elif SHIP_CODE.match(code):
                     ships.add(code.upper())
+                elif code:
+                    fleet = True
     return fors, ships, fleet
 
 
-class Aliases:
-    """Which labels name one session: union-find over the registry's `formerNames` and the rename ledger, joined through the sessionId. A chain of renames (A to B, then B to C) lands in one set, because each ledger line of one id joins its label to the rest."""
+def registry_rows():
+    """Every row of the session registry (`~/.claude/sessions/<pid>.json`) that parses, read once."""
+    rows = []
+    try:
+        files = list(SESSIONS_DIR.glob("*.json"))
+    except Exception:
+        files = []
+    for f in files:
+        try:
+            d = json.loads(f.read_text())
+            mt = f.stat().st_mtime
+        except Exception:
+            continue
+        if isinstance(d, dict):
+            rows.append((d, mt))
+    return rows
 
-    def __init__(self, log_entries):
+
+class Aliases:
+    """Which labels name one session: union-find over normalised labels, from the registry's `formerNames` and the rename ledger, joined through the sessionId. A chain of renames (A to B, then B to C) lands in one set, because each ledger line of one id joins its label to the rest."""
+
+    def __init__(self, log_entries, rows):
         self.parent = {}
-        self.old_bare = []  # (bare name of a pre-rename file, a label of the same session)
+        self.old_bare = {}  # bare name of a pre-rename file -> {(ship, root label)}
         by_id = {}
+        olds = []
         for _, e in log_entries:
             head, _, body = e.partition("\n")
             m = RENAME_HEAD.match(head)
@@ -162,38 +195,38 @@ class Aliases:
             if not (m and i):
                 continue
             label = m.group(1).strip()
-            by_id.setdefault(i.group(1).lower(), []).append(label)
+            by_id.setdefault(i.group(1).lower(), []).append(nl(label))
             o = RENAME_OLD.search(body)
             if o:
                 name = re.sub(r"\.md$", "", o.group(1))
                 name = ENTRY_STAMP.split(name, 1)[-1].strip() if ENTRY_STAMP.search(name) else ""
                 if name:
-                    self.old_bare.append((name, label))
+                    olds.append((nl(name), label))
         for labels in by_id.values():
             for l in labels[1:]:
                 self.union(labels[0], l)
-        try:
-            files = list(SESSIONS_DIR.glob("*.json"))
-        except Exception:
-            files = []
-        for f in files:
-            try:
-                d = json.loads(f.read_text())
-            except Exception:
-                continue
-            name = d.get("name") if isinstance(d, dict) else None
+        for d, _ in rows:
+            name = nl(d.get("name"))
             if not name:
                 continue
             self.find(name)
             for x in d.get("formerNames") or []:
                 if isinstance(x, dict) and x.get("name"):
-                    self.union(name, x["name"])
-                    old = x.get("sessionId")
-                    if old and old.lower() in by_id:
-                        self.union(name, by_id[old.lower()][0])
+                    self.union(name, nl(x["name"]))
+                    old = str(x.get("sessionId") or "").lower()
+                    if old in by_id:
+                        self.union(name, by_id[old][0])
             sid = str(d.get("sessionId") or "").lower()
             if sid in by_id:
                 self.union(name, by_id[sid][0])
+        # A BARE PRE-RENAME NAME matches only a label on the SAME SHIP as the renamed session, so `[L0-MA] dotfiles` is not taken for a CC session once called `dotfiles`. The ship is read off the label text (the `[X0-SS]` shape) here, not through the table, to keep this cheap; it is the same pattern.
+        for name, label in olds:
+            self.old_bare.setdefault(name, set()).add((self._ship(label), nl(label)))
+
+    @staticmethod
+    def _ship(label):
+        m = re.match(r"^\[[A-Za-z][0-9]-([A-Za-z]{1,4})\]", (label or "").strip().strip("`'\""))
+        return m.group(1).upper() if m else None
 
     def find(self, x):
         self.parent.setdefault(x, x)
@@ -209,18 +242,38 @@ class Aliases:
         if ra != rb:
             self.parent[rb] = ra
 
-    def labels_of(self, label):
-        r = self.find(label)
-        return {l for l in list(self.parent) if self.find(l) == r}
+    def root(self, label):
+        """The set a (normalised) label belongs to: its own set, or, by a bare pre-rename name, the renamed session's set on the same ship."""
+        if label in self.parent:
+            return self.find(label)
+        for ship, renamed in self.old_bare.get(bare(label), ()):
+            if ship and ship == self._ship(label):
+                return self.find(renamed)
+        return label
 
-    def same(self, a, b):
-        """True when two labels name one session: the same set, or one is a bare pre-rename name of the other's set."""
-        if a == b or self.find(a) == self.find(b):
-            return True
-        for name, label in self.old_bare:
-            if (bare(a) == name and self.find(label) == self.find(b)) or (bare(b) == name and self.find(label) == self.find(a)):
-                return True
-        return False
+    def labels_of(self, label):
+        r = self.root(label)
+        return {l for l in list(self.parent) if self.find(l) == r} | {label}
+
+
+def reporting_lines():
+    """label -> (stamp, reports-to), normalised labels, from every notebook entry. Entries are listed by `notebook_entry_files_of` in claude/lib/notebook-roots.sh, sourced, so the two roots and the one-month-folder depth are that library's. Returns None when the list cannot be read (failure, timeout, or no entries at all), which the caller turns into fail-open."""
+    try:
+        res = subprocess.run(["bash", "-c", '. "$1" || exit 9; notebook_entry_files_of "$2" 0 "$3" 0', "_", str(NOTEBOOK_ROOTS),
+                              str(AGENTS_DIR / "03.04 Records" / "Agent notebook"), str(AGENTS_DIR / "03.09 Archive" / "Agent notebook")],
+                             capture_output=True, text=True, timeout=LINES_TIMEOUT)
+    except Exception:
+        return None
+    files = [f for f in res.stdout.splitlines() if f]
+    if res.returncode != 0 or not files:
+        return None
+    rows = []
+    for f in files:
+        k = fm_keys(f, ("session", "reports-to"))
+        if k.get("session"):
+            m = ENTRY_STAMP.search(Path(f).name)
+            rows.append((nl(k["session"]), m.group(0) if m else "", nl(k.get("reports-to"))))
+    return rows
 
 
 def fm_keys(path, keys):
@@ -257,59 +310,31 @@ def fm_keys(path, keys):
     return out
 
 
-def reporting_lines():
-    """label -> reports-to, from the NEWEST notebook entry carrying that label (by the stamp in the filename, the roster's rule). Entries are listed by `notebook_entry_files_of` in claude/lib/notebook-roots.sh, sourced, so the two roots and the one-month-folder depth are that library's and nobody else's. Two newest entries that disagree read as a broken link (None)."""
-    try:
-        out = subprocess.run(["bash", "-c", '. "$1" || exit 9; notebook_entry_files_of "$2" 0 "$3" 0', "_", str(NOTEBOOK_ROOTS),
-                              str(AGENTS_DIR / "03.04 Records" / "Agent notebook"), str(AGENTS_DIR / "03.09 Archive" / "Agent notebook")],
-                             capture_output=True, text=True, timeout=5).stdout
-    except Exception:
-        return {}
-    best = {}
-    for f in out.splitlines():
-        if not f:
-            continue
-        k = fm_keys(f, ("session", "reports-to"))
-        label = k.get("session")
-        if not label:
-            continue
-        m = ENTRY_STAMP.search(Path(f).name)
-        stamp = m.group(0) if m else ""
-        r = k.get("reports-to")
-        cur = best.get(label)
-        if cur is None or stamp > cur[0]:
-            best[label] = (stamp, r)
-        elif stamp == cur[0] and r != cur[1]:
-            best[label] = (stamp, None)
-    return {l: r for l, (_, r) in best.items()}
-
-
 class Audience:
-    """Who this session is, for the filter: its labels, its ship, its rank; the chain and the aliases are read only when a ruling needs them."""
+    """Who this session is, for the filter: its labels, its ship, its rank. The aliases and the reporting lines are read only when a ruling needs them, once, and every lookup is cached."""
 
     def __init__(self, session_id, rank, log_entries):
         self.rank = rank
         self.entries = log_entries
+        self.rows = registry_rows()
         self._aliases = None
-        self._lines = None
+        self._lines = None  # root -> [(stamp, reports-to)], or False when unreadable
+        self._up = {}
+        self._reach = {}
+        # THE NEWEST registry row for this id wins (a resumed session can leave an older pid file behind).
+        mine = sorted(((d, mt) for d, mt in self.rows if str(d.get("sessionId") or "").lower() == session_id.lower()),
+                      key=lambda r: (r[0].get("updatedAt") or 0, r[1]))
         name, former = "", []
-        try:
-            files = list(SESSIONS_DIR.glob("*.json"))
-        except Exception:
-            files = []
-        for f in files:
-            try:
-                d = json.loads(f.read_text())
-            except Exception:
-                continue
-            if isinstance(d, dict) and d.get("sessionId") == session_id:
-                name = name or d.get("name") or ""
-                former += [x["name"] for x in d.get("formerNames") or [] if isinstance(x, dict) and x.get("name")]
+        if mine:
+            d = mine[-1][0]
+            name = d.get("name") or ""
+            former = [x["name"] for x in d.get("formerNames") or [] if isinstance(x, dict) and x.get("name")]
         if not name:
             name = listing_name(session_id) or ""
         self.name = name
-        self.own = {l for l in [name] + former if l}
-        self.ship = ship_of(name)
+        self.own_raw = [l for l in [name] + former if l]
+        self.ship = ship_of(name) if name else None
+        self._own = None
 
     @property
     def known(self):
@@ -317,55 +342,96 @@ class Audience:
 
     def aliases(self):
         if self._aliases is None:
-            self._aliases = Aliases(self.entries)
+            self._aliases = Aliases(self.entries, self.rows)
         return self._aliases
 
+    def own_roots(self):
+        if self._own is None:
+            a = self.aliases()
+            self._own = {a.root(nl(l)) for l in self.own_raw}
+        return self._own
+
     def is_me(self, label):
-        if label in self.own:
-            return True
+        return self.aliases().root(nl(label)) in self.own_roots()
+
+    def lines(self):
+        if self._lines is None:
+            rows = reporting_lines()
+            if rows is None:
+                self._lines = False
+            else:
+                a = self.aliases()
+                self._lines = {}
+                for label, stamp, r in rows:
+                    self._lines.setdefault(a.root(label), []).append((stamp, r))
+        return self._lines
+
+    def known_label(self, label):
+        """A `for:` label the fleet has any record of: a notebook entry, a registry row or a rename. A label with none is a writer's slip, shown to everyone."""
         a = self.aliases()
-        return any(a.same(label, l) for l in self.own)
+        r = a.root(nl(label))
+        lines = self.lines()
+        return r in a.parent or (lines is not False and r in lines)
 
     def reports_to(self, label):
-        if self._lines is None:
-            self._lines = reporting_lines()
-        a = self.aliases()
-        cands = [l for l in self._lines if a.same(l, label)]
-        vals = {self._lines[l] for l in cands}
-        return vals.pop() if len(vals) == 1 else None  # none, or disagreeing records: a broken link
+        """The superior's normalised label from the NEWEST entry of this session (any of its labels) that states one; entries with no `reports-to` are skipped. Two newest entries that disagree read as a broken link (None)."""
+        r = self.aliases().root(nl(label))
+        if r not in self._up:
+            cands = [(s, v) for s, v in (self.lines() or {}).get(r, []) if v]
+            up = None
+            if cands:
+                top = max(s for s, _ in cands)
+                vals = {v for s, v in cands if s == top}
+                up = vals.pop() if len(vals) == 1 else None
+            self._up[r] = up
+        return self._up[r]
 
     def chain_reaches_me(self, label):
         """True when `label` is this session, or a session whose chain UP includes it. A cycle or a missing link ends the walk with False."""
-        seen = set()
-        cur = label
+        if label in self._reach:
+            return self._reach[label]
+        seen, cur, ok = set(), label, False
         for _ in range(32):
             if self.is_me(cur):
-                return True
-            if cur in seen:
-                return False
-            seen.add(cur)
+                ok = True
+                break
+            root = self.aliases().root(nl(cur))
+            if root in seen:
+                break
+            seen.add(root)
             nxt = self.reports_to(cur)
             if not nxt:
-                return False
+                break
             cur = nxt
-        return False
+        self._reach[label] = ok
+        return ok
 
-    def names_me(self, text):
-        labels = set(self.own)
-        for l in self.own:
-            labels |= self.aliases().labels_of(l)
-        return any(l and l in text for l in labels)
+    def names_me(self, entry):
+        """The BODY names one of this session's labels, as a whole label (not inside a longer one), case-blind. The heading is left out, so a ruling this session wrote or relayed does not count as naming it."""
+        body = entry.split("\n", 1)[1] if "\n" in entry else ""
+        labels = set()
+        for l in self.own_raw:
+            labels |= self.aliases().labels_of(self.aliases().root(nl(l))) | {nl(l)}
+        return any(l and re.search(r"(?<![\w\]-])" + re.escape(l) + r"(?![\w-])", body, re.I) for l in labels)
 
     def shows(self, entry):
         heading = entry.split("\n", 1)[0]
         fors, ships, fleet = marks(heading)
         if fleet or not (fors or ships):
             return True
-        if any(self.chain_reaches_me(x) for x in fors):
-            return True
+        if self.rank < 3 and ships:
+            # A session whose name carries no ship code cannot be matched by `ships:`, so it is shown them: fail toward more reading.
+            if not self.ship or self.ship in ships:
+                return True
+        if fors:
+            if self.lines() is False:
+                return True  # the notebook could not be read: `for:` fails open
+            for x in fors:
+                if not self.known_label(x) or self.chain_reaches_me(x):
+                    return True
         if self.rank >= 3:
             return self.names_me(entry)
-        return bool(self.ship and self.ship in ships)
+        return False
 
 
 def emit(context):
