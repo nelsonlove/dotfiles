@@ -32,6 +32,19 @@ DEFAULT_CONFIG = HERE / "config.json"
 VAULT_ROOT = Path(os.environ.get("CM_VAULT_ROOT", str(Path.home() / "obsidian"))).resolve()
 
 
+TRUNCATE_AT = 100_000
+
+
+class NoteError(Exception):
+    """One note could not be read: counted, and the run goes on."""
+
+
+def error_code(text: str) -> str:
+    """Only the error code from a vault-mcp error, never its text: the text carries the note path, which is a name."""
+    m = re.search(r"Error \[([a-z_]+)\]", text or "")
+    return m.group(1) if m else "error"
+
+
 class Fail(Exception):
     def __init__(self, code: int, msg: str):
         super().__init__(msg)
@@ -99,15 +112,17 @@ def vcard_date(v) -> Optional[str]:
 def card_keys(card: dict, carry: List[str]) -> Dict[str, str]:
     """The owned keys a card yields, in a stable order, as plain strings. Only keys whose family is in `carry`."""
     out: Dict[str, str] = {}
+    pat = owned_pattern(carry)
 
     def put(key: str, val) -> None:
         if val is None:
             return
-        v = str(val).strip()
+        # One line only: a line break or other control character inside a value would break the frontmatter.
+        v = re.sub(r"[\x00-\x1f\x7f]+", " ", str(val)).strip()
+        v = re.sub(r" {2,}", " ", v)
         if not v:
             return
-        family = re.sub(r"(\[.*)$", "", key.split(".")[0])
-        if family in carry or key in carry:
+        if pat.match(key):
             out[key] = v
 
     n = card.get("n") or {}
@@ -143,13 +158,21 @@ def card_keys(card: dict, carry: List[str]) -> Dict[str, str]:
     return out
 
 
+MULTI = {"TEL": r"TEL\[[A-Z0-9]+\]", "EMAIL": r"EMAIL\[[A-Z0-9]+\]", "URL": r"URL\[[A-Z0-9]+\]",
+         "ADR": r"ADR\[[A-Z0-9]+\]\.(?:STREET|LOCALITY|REGION|POSTAL|COUNTRY)"}
+
+
 def owned_pattern(carry: List[str]) -> re.Pattern:
-    fams = "|".join(re.escape(f) for f in sorted(set(k.split(".")[0].split("[")[0] for k in carry)))
-    return re.compile(rf"^(?:{fams})(?:\[[A-Z0-9]+\])?(?:\.[A-Z]+)?$")
+    """The keys the job owns: each carried key exactly (FN, N.GN, BDAY …), and for the labelled families on the list
+    (TEL, EMAIL, URL, ADR) exactly the key shapes card_keys writes. Nothing else, so a key such as N.PREFIX, or a
+    family taken off the list, is left as it is."""
+    alts = [MULTI[k] if k in MULTI else re.escape(k) for k in carry]
+    return re.compile("^(?:" + "|".join(alts) + ")$")
 
 
 # ---------------------------------------------------------------- frontmatter, line-preserving
 
+DATE_KEYS = ("BDAY", "ANNIVERSARY")  # always written in the quoted vCard form, the obsidian ship's rule
 KEY_LINE = re.compile(r"^([^\s#:][^:]*?):(?:\s(.*))?$")
 STATUS_KEYS = ("contact-status", "contact-missing-since")
 
@@ -224,7 +247,7 @@ def rewrite(text: str, want: Dict[str, str], owned: re.Pattern, status: Optional
     for k, ls in bl:
         if k is not None and owned.match(k):
             if k in want:
-                if cur.get(k) != want[k]:
+                if cur.get(k) != want[k] or (k in DATE_KEYS and ls != [f"{k}: {yaml_value(want[k])}"]):
                     ls = [f"{k}: {yaml_value(want[k])}"]
                     changed.append(k)
                 placed.add(k)
@@ -328,14 +351,14 @@ class McpStore:
             line = self.proc.stdout.readline()
             if not line:
                 err = self.proc.stderr.read() if self.proc.stderr else ""
-                raise Fail(2, f"vault-mcp bridge closed: {err.strip()[:200]}")
+                raise Fail(2, "vault-mcp bridge closed")
             try:
                 msg = json.loads(line)
             except json.JSONDecodeError:
                 continue
             if msg.get("id") == self.n:
                 if "error" in msg:
-                    raise Fail(2, f"vault-mcp error: {str(msg['error'])[:200]}")
+                    raise Fail(2, f"vault-mcp protocol error ({error_code(json.dumps(msg['error']))})")
                 return msg.get("result") or {}
 
     def _tool(self, name: str, args: dict) -> Tuple[bool, str]:
@@ -349,7 +372,7 @@ class McpStore:
         while True:
             err, text = self._tool("obsidian_list_notes", {"subdir": self.folder, "limit": 500, "offset": offset})
             if err:
-                raise Fail(2, f"cannot list the mirror folder: {text[:200]}")
+                raise Fail(2, f"cannot list the mirror folder ({error_code(text)})")
             try:
                 data = json.loads(text)
             except json.JSONDecodeError:
@@ -365,9 +388,26 @@ class McpStore:
     def read(self, rel: str) -> Tuple[str, Optional[int]]:
         err, text = self._tool("obsidian_read_note", {"path": rel})
         if err:
-            raise Fail(2, f"cannot read note {short(rel)}: {text[:120]}")
-        data = json.loads(text)
-        return data["content"], data.get("rev")
+            raise NoteError(f"read failed ({error_code(text)})")
+        try:
+            data = json.loads(text)
+            content, rev = data["content"], data.get("rev")
+        except (json.JSONDecodeError, KeyError, TypeError):
+            raise NoteError("read reply unreadable")
+        # Never write from a partial read. vault-mcp cuts a note over 100,000 characters and adds a trailer, and a
+        # whole-note rewrite built on that would lose the rest (it happened to two notes on 2026-09-30). So the read
+        # must be the whole note: under the limit, with no `[truncated:` marker anywhere (the fleet rule, 2026-09-30),
+        # and exactly as long as the file on disk.
+        if len(content) >= TRUNCATE_AT or "[truncated:" in content:
+            raise NoteError("read is not the whole note (vault-mcp truncates long notes); not rewritten")
+        disk = VAULT_ROOT / rel
+        try:
+            on_disk = disk.read_text(encoding="utf-8")
+        except OSError:
+            raise NoteError("cannot check the read against the file on disk; not rewritten")
+        if len(on_disk) != len(content):
+            raise NoteError("read and file on disk differ in length; not rewritten")
+        return content, rev
 
     def write(self, rel: str, text: str, rev: Optional[int]) -> str:
         if rev is None:
@@ -405,6 +445,8 @@ def read_cards(cmd: List[str], timeout: int) -> List[dict]:
     cards = data.get("cards") if isinstance(data, dict) else None
     if not isinstance(cards, list) or not all(isinstance(c, dict) and c.get("id") for c in cards):
         raise Fail(3, "the reader's JSON has no 'cards' list of objects with an 'id'")
+    if not cards:
+        raise Fail(3, "the reader printed no cards; nothing written (an empty Contacts is read as a reader failure)")
     return cards
 
 
@@ -436,14 +478,22 @@ def run(args) -> int:
                          cfg.get("vault", "obsidian"))
     counts = {"updated": 0, "unchanged": 0, "missing": 0, "unmatched": 0, "conflict": 0, "error": 0, "skipped": 0}
     matched_ids = set()
-    shown = 0
     stamp = now_iso()
+    plans: List[Tuple[str, str, str, Optional[int], bool]] = []  # (rel, old, new, rev, matched)
+    notes = 0
     try:
+        # Phase 1: read every note and work out the change. Nothing is written yet.
         for rel in store.list_notes():
             name = rel.rsplit("/", 1)[-1]
             if name == f"{folder.rsplit('/', 1)[-1]}.md":
                 continue  # the folder note
-            text, rev = store.read(rel)
+            notes += 1
+            try:
+                text, rev = store.read(rel)
+            except NoteError as e:
+                counts["error"] += 1
+                say(f"note {short(rel)}: {e}; left for the next run")
+                continue
             src, vuid = note_ids(text)
             card = by_id.get(src) if src else None
             if card is None and vuid:
@@ -452,42 +502,48 @@ def run(args) -> int:
                 counts["unmatched"] += 1
                 say(f"note {short(rel)}: no source and no UID; left alone")
                 continue
-            if card is None:
-                status = {"contact-status": "missing-from-contacts"}
-                try:
-                    lines, _ = split_note(text)
-                    since = current_values(blocks(lines)).get("contact-missing-since")
-                except ValueError:
-                    since = None
-                status["contact-missing-since"] = since or today()
-                want = {k: v for k, v in current_values(blocks(split_note(text)[0])).items() if owned.match(k)}
-            else:
-                matched_ids.add(card["id"])
-                status = None
-                want = card_keys(card, carry)
             try:
-                new, changed = rewrite(text, want, owned, status, stamp)
+                cur = current_values(blocks(split_note(text)[0]))
             except ValueError:
                 counts["skipped"] += 1
                 say(f"note {short(rel)}: frontmatter unreadable; left alone")
                 continue
             if card is None:
                 counts["missing"] += 1
+                status = {"contact-status": "missing-from-contacts",
+                          "contact-missing-since": cur.get("contact-missing-since") or today()}
+                want = {k: v for k, v in cur.items() if owned.match(k)}
+            else:
+                matched_ids.add(card["id"])
+                status = None
+                want = card_keys(card, carry)
+            new, changed = rewrite(text, want, owned, status, stamp)
             if not changed:
-                if card is not None:
-                    counts["unchanged"] += 1
+                counts["unchanged"] += card is not None
                 continue
+            plans.append((rel, text, new, rev, card is not None))
+
+        # The floor: a reader that printed too few cards must not mark the mirror missing.
+        share = counts["missing"] / notes if notes else 0.0
+        limit = float(cfg.get("max_missing_share", 0.2))
+        if notes and share > limit:
+            raise Fail(3, f"{counts['missing']} of {notes} notes have no card ({share:.0%}, limit {limit:.0%}): the reader's "
+                          f"{len(cards)} cards look incomplete; nothing written")
+
+        # Phase 2: write.
+        shown = 0
+        for rel, old, new, rev, matched in plans:
             if args.show and shown < args.show:
                 shown += 1
                 import difflib
-                sys.stdout.writelines(difflib.unified_diff(text.splitlines(True), new.splitlines(True),
+                sys.stdout.writelines(difflib.unified_diff(old.splitlines(True), new.splitlines(True),
                                                            f"a/{rel}", f"b/{rel}", n=0))
             if args.plan:
-                counts["updated"] += card is not None
+                counts["updated"] += matched
                 continue
             result = store.write(rel, new, rev)
             if result == "ok":
-                counts["updated"] += card is not None
+                counts["updated"] += matched
             else:
                 counts[result] += 1
                 say(f"note {short(rel)}: write {result}; left for the next run")

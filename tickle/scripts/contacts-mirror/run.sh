@@ -1,7 +1,7 @@
 #!/bin/bash
 # contacts-mirror — the tickle wrapper: the gates, then mirror.py. Ruled by Nelson 2026-09-30 ("a plus job", cross-session log 05:50). Ships disabled.
 #
-# Gates, in order, each recorded on stdout: the fleet pause (`_lib/pause-gate.sh contacts-mirror`: 1 = paused, skip; anything else non-zero = failed); the fleet load gate (the 5-minute load under 8 AND fewer than 20 live sessions, Nelson's "a", log 2026-09-30T05:32; this local copy is replaced by `claude/bin/fleet-gate` when that lands, per dotfiles issue #103); a fresh vault backup (the obsidian ship's condition: `~/obsidian-backup.git` has a commit in the last 60 minutes). Then `mirror.py` with the arguments given to this script.
+# Gates, in order, each recorded on stdout: the fleet pause (`_lib/pause-gate.sh contacts-mirror`: 1 = paused, skip; anything else non-zero = failed); the fleet load gate (the 5-minute load under 8 AND fewer than 20 live sessions, Nelson's "a", log 2026-09-30T05:32; this local copy is replaced by `claude/bin/fleet-gate` when that lands, per dotfiles issue #103); a fresh vault backup (the obsidian ship's condition: the obsidian-backup job ran successfully in the last 30 minutes). The tickle trigger also runs `_lib/gated.sh <host> contacts-mirror`, so a paused fleet is recorded by tickle as a skipped check; the pause check here covers a run by hand. Then `mirror.py` with the arguments given to this script.
 #
 # Exit codes: 0 done or skipped with a reason; 2 a check failed; 3 the reader failed. Every unexpected exit becomes 2, as in pause-gate.sh.
 set -u
@@ -34,13 +34,16 @@ awk -v l="$load5" 'BEGIN{exit !(l >= 8)}' && finish 0 "SKIPPED — the 5-minute 
 [ "$sessions" -lt 20 ] || finish 0 "SKIPPED — $sessions live sessions (20 or more)"
 echo "contacts-mirror: gates: pause clear, load5 $load5, $sessions sessions"
 
-# ---- a fresh backup (skipped for a --target-dir run, which never touches the vault)
+# ---- a fresh backup (skipped for a --target-dir run, which never touches the vault). The backup job commits only when
+# the vault changed, so a quiet vault has old commits: the check is the backup JOB's last successful run, from tickle's
+# own history, within 30 minutes.
 case " $* " in *" --target-dir "*) ;; *)
-  repo="${CM_BACKUP_REPO:-$HOME/obsidian-backup.git}"
-  last=$(git --git-dir="$repo" log -1 --format=%ct 2>/dev/null) || last=""
-  printf '%s' "$last" | grep -Eq '^[0-9]+$' || finish 2 "cannot read the last backup commit in $repo"
-  age=$(( $(date +%s) - last ))
-  [ "$age" -lt 3600 ] || finish 0 "SKIPPED — the last vault backup is $((age / 60)) minutes old (the obsidian ship asks for one within 60)"
+  hist="${CM_BACKUP_HISTORY:-$HOME/Library/Application Support/tickle/runs/obsidian-backup/history.jsonl}"
+  last=$(grep '"type":"run"' "$hist" 2>/dev/null | grep '"status":"success"' | tail -1 | /usr/bin/jq -r .ts 2>/dev/null) || last=""
+  [ -n "$last" ] || finish 2 "cannot find a successful obsidian-backup run in $hist"
+  when=$(date -j -f %Y-%m-%dT%H:%M:%S "${last%??????}" +%s 2>/dev/null) || finish 2 "cannot read the backup run time '$last'"
+  age=$(( $(date +%s) - when ))
+  [ "$age" -lt 1800 ] || finish 0 "SKIPPED — the last successful vault backup ran $((age / 60)) minutes ago (the obsidian ship asks for a fresh one)"
 esac
 
 cm_ok=1

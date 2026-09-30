@@ -42,6 +42,14 @@ The job owns the vCard keys of the families in `keys`. Today that is the people 
 
 A note whose card is gone gets `contact-status: missing-from-contacts` and `contact-missing-since: <date>`, and nothing else changes. The job never deletes, trashes or moves a note. If the card comes back, it removes both keys.
 
+## Safety
+
+- **A reader that prints too little writes nothing.** No cards is a failure (exit 3). If more than `max_missing_share` of the notes (default 20%) would be marked missing, the run stops before any write (exit 3). The job reads every note first and writes only after this check.
+- **Never a write from a partial read.** vault-mcp cuts a read over 100,000 characters and adds `[truncated: …]`. A read with that marker, or one whose length differs from the file on disk, is skipped and counted as an error. The note is not written.
+- **One bad note does not stop the run.** A read error is counted, and the run goes on to the other notes. The error code is logged, never the vault-mcp text, because that text holds the note path, which is a name.
+- **Values stay on one line.** A line break or control character in a card value becomes a space.
+- **Gates.** The trigger runs `gated.sh` (host and fleet pause). `run.sh` checks the pause again for a run by hand, then the fleet load gate, then that the obsidian-backup job ran successfully in the last 30 minutes. It checks the job's run, not the last commit, because a quiet vault makes no new commits.
+
 ## Dry run
 
 Copy the folder to /tmp and point the job at the copy. The job refuses a target inside the vault.

@@ -161,6 +161,27 @@ class Rewrite(unittest.TestCase):
         self.assertEqual(changed, [])
         self.assertEqual(new, ADA)  # EMAIL and ADR lines kept: not the job's keys
 
+    def test_unlisted_key_of_a_listed_family_is_kept(self):
+        note = ADA.replace("N.FN: Example\n", "N.FN: Example\nN.PREFIX: Dr\n")
+        new, changed = mirror.rewrite(note, mirror.card_keys(ADA_CARD, CARRY), owned(), None, self.STAMP)
+        self.assertEqual(changed, [])
+        self.assertIn("N.PREFIX: Dr", new)
+
+    def test_line_breaks_in_values_are_flattened(self):
+        k = mirror.card_keys(dict(ADA_CARD, org="Example\nCo\t Ltd", title="A\r\nB"), CARRY)
+        self.assertEqual((k["ORG"], k["ROLE"]), ("Example Co Ltd", "A B"))
+        new, _ = mirror.rewrite(ADA, k, owned(), None, self.STAMP)
+        again, changed = mirror.rewrite(new, k, owned(), None, "x")
+        self.assertEqual(changed, [])  # no churn on the next run
+
+    def test_unquoted_date_is_requoted_once(self):
+        note = ADA.replace("VERSION: '4.0'\n", "BDAY: 1990-01-02\nVERSION: '4.0'\n")
+        k = mirror.card_keys(dict(ADA_CARD, bday="1990-01-02"), CARRY)
+        new, changed = mirror.rewrite(note, k, owned(), None, self.STAMP)
+        self.assertEqual(changed, ["BDAY"])
+        self.assertIn('BDAY: "1990-01-02"\n', new)
+        self.assertEqual(mirror.rewrite(new, k, owned(), None, "x")[1], [])
+
     def test_quoting(self):
         for v in ("+1 555 0100", "00001", "1990-01-02", "true", "a: b", "#x", "O'Brien", "Ümlaut"):
             y = mirror.yaml_value(v)
@@ -180,7 +201,8 @@ class Run(unittest.TestCase):
                                                 .replace("11111111", "22222222"))
         (self.dir / "No Ids.md").write_text("---\ntitle: No Ids\n---\n\nbody\n")
         self.cfg = self.tmp / "config.json"
-        self.cfg.write_text(json.dumps({"reader": ["false"], "folder": FOLDER, "keys": CARRY, "create": "none"}))
+        self.cfg.write_text(json.dumps({"reader": ["false"], "folder": FOLDER, "keys": CARRY, "create": "none",
+                                        "max_missing_share": 1.0}))
 
     def tearDown(self):
         shutil.rmtree(self.tmp)
@@ -232,6 +254,32 @@ class Run(unittest.TestCase):
         rc, out = self.go([card])
         self.assertIn("ORG: Example Co", (self.dir / "Ada Example.md").read_text())
 
+    def test_empty_reader_writes_nothing(self):
+        before = {p.name: p.read_text() for p in self.dir.iterdir()}
+        rc, out = self.go([])
+        self.assertEqual(rc, 3, out)
+        self.assertIn("no cards", out)
+        self.assertEqual(before, {p.name: p.read_text() for p in self.dir.iterdir()})
+
+    def test_floor_on_missing_share(self):
+        self.cfg.write_text(json.dumps({"reader": ["false"], "folder": FOLDER, "keys": CARRY, "create": "none"}))
+        before = {p.name: p.read_text() for p in self.dir.iterdir()}
+        rc, out = self.go([dict(ADA_CARD, org="Example Co")])  # Bob has no card: 1 of 3 notes, above the 20% default
+        self.assertEqual(rc, 3, out)
+        self.assertIn("look incomplete; nothing written", out)
+        self.assertEqual(before, {p.name: p.read_text() for p in self.dir.iterdir()})  # not even Ada's update
+
+    def test_shipped_config_keeps_email_adr_url(self):
+        shipped = json.loads((JOB / "config.json").read_text())
+        cfg = dict(shipped, folder=FOLDER, max_missing_share=1.0)
+        self.cfg.write_text(json.dumps(cfg))
+        rc, out = self.go([dict(ADA_CARD, email=[], adr=[], org="Example Co")])
+        self.assertEqual(rc, 0, out)
+        text = (self.dir / "Ada Example.md").read_text()
+        self.assertIn("ORG: Example Co", text)
+        self.assertIn("EMAIL[HOME]: ada@example.invalid", text)
+        self.assertIn('ADR[HOME].POSTAL: "00001"', text)
+
     def test_bad_reader_output(self):
         p = self.tmp / "bad.json"
         p.write_text("not json")
@@ -242,7 +290,7 @@ class Run(unittest.TestCase):
     def test_refuses_vault_target(self):
         env = dict(os.environ, CM_VAULT_ROOT=str(self.tmp))
         out = subprocess.run([sys.executable, str(JOB / "mirror.py"), "--config", str(self.cfg), "--target-dir", str(self.tmp),
-                              "--reader", *self.cards([])], capture_output=True, text=True, env=env)
+                              "--reader", *self.cards([ADA_CARD])], capture_output=True, text=True, env=env)
         self.assertEqual(out.returncode, 2)
         self.assertIn("inside the vault", out.stderr)
 
@@ -267,7 +315,9 @@ for line in sys.stdin:
     if name == "obsidian_list_notes":
         reply(m["id"], text({"notes": [{"path": p} for p in sorted(state["notes"])], "has_more": False}))
     elif name == "obsidian_read_note":
-        n = state["notes"][a["path"]]; reply(m["id"], text({"path": a["path"], "content": n["content"], "rev": n["rev"]}))
+        n = state["notes"][a["path"]]
+        if n.get("broken"): reply(m["id"], text("Error [not_found]: note " + a["path"] + " is gone", True))
+        else: reply(m["id"], text({"path": a["path"], "content": n["content"], "rev": n["rev"]}))
     elif name == "obsidian_write_note":
         n = state["notes"][a["path"]]
         state.setdefault("calls", []).append({k: a.get(k) for k in ("path", "overwrite", "if_rev") } | {"has_key": bool(a.get("idempotency_key"))})
@@ -288,13 +338,21 @@ class Mcp(unittest.TestCase):
         self.cfg.write_text(json.dumps({"reader": ["false"], "folder": FOLDER, "keys": CARRY, "create": "none",
                                         "bridge": [sys.executable, str(self.bridge), str(self.state)]}))
         (self.tmp / "cards.json").write_text(json.dumps({"cards": [dict(ADA_CARD, org="Example Co")]}))
+        self.vault = self.tmp / "vault"
+        self.disk(f"{FOLDER}/Ada Example.md", ADA)
+
+    def disk(self, rel, text):
+        p = self.vault / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text)
 
     def tearDown(self):
         shutil.rmtree(self.tmp)
 
     def go(self):
         out = subprocess.run([sys.executable, str(JOB / "mirror.py"), "--config", str(self.cfg), "--reader", "cat",
-                              str(self.tmp / "cards.json")], capture_output=True, text=True)
+                              str(self.tmp / "cards.json")], capture_output=True, text=True,
+                             env=dict(os.environ, CM_VAULT_ROOT=str(self.vault)))
         return out.returncode, out.stdout + out.stderr, json.loads(self.state.read_text())
 
     def test_write_uses_if_rev_and_key(self):
@@ -308,6 +366,48 @@ class Mcp(unittest.TestCase):
         rc, out, st = self.go()
         self.assertEqual(rc, 0, out)
         self.assertIn("conflict 1", out)
+        self.assertEqual(st["notes"][f"{FOLDER}/Ada Example.md"]["content"], ADA)
+
+    def test_read_error_is_per_note_and_names_nothing(self):
+        st = json.loads(self.state.read_text())
+        st["notes"][f"{FOLDER}/Broken Person.md"] = {"content": ADA, "rev": 1, "broken": True}
+        self.state.write_text(json.dumps(st))
+        self.cfg.write_text(json.dumps(dict(json.loads(self.cfg.read_text()), max_missing_share=1.0)))
+        rc, out, st = self.go()
+        self.assertEqual(rc, 2, out)            # an error is reported ...
+        self.assertIn("error 1", out)           # ... counted ...
+        self.assertIn("ORG: Example Co", st["notes"][f"{FOLDER}/Ada Example.md"]["content"])  # ... and the run went on
+        self.assertIn("not_found", out)
+        self.assertNotIn("Broken", out)
+        self.assertNotIn("Person", out)
+
+    def test_truncated_note_is_not_rewritten(self):
+        big = ADA + "x" * 100_000
+        st = json.loads(self.state.read_text()); st["notes"][f"{FOLDER}/Ada Example.md"]["content"] = big
+        self.state.write_text(json.dumps(st))
+        self.disk(f"{FOLDER}/Ada Example.md", big)
+        rc, out, st = self.go()
+        self.assertIn("not the whole note", out)
+        self.assertEqual(st["notes"][f"{FOLDER}/Ada Example.md"]["content"], big)
+        self.assertNotIn("calls", st)
+
+    def test_truncated_marker_is_never_written(self):
+        # The exact marker vault-mcp adds, on a short note whose disk copy matches: the marker alone stops the write.
+        marked = ADA + "\n[truncated: note is 250000 chars, showing first 100000]\n"
+        st = json.loads(self.state.read_text()); st["notes"][f"{FOLDER}/Ada Example.md"]["content"] = marked
+        self.state.write_text(json.dumps(st))
+        self.disk(f"{FOLDER}/Ada Example.md", marked)
+        rc, out, st = self.go()
+        self.assertIn("not the whole note", out)
+        self.assertNotIn("calls", st)
+
+    def test_partial_read_is_never_written(self):
+        # The read comes back shorter than the file on disk (a cut read, under any limit): skip, report, write nothing.
+        self.disk(f"{FOLDER}/Ada Example.md", ADA + "\n## Later section\n\nmore text the read did not return\n")
+        rc, out, st = self.go()
+        self.assertIn("differ in length", out)
+        self.assertIn("error 1", out)
+        self.assertNotIn("calls", st)
         self.assertEqual(st["notes"][f"{FOLDER}/Ada Example.md"]["content"], ADA)
 
     def test_no_bridge_is_a_skip(self):
@@ -338,6 +438,25 @@ class Gates(unittest.TestCase):
     def test_session_gate(self):
         rc, out = self.run_sh(CM_SESSIONS="20")
         self.assertEqual(rc, 0); self.assertIn("20 live sessions", out)
+
+    def test_backup_gate(self):
+        d = Path(tempfile.mkdtemp(prefix="cm-hist-"))
+        h = d / "history.jsonl"
+        h.write_text('{"ts":"2020-01-01T00:00:00-05:00","type":"run","status":"success"}\n')
+        pause = d / "Pause.md"; pause.write_text("---\npaused: false\n---\n")
+        e = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "PAUSE_NOTE": str(pause), "CM_LOAD5": "1.0",
+             "CM_SESSIONS": "3", "CM_BACKUP_HISTORY": str(h)}
+        out = subprocess.run(["/bin/bash", str(JOB / "run.sh"), "--reader", "true"], capture_output=True, text=True, env=e)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertIn("last successful vault backup ran", out.stdout)
+        import datetime as dt
+        h.write_text(json.dumps({"ts": dt.datetime.now().astimezone().isoformat(timespec="seconds"), "type": "run",
+                                 "status": "success"}) + "\n")
+        out = subprocess.run(["/bin/bash", str(JOB / "run.sh"), "--reader", "true", "--config", "/nonexistent.json"],
+                             capture_output=True, text=True, env=e)
+        self.assertNotIn("SKIPPED", out.stdout)  # the backup is fresh: the run reaches mirror.py
+        self.assertEqual(out.returncode, 2)       # which then fails on the missing config
+        shutil.rmtree(d)
 
     def test_open_gates_reach_the_job(self):
         rc, out = self.run_sh()
