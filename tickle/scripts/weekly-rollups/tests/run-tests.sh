@@ -354,10 +354,13 @@ check "bare archived: untouched" cmp -s "$C/bare.bak" "$Q/Weekly rollup not star
 # 10x. A dispatch that fails after the session registered (the alarm) is taken as started, not "not started".
 new_case; echo 142 > "$S/bg_rc"; : > "$S/late"; go --week 2026-W40
 check "late: exit 0" [ "$RC" = 0 ]; check "late: said so" out_has "taken as started"; check "late: no item" [ "$(queue_count)" = 0 ]
-# A failed dispatch while a HAND dispatch of the same name (another id) is listed: never confirmed by name.
+# A dispatch killed by the alarm (it printed deadbeef) while a HAND dispatch of the same name is listed as cafef00d: never confirmed by name.
+new_case; echo 142 > "$S/bg_rc"; : > "$S/late"; echo other > "$S/bg_registers"; go --week 2026-W40
+check "hand race: exit 4" [ "$RC" = 4 ]; check "hand race: not started filed" grep -qF 'printed session deadbeef' "$Q/Weekly rollup not started 2026-W40.md"
+# A failed dispatch that printed no id: the item carries the parser's reason.
 new_case; echo 1 > "$S/bg_rc"; echo noid > "$S/bg_registers"; go --week 2026-W40
-check "hand race: exit 4" [ "$RC" = 4 ]
-check "hand race: item names the parser's reason" grep -qF 'no id in the claude --bg output' "$Q/Weekly rollup not started 2026-W40.md"
+check "no id after a failure: exit 4" [ "$RC" = 4 ]
+check "no id after a failure: parser's reason" grep -qF 'no id in the claude --bg output' "$Q/Weekly rollup not started 2026-W40.md"
 
 # 10aa. A complete week reruns without the session listing (no claude call on the quiet skip).
 new_case; : > "$NB/Agent rollup for 2026-W40.md"; : > "$XS/Cross-session rollup for 2026-W40.md"; echo 1 > "$S/agents_rc"; go --week 2026-W40
