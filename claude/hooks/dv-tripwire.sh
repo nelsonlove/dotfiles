@@ -93,9 +93,12 @@ def sessions_dir():
     seam = os.environ.get("DV_TRIPWIRE_SESSIONS_DIR")
     if seam is None:
         return os.path.join(os.path.expanduser("~"), ".claude", "sessions")
+    if not seam:
+        return None   # an empty value is not the working directory (review 2 of #107)
     try:
         real = os.path.realpath(seam)
         roots = {os.path.realpath(r) for r in ("/tmp", "/private/tmp", os.environ.get("TMPDIR") or "/tmp") if r}
+        roots.discard("/")   # a TMPDIR of / would admit every directory (review 2 of #107)
         if os.path.isdir(real) and any(real == r or real.startswith(r.rstrip("/") + "/") for r in roots):
             return real
     except Exception:

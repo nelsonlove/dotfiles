@@ -160,11 +160,16 @@ if command -v jq >/dev/null 2>&1; then
   eq "--ship MA and a [C2-MA] name pass the ship gates" "$(reached MA "$out")" past-the-ship-gates
   out=$(pr --name "[C2-DV] x" --by "[C0] ship words test" --ship DV)
   eq "--ship DV is refused as guarded" "$out" "promote-session: refused: ship DV is guarded; no script promotes a session on it or into it, whoever asks"
+  # The areas admiral may WAKE a DV session, never promote one into DV (Nelson, 2026-09-30, "B"; review 3 of #107).
+  out=$(pr --name "[C2-DV] x" --by "[A0] areas admiral" --ship DV)
+  eq "the areas admiral is refused a promotion into DV" "$out" "promote-session: refused: ship DV is guarded; no script promotes a session on it or into it, whoever asks"
   # A target already coded DV is refused whatever --ship says: round 6 of the review of #72 moved a
   # `[L0-DV]` session onto CC with `--ship CC` while DV was unknown; here DV is known and guarded.
   row "[L0-DV] ship words target"
   out=$(pr --name "[C2-CC] x" --by "[A0] rear admiral" --ship CC)
   eq "a DV-coded target is refused even with --ship" "$out" "promote-session: refused: ship DV is guarded; no script promotes a session on it or into it, whoever asks"
+  out=$(pr --name "[C2-DV] x" --by "[A0] areas admiral")
+  eq "the areas admiral is refused a promotion on DV" "$out" "promote-session: refused: ship DV is guarded; no script promotes a session on it or into it, whoever asks"
   out=$(pr --name "[A0] x" --by "[C1] ship words test")
   eq "an [A0] name is refused with the rank word" "$out" "promote-session: refused: --name '[A0] x' would make an admiral, and only Nelson makes one; A0 is never a --name"
   # --to admiral is refused outright, like --to captain: only Nelson makes one (review 1 of #80).
@@ -215,7 +220,7 @@ done
 # never offered: `ships_in_words` leaves the guarded ship out of the words (review 2 of #73).
 # Change EXPECTED only in the commit that adds or removes a check, and say which.
 # The count is part of the summary line, so a run that lost checks can never print a green summary.
-EXPECTED=112
+EXPECTED=114
 [ $((n + skipped)) = "$EXPECTED" ] || { fails=$((fails + 1)); echo "FAIL  the check count is $((n + skipped)) ($n run, $skipped skipped), expected $EXPECTED: a line was lost or added without updating EXPECTED"; }
 printf '\n%s checks (expected %s), %s skipped, %s failed\n' "$n" "$EXPECTED" "$skipped" "$fails"
 [ "$fails" = 0 ] || exit 1

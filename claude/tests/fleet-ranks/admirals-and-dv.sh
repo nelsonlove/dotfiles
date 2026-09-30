@@ -153,9 +153,18 @@ eq "--ship ZZ: the list offered has no DV" "$out" "promote-session: --ship must 
 
 echo
 echo "=== wake-session.sh"
+# THE CALLING SESSION for a DV wake: `--by` is self-declared, so the script also reads the caller's registry
+# record, `$HOME/.claude/sessions/*.json` (here the temp HOME), for name `[A0] areas admiral` AND agent `admiral`
+# (review 1 of #107). CALLER_SID is the id the script is given as CLAUDE_CODE_SESSION_ID; the default is the
+# registered areas admiral, so the cases that expect a DV wake admitted are made by the real caller.
+AAID=aaaaaaaa-0000-0000-0000-000000000000; NAID=aaaaaaa1-0000-0000-0000-000000000000
+mkdir -p "$T/home/.claude/sessions"
+printf '{"sessionId":"%s","name":"[A0] areas admiral","agent":"admiral"}\n' "$AAID" > "$T/home/.claude/sessions/1.json"
+printf '{"sessionId":"%s","name":"[A0] areas admiral","agent":null}\n' "$NAID" > "$T/home/.claude/sessions/2.json"
+CALLER_SID=$AAID
 run_wake() {  # run_wake <target name> <by>
   listing "$1"
-  STUB_LISTING="$T/listing.json" HOME="$T/home" PATH="$T/stubbin:$PATH" \
+  CLAUDE_CODE_SESSION_ID="$CALLER_SID" STUB_LISTING="$T/listing.json" HOME="$T/home" PATH="$T/stubbin:$PATH" \
     bash "$BIN/wake-session.sh" --session $ZERO --by "$2" --why x --jobs-dir "$T/jobs" --log "$T/log.md" \
       --pause-note "$T/pause.md" --agents-dir "$T/agents" --notebook-dir "$T/agents/Agent notebook" --archive-dir "$T/archive" --dry-run 2>&1
 }
@@ -182,6 +191,15 @@ for c in "[L0-PE] t|[A0] areas admiral" "[L0-CC] t|[A0] rear admiral" "[L0-DV] t
   case "$out" in *"$REFUSE_UNKNOWN"*|*"$REFUSE_REACH"*|*"$REFUSE_DV"*) r="$out" ;; *"reporting line"*) r=admitted ;; *) r="$out" ;; esac
   eq "wake: $by on \`$tgt\` passes the ship gate" "$r" admitted
 done
+# A false `--by "[A0] areas admiral"` does not open DV: the calling session must be registered with both keys (review 1 of #107).
+REFUSE_DV_CALLER="needs the calling session to be registered as '[A0] areas admiral' with agent 'admiral'"
+CALLER_SID=$NAID;  has "wake: --by areas admiral from a session with agent null is refused a DV wake" "$(run_wake "[C0-DV] divorce" "[A0] areas admiral")" "$REFUSE_DV_CALLER"
+CALLER_SID=ffffffff-0000-0000-0000-000000000000; has "wake: --by areas admiral from an unregistered session is refused a DV wake" "$(run_wake "[L0-DV] t" "[A0] areas admiral")" "$REFUSE_DV_CALLER"
+CALLER_SID="";     has "wake: --by areas admiral with no session id is refused a DV wake" "$(run_wake "[L0-DV] t" "[A0] areas admiral")" "$REFUSE_DV_CALLER"
+CALLER_SID=$NAID;  out=$(run_wake "[L0-PE] t" "[A0] areas admiral")
+case "$out" in *"reporting line"*) r=admitted ;; *) r="$out" ;; esac
+eq "wake: the registry check does not touch a non-DV wake" "$r" admitted
+CALLER_SID=$AAID
 # The admiral DEFINITION needs an [A0] name, as in promote-session (#80): a session that runs it under another name has no rank the script can read, and one under an [A0] name is an admiral (so it is not below a captain caller).
 mkdir -p "$T/jobs/zz000000"; printf '{"template":"admiral"}\n' > "$T/jobs/zz000000/state.json"
 out=$(run_wake "[L0-CC] t" "[C0-CC] captain test")
@@ -212,7 +230,7 @@ case "$msg" in *"without restating"*) r=silent ;; *) r=missing ;; esac
 eq "the default wake message says to dispose of entries without restating them" "$r" silent
 
 # The count is asserted and is part of the summary line (tests/README.md rule 1).
-EXPECTED=95
+EXPECTED=99
 [ "$n" = "$EXPECTED" ] || { fails=$((fails + 1)); echo "FAIL  the check count is $n, expected $EXPECTED: a line was lost or added without updating EXPECTED"; }
 printf '\n%s checks (expected %s), %s failed\n' "$n" "$EXPECTED" "$fails"
 [ "$fails" = 0 ] || exit 1

@@ -134,6 +134,21 @@ session="" by="" why="" message="" log="$FLEET_LOG" pause_note="" dry_run=0 all_
 
 die() { printf 'wake-session: %s\n' "$*" >&2; exit 2; }
 
+# THE DV CALLER CHECK (review 1 of #107). `--by` is self-declared, so `--by "[A0] areas admiral"` alone must not
+# open DV: a DV wake also needs the CALLING session (`$CLAUDE_CODE_SESSION_ID`) to be registered in
+# `$HOME/.claude/sessions/*.json` with name `[A0] areas admiral` AND agent `admiral`, on every record for it; the
+# same two keys the tripwire hook reads. Every doubt is a no (no id, no registry, no record, a missing key).
+# Tests set HOME to a temp dir, so they never read the real registry.
+caller_is_areas_admiral() {
+  local sid="${CLAUDE_CODE_SESSION_ID:-}" dir="$HOME/.claude/sessions" f verdict
+  case "$sid" in ????????-????-????-????-????????????) ;; *) return 1 ;; esac
+  [ -d "$dir" ] && [ -r "$dir" ] || return 1
+  verdict=$(for f in "$dir"/*.json; do [ -r "$f" ] && jq -c --arg s "$sid" 'select(type == "object" and .sessionId == $s) | [.name, .agent]' "$f" 2>/dev/null; done \
+    | jq -rs 'if length == 0 then "no" elif all(.[]; .[0] == "[A0] areas admiral" and .[1] == "admiral") then "yes" else "no" end' 2>/dev/null)
+  [ "$verdict" = yes ]
+}
+dv_caller_refusal() { printf "refused: a DV wake needs the calling session to be registered as '[A0] areas admiral' with agent 'admiral' (in \$HOME/.claude/sessions); --by alone is not proof, and this session (%s) is not registered so" "${CLAUDE_CODE_SESSION_ID:-no session id}"; }
+
 # A resume that landed but whose record did not must say so; the log is how the fleet sees the act.
 woken_unlogged=""
 on_exit() {
@@ -696,6 +711,7 @@ if [ "$all_mode" = 0 ]; then
   [ "$row_rank" != 9 ] || die "cannot tell the target's rank from its agent ('$row_agent') or its name ('$row_name'); refusing rather than guessing"
   # THE SHIP RULE, the table's one sentence (`ship_refusal … wake`): DV is woken only by `[A0] areas admiral` (Nelson, 2026-09-30, "B"), and each admiral reaches only its own ships (the areas ruling, 2026-09-29).
   r=$(ship_refusal "$by" "$by_rank" "$(ship_of_name "$row_name")" wake); [ -z "$r" ] || die "$r"
+  if ship_is_guarded "$(ship_of_name "$row_name")"; then caller_is_areas_admiral || die "$(dv_caller_refusal)"; fi
   # A captain is woken by Nelson, or by an admiral (`[A0] rear admiral` or `[A0] areas admiral`, each on its own ships): captains report to an admiral, so an A0 caller waking one is the chain working, not a breach of it. Every other caller is refused, as before, because the script cannot verify Nelson. `-gt -1` rather than `!= -1`: an admiral is -1 and the accept verbs' write path is -2, and both sit above a captain. Testing for equality with -1 refused the verb's own notice to a stopped captain, which is the case the notifier exists for.
   if [ "$row_rank" = 0 ] && [ "$by_rank" -gt -1 ]; then
     die "refused: \`$row_name\` is a captain; only Nelson or an admiral (\`[A0] rear admiral\` or \`[A0] areas admiral\`, on its own ships) wakes a captain, and this script cannot verify that it is Nelson calling"
@@ -773,6 +789,7 @@ while IFS= read -r one_row; do
   # The ship rule, as for a single target: DV is offered only to the areas admiral, and an admiral sees only its own ships.
   row_ship=$(ship_of_name "$row_name")
   if [ -n "$(ship_refusal "$by" "$by_rank" "$row_ship" wake)" ]; then continue; fi
+  if ship_is_guarded "$row_ship" && ! caller_is_areas_admiral; then continue; fi   # DV only for the registered areas admiral (review 1 of #107)
   [ "$row_rank" -gt "$by_rank" ] || continue
   if ! check_reporting_line "$row_name" "$by"; then
     outside_list="$outside_list    $row_id  $row_name — $chain_reason

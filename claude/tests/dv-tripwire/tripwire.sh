@@ -202,6 +202,13 @@ chmod 700 "$T/locked"
 mkdir -p "$HOME/.dv-tripwire-leash-test.$$" && cp "$SESS/101.json" "$HOME/.dv-tripwire-leash-test.$$/"
 SESSDIR="$HOME/.dv-tripwire-leash-test.$$"; case_ deny "$DVSTART"   # outside a temp dir: the seam is not honoured
 /usr/bin/trash "$HOME/.dv-tripwire-leash-test.$$" 2>/dev/null || true
+SESSDIR="";                     case_ deny "$DVSTART"   # an empty seam is not the working directory (review 2 of #107)
+# TMPDIR=/ must not widen the leash to every directory (review 2 of #107): the areas admiral's record in $HOME is refused.
+mkdir -p "$HOME/.dv-tripwire-leash-test.$$" && cp "$SESS/101.json" "$HOME/.dv-tripwire-leash-test.$$/"
+n=$((n + 1))
+why=$(printf '{"session_id":"%s","tool_input":{"command":"claude --bg --name \\"[C0-DV] x\\" y"}}' "$AAID" | TMPDIR=/ DV_TRIPWIRE_SESSIONS_DIR="$HOME/.dv-tripwire-leash-test.$$" PATH="$T/stubbin:$PATH" bash "$HOOK" 2>/dev/null)
+case "$why" in *'"deny"'*) printf 'PASS  deny  TMPDIR=/ does not widen the seam leash\n' ;; *) fails=$((fails + 1)); printf 'FAIL  TMPDIR=/ widened the seam leash\n' ;; esac
+/usr/bin/trash "$HOME/.dv-tripwire-leash-test.$$" 2>/dev/null || true
 SESSDIR="$SESS"; CALLER=""
 # The refusal names the one allowed caller.
 n=$((n + 1))
@@ -223,6 +230,6 @@ PYX
 if [ "$reg" = ok ]; then printf 'PASS  the repo settings.json has one Bash PreToolUse entry for dv-tripwire.sh, timeout 1-10 s\n'; else fails=$((fails + 1)); printf 'FAIL  settings.json: %s\n' "$reg"; fi
 
 printf '\n%s checks, %s failed, %s known limits let through\n' "$n" "$fails" "$known"
-EXPECTED=106
+EXPECTED=108
 [ "$n" = "$EXPECTED" ] || { echo "FAIL  the check count is $n, expected $EXPECTED"; exit 1; }
 [ "$fails" = 0 ] || exit 1
