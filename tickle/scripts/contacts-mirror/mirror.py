@@ -119,8 +119,8 @@ def card_keys(card: dict, carry: List[str], pat: Optional[re.Pattern] = None) ->
     pat = pat or owned_pattern(carry)
 
     def put(key: str, val) -> None:
-        if val is None:
-            return
+        if val is None or not pat.match(key):
+            return  # a key the job does not carry is never looked at
         if isinstance(val, bool) or not isinstance(val, (str, int, float)):
             raise TypeError("a card field is not a plain value")
         # One line only: a line break or other control character inside a value would break the frontmatter.
@@ -467,7 +467,7 @@ def read_cards(cmd: List[str], timeout: int) -> List[dict]:
         raise Fail(3, "the reader printed something that is not JSON")
     cards = data.get("cards") if isinstance(data, dict) else None
     if not isinstance(cards, list) or not all(isinstance(c, dict) and isinstance(c.get("id"), str) and c["id"]
-                                              and isinstance(c.get("uid", ""), str) for c in cards):
+                                              and (c.get("uid") is None or isinstance(c["uid"], str)) for c in cards):
         raise Fail(3, "the reader's JSON has no 'cards' list of objects with a string 'id' (and a string 'uid' if any)")
     if not cards:
         raise Fail(3, "the reader printed no cards; nothing written (an empty Contacts is read as a reader failure)")

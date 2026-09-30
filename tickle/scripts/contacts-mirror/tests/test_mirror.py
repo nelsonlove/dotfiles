@@ -335,6 +335,17 @@ class Run(unittest.TestCase):
         self.assertEqual((self.dir / "Ada Example.md").read_text(), ADA)
         self.assertNotIn("['1'", (self.dir / "Bob Sample.md").read_text())
 
+    def test_bad_value_in_an_uncarried_field_is_ignored(self):
+        shipped = json.loads((JOB / "config.json").read_text())  # no EMAIL, ADR or URL
+        self.cfg.write_text(json.dumps(dict(shipped, folder=FOLDER, max_missing_share=1.0)))
+        rc, out = self.go([dict(ADA_CARD, org="Example Co", email=[{"value": ["a@x", "b@y"]}], adr=[{"label": "home", "postal": {"x": 1}}])])
+        self.assertEqual(rc, 0, out)
+        self.assertIn("ORG: Example Co", (self.dir / "Ada Example.md").read_text())
+
+    def test_null_uid_is_allowed(self):
+        rc, out = self.go([dict(ADA_CARD, uid=None, org="Example Co")])
+        self.assertEqual(rc, 0, out)
+
     def test_non_string_ids_rejected(self):
         for bad in ({"id": 42}, {"id": "x", "uid": ["u"]}):
             rc, out = self.go([bad])
