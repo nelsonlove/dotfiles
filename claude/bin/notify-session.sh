@@ -154,6 +154,7 @@ STATE_DIR="${NOTIFY_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/notify-sess
 SENT="$STATE_DIR/sent.jsonl"
 LOCK="$STATE_DIR/sent.lock"
 LOCK_STALE="${NOTIFY_LOCK_STALE:-10}"
+LOCK_TRIES="${NOTIFY_LOCK_TRIES:-300}"   # 300 x 0.05 s = 15 s; the battery shortens it
 # The notebook roots, for an ended lieutenant's entry: `<agents>/03.04 Records/Agent notebook` and `<agents>/03.09 Archive/Agent
 # notebook`, through `claude/lib/notebook-roots.sh`. `NOTIFY_AGENTS_DIR` moves both, for the battery.
 AGENTS_DIR="${NOTIFY_AGENTS_DIR:-$HOME/obsidian/00-09 System/03 Agents}"
@@ -479,6 +480,10 @@ lock_take() {
   mkdir -p "$STATE_DIR" 2>/dev/null || return 1
   lt_tries=0
   while ! mkdir "$LOCK" 2>/dev/null; do
+    # EVERY PASS COUNTS AND WAITS, the stale branch included (re-review of #110): a stale lock that cannot be removed (an
+    # unwritable state dir, a failed `mv`) spun here forever at full CPU and never reached the send-anyway road.
+    lt_tries=$((lt_tries + 1))
+    [ "$lt_tries" -lt "$LOCK_TRIES" ] || return 1
     if lock_is_stale "$LOCK"; then
       # BROKEN UNDER A SECOND LOCK, and judged stale AGAIN inside it (review of #110). A check followed by a rename was not
       # atomic: two callers could both judge the dead holder's lock stale, the first break it and take a fresh one, and the
@@ -493,10 +498,9 @@ lock_take() {
         # A breaker that died inside the break lock (a few lines of shell) leaves it behind; the same age rule clears it.
         rmdir "$LOCK.break" 2>/dev/null || true
       fi
+      sleep 0.05
       continue
     fi
-    lt_tries=$((lt_tries + 1))
-    [ "$lt_tries" -lt 300 ] || return 1   # 300 x 0.05 s = 15 s
     sleep 0.05
   done
   printf '%s\n' "$$" > "$LOCK/pid" 2>/dev/null || true
@@ -524,7 +528,7 @@ record_key() {  # $1 = the display name told, $2 = its sessionId
   if [ -n "$line" ] && printf '%s\n' "$line" >> "$SENT" 2>/dev/null; then
     recorded=1
   else
-    dedupe_note=" The dedupe record could not be written to \`$SENT\`, so a repeat of this call would notify again."
+    dedupe_note="$dedupe_note The dedupe record could not be written to \`$SENT\`, so a repeat of this call would notify again."
   fi
 }
 

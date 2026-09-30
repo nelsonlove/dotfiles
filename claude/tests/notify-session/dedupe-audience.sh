@@ -171,6 +171,19 @@ took=$(( $(date +%s) - start ))
 check "a stale lock (dead pid) is broken: the notice is written" [ "$(lines "$NOTIFY_NOTICES_DIR/$SID_RUN.md")" = $((b + 1)) ]
 check "and quickly (under 5 s)" [ "$took" -lt 5 ]
 
+# A STALE LOCK THAT CANNOT BE REMOVED (re-review of #110) must not spin: after the wait limit the notice goes out anyway.
+RO="$TMP/rostate"; mkdir -p "$RO/sent.lock"; printf '%s\n' "$deadpid" > "$RO/sent.lock/pid"; chmod 555 "$RO"
+b=$(lines "$NOTIFY_NOTICES_DIR/$SID_RUN.md")
+NOTIFY_STATE_DIR="$RO" NOTIFY_LOCK_TRIES=20 PATH="$STUBBIN:$PATH" "$NOTIFY" --note "$N1" --uid "$UID1" --event verified --at 2026-09-30T09:30:00-04:00 >/dev/null 2>&1 &
+spin=$!
+waited=0
+while kill -0 "$spin" 2>/dev/null && [ "$waited" -lt 100 ]; do sleep 0.1; waited=$((waited + 1)); done
+if kill -0 "$spin" 2>/dev/null; then kill -9 "$spin" 2>/dev/null; fail "an unremovable stale lock does not spin forever" "still running after 10 s"
+else pass "an unremovable stale lock does not spin forever"; fi
+check "and the notice is sent without the check" [ "$(lines "$NOTIFY_NOTICES_DIR/$SID_RUN.md")" = $((b + 1)) ]
+case "$(log_tail)" in *"could not be taken"*) pass "and the log says the lock could not be taken" ;; *) fail "and the log says the lock could not be taken" "$(log_tail | cut -c1-200)" ;; esac
+chmod 755 "$RO"
+
 echo
 echo "=== a failed send is NOT recorded, so a retry sends it"
 UNW="$TMP/unwritable"; mkdir -p "$UNW"; chmod 500 "$UNW"
