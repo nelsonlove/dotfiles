@@ -1,0 +1,17 @@
+version: 1
+id: contacts-mirror
+name: Contacts mirror (27.20) from Apple Contacts, daily
+status: disabled
+
+# Ruled by Nelson 2026-09-30: "a plus job" (areas admiral, cross-session log 05:50). Owned by [L0-MA] tickle. SHIPS DISABLED: the reader (a one-shot Contacts-reader app in macos-tools, Nelson's "a") must land and get his one Allow click first, and the people ship still has to send its key list. See tickle/scripts/contacts-mirror/README.md.
+#
+# The gates (pause, load, backup) are in run.sh, so `tickle run contacts-mirror` by hand is gated too. The trigger adds only the host. The host is the Air today; the MacBook Pro cut-over re-gates it with the other jobs.
+triggers:
+  - type: script
+    schedule: "20 4 * * *"
+    command: ["@config/scripts/_lib/on-host.sh", "Nelsons-MacBook-Air"]
+    timeout: 10s
+
+run:
+  command: ["@config/scripts/contacts-mirror/run.sh"]
+  timeout: 15m
