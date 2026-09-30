@@ -25,11 +25,11 @@ POLL=${FLEET_GATE_POLL:-30}
 
 say() { printf 'fleet-gate: %s\n' "$*" >&2; }
 
-wait_secs=""
+waiting=0 wait_secs=1800
 while [ $# -gt 0 ]; do
   case "$1" in
     --wait)
-      wait_secs=1800
+      waiting=1
       if [ $# -gt 1 ] && case "$2" in --*) false ;; *) true ;; esac; then wait_secs="$2"; shift; fi
       shift ;;
     -h|--help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
@@ -40,13 +40,18 @@ done
 case "$LOAD_LIMIT" in ''|*[!0-9.]*|*.*.*|.) say "FLEET_GATE_LOAD5 is not a number ('$LOAD_LIMIT'); holding"; exit 1 ;; esac
 case "$SESS_LIMIT" in ''|*[!0-9]*) say "FLEET_GATE_SESSIONS is not a whole number ('$SESS_LIMIT'); holding"; exit 1 ;; esac
 case "$POLL" in ''|*[!0-9]*|0) say "FLEET_GATE_POLL is not a whole number of seconds above 0 ('$POLL'); holding"; exit 1 ;; esac
-if [ -n "$wait_secs" ]; then
+# Every number is read in base 10: bash would take "09" as a bad octal and "010" as 8.
+if [ "$waiting" = 1 ]; then
   case "$wait_secs" in ''|*[!0-9]*) say "--wait takes a whole number of seconds (got '$wait_secs'); holding"; exit 1 ;; esac
+  wait_secs=$((10#$wait_secs))
 fi
+POLL=$((10#$POLL))
+[ "$POLL" -gt 0 ] || { say "FLEET_GATE_POLL must be above 0 seconds; holding"; exit 1; }
 
-# check: sets $line to the verdict line and returns 0 (open) or 1 (holding, or an error).
+# check: sets $line to the verdict line and $state to what holds it (load, sessions, both, or the error), and returns 0 (open) or 1 (holding, or an error).
 check() {
   local raw load5 listing count
+  state=error
   if ! raw=$(sysctl -n vm.loadavg 2>/dev/null); then
     line="the load could not be read (sysctl -n vm.loadavg failed); holding"; return 1
   fi
@@ -62,13 +67,14 @@ check() {
   fi
   case "$count" in ''|*[!0-9]*) line="the session listing gave no count ('$count'); holding"; return 1 ;; esac
   if awk -v l="$load5" -v m="$LOAD_LIMIT" -v c="$count" -v s="$SESS_LIMIT" 'BEGIN { exit !((l + 0 < m + 0) && (c + 0 < s + 0)) }'; then
-    line="5-min load $load5 (limit $LOAD_LIMIT), $count live sessions (limit $SESS_LIMIT); open"; return 0
+    line="5-min load $load5 (limit $LOAD_LIMIT), $count live sessions (limit $SESS_LIMIT); open"; state=open; return 0
   fi
+  state=$(awk -v l="$load5" -v m="$LOAD_LIMIT" -v c="$count" -v s="$SESS_LIMIT" 'BEGIN { a = (l + 0 >= m + 0); b = (c + 0 >= s + 0); print (a && b) ? "both" : (a ? "load" : "sessions") }')
   line="5-min load $load5 (limit $LOAD_LIMIT), $count live sessions (limit $SESS_LIMIT); holding"; return 1
 }
 
-line=""
-if [ -z "$wait_secs" ]; then
+line="" state=""
+if [ "$waiting" = 0 ]; then
   check && exit 0
   say "$line"; exit 1
 fi
@@ -77,8 +83,10 @@ start=$(date +%s)
 said=""
 while :; do
   check && exit 0
-  # One line per change, not one per poll.
-  [ "$line" = "$said" ] || { say "$line"; said="$line"; }
+  # One line per change of WHAT holds the gate (the load, the sessions, both, or an error), not one per poll: the numbers move on every poll.
+  key="$state"
+  [ "$state" != error ] || key="error:$line"
+  [ "$key" = "$said" ] || { say "$line"; said="$key"; }
   now=$(date +%s)
   if [ $((now - start)) -ge "$wait_secs" ]; then
     say "waited ${wait_secs} s and the gate is still closed: $line"; exit 2

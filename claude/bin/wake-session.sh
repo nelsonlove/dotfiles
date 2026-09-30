@@ -209,6 +209,13 @@ bash -n "$BG_ID_LIB" 2>/dev/null || die "the bg-id parser at $BG_ID_LIB does not
 # shellcheck source=../lib/bg-id.sh
 . "$BG_ID_LIB" || die "the bg-id parser at $BG_ID_LIB could not be sourced"
 for fn in bg_id bg_parse; do command -v "$fn" >/dev/null 2>&1 || die "the bg-id parser at $BG_ID_LIB parsed but defined no $fn; refusing"; done
+# THE FLEET GATE (Nelson's "a", log 2026-09-30T05:32): no session is stopped, started or resumed while the 5-minute load is 8 or more, or 20 or more sessions are live. claude/lib/fleet-gate.sh asks claude/bin/fleet-gate; a gate that cannot be run holds. A dry run is not gated. Guarded as the other libraries are.
+FLEET_GATE_LIB="$script_dir/../lib/fleet-gate.sh"
+[ -r "$FLEET_GATE_LIB" ] || die "the fleet-gate library is missing or unreadable at $FLEET_GATE_LIB"
+bash -n "$FLEET_GATE_LIB" 2>/dev/null || die "the fleet-gate library at $FLEET_GATE_LIB does not parse; refusing"
+# shellcheck source=../lib/fleet-gate.sh
+. "$FLEET_GATE_LIB" || die "the fleet-gate library at $FLEET_GATE_LIB could not be sourced"
+command -v fleet_gate_check >/dev/null 2>&1 || die "the fleet-gate library at $FLEET_GATE_LIB parsed but defined no fleet_gate_check; refusing"
 for fn in notebook_roots_of entries_in_root notebook_dir_for archive_dir_for; do
   command -v "$fn" >/dev/null 2>&1 || die "the notebook-roots library at $NOTEBOOK_ROOTS_LIB parsed but defined no $fn; refusing"
 done
@@ -624,14 +631,6 @@ settle_stopped() {  # uses row_id; 0 when no pid comes back (or the row is gone)
   return 0
 }
 
-# THE FLEET GATE (Nelson's "a", log 2026-09-30T05:32): no session is started or resumed while the 5-minute load is 8 or more, or 20 or more sessions are live. `fleet-gate` beside this script decides, and a gate that cannot be run holds. A dry run is not gated.
-FLEET_GATE="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)/fleet-gate"
-fleet_gate_or_die() {
-  local verdict
-  [ -r "$FLEET_GATE" ] || die "the fleet gate is missing at $FLEET_GATE, so nothing is started; nothing was touched"
-  verdict=$(bash "$FLEET_GATE" 2>&1) || die "held by the fleet gate, so nothing is started: ${verdict:-no reason given}. Nothing was touched; run this again when \`fleet-gate\` opens (\`fleet-gate --wait\` waits for it)."
-}
-
 # --- waking a stopped session ----------------------------------------------------------------
 # A flagless resume, from the target's own cwd, verified afterwards: the SAME id must be running
 # and no new id may have appeared, because a new id means the resume forked a copy instead.
@@ -645,7 +644,6 @@ wake_stopped() {  # uses row_*; $1 = the message
     *) die "the listing gives no full sessionId for $row_id (got '$row_session_id'), and a resume needs one; nothing was touched" ;;
   esac
   [ -d "$row_cwd" ] || die "the session's cwd '$row_cwd' does not exist; the resume must run there"
-  fleet_gate_or_die
   # </dev/null so the resume cannot eat the heredoc the --all loop is reading from.
   out=$(cd "$row_cwd" && claude --bg --resume "$row_session_id" "$wake_message" </dev/null 2>&1) || die "claude --bg --resume failed: $out"
   woken_unlogged="$row_id"
@@ -751,6 +749,7 @@ if [ "$all_mode" = 0 ]; then
     printf '  nothing was touched; no record was written.\n'
     exit 3
   fi
+  fleet_gate_check || die "held by the fleet gate, so nothing is resumed: ${FLEET_GATE_VERDICT:-no reason given}. Nothing was touched; run this again when \`fleet-gate\` opens (\`fleet-gate --wait\` waits for it)."
   wake_stopped "$message"
   exit 0
 fi
@@ -873,6 +872,7 @@ check_pause
 # read again from a fresh listing immediately before its own resume: one that somebody else started
 # in the meantime is left alone rather than resumed into a copy.
 printf '\nresuming every stopped session above:\n'
+swept_woken=""
 while IFS= read -r one_row; do
   [ -n "$one_row" ] || continue
   load_row "$one_row"
@@ -894,7 +894,12 @@ while IFS= read -r one_row; do
   fi
   one_message="$message"
   [ -n "$one_message" ] || one_message=$(default_message_for "$row_name")
+  # The gate is asked before EACH resume, because every resume adds a live session. When it holds partway, the sweep stops and says exactly what it did: the sessions resumed before this one stay resumed and logged, and this one and every later one are not resumed.
+  if ! fleet_gate_check; then
+    die "the sweep stopped at $row_id ($row_name), held by the fleet gate: ${FLEET_GATE_VERDICT:-no reason given}. Resumed and logged before it: ${swept_woken:-none}. Not resumed: $row_id and every stopped session after it in the list above; run the same command again when \`fleet-gate\` opens, and it picks up only the ones still stopped."
+  fi
   wake_stopped "$one_message"
+  swept_woken="${swept_woken:+$swept_woken, }$row_id"
 done <<EOF
 $stopped_rows
 EOF

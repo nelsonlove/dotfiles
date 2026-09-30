@@ -197,6 +197,13 @@ bash -n "$BG_ID_LIB" 2>/dev/null || die "the bg-id parser at $BG_ID_LIB does not
 # shellcheck source=../lib/bg-id.sh
 . "$BG_ID_LIB" || die "the bg-id parser at $BG_ID_LIB could not be sourced"
 command -v bg_id >/dev/null 2>&1 || die "the bg-id parser at $BG_ID_LIB parsed but defined no bg_id; refusing"
+# THE FLEET GATE (Nelson's "a", log 2026-09-30T05:32): no session is stopped, started or resumed while the 5-minute load is 8 or more, or 20 or more sessions are live. claude/lib/fleet-gate.sh asks claude/bin/fleet-gate; a gate that cannot be run holds. A dry run is not gated. Guarded as the other libraries are.
+FLEET_GATE_LIB="$script_dir/../lib/fleet-gate.sh"
+[ -r "$FLEET_GATE_LIB" ] || die "the fleet-gate library is missing or unreadable at $FLEET_GATE_LIB"
+bash -n "$FLEET_GATE_LIB" 2>/dev/null || die "the fleet-gate library at $FLEET_GATE_LIB does not parse; refusing"
+# shellcheck source=../lib/fleet-gate.sh
+. "$FLEET_GATE_LIB" || die "the fleet-gate library at $FLEET_GATE_LIB could not be sourced"
+command -v fleet_gate_check >/dev/null 2>&1 || die "the fleet-gate library at $FLEET_GATE_LIB parsed but defined no fleet_gate_check; refusing"
 
 [ "$to" != "captain" ] || die "refused: only Nelson makes captains"
 # `rank_of_agent admiral` is -1 since 2026-09-29, so --to admiral is refused here, outright, the way --to captain
@@ -357,14 +364,9 @@ printf '  ship %s (%s)\n' "$name_ship" "$( [ -n "$ship" ] && printf 'from --ship
 [ -z "$ship_note" ] || printf '  %s\n' "$ship_note"
 if [ "$dry_run" = 1 ]; then printf '  dry run: nothing touched\n'; exit 0; fi
 
-# THE FLEET GATE (Nelson's "a", log 2026-09-30T05:32): no session is started or resumed while the 5-minute load is 8 or more, or 20 or more sessions are live. `fleet-gate` beside this script decides, and a gate that cannot be run holds. A dry run is not gated.
-FLEET_GATE="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)/fleet-gate"
-fleet_gate_or_die() {
-  local verdict
-  [ -r "$FLEET_GATE" ] || die "the fleet gate is missing at $FLEET_GATE, so nothing is started; nothing was touched"
-  verdict=$(bash "$FLEET_GATE" 2>&1) || die "held by the fleet gate, so nothing is started: ${verdict:-no reason given}. Nothing was touched; run this again when \`fleet-gate\` opens (\`fleet-gate --wait\` waits for it)."
-}
-fleet_gate_or_die
+# A live target is stopped and then resumed under a new id, so it does not add to the live count: it gets an allowance of one.
+if [ -n "$old_pid" ]; then gate_extra=1; else gate_extra=0; fi
+fleet_gate_check "$gate_extra" || die "held by the fleet gate, so nothing is stopped or started: ${FLEET_GATE_VERDICT:-no reason given}. Nothing was touched; run this again when \`fleet-gate\` opens (\`fleet-gate --wait\` waits for it)."
 
 # --- stop, and wait until the process is really gone ------------------------------------------
 if [ -n "$old_pid" ]; then

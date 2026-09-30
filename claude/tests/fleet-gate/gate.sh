@@ -26,6 +26,7 @@ EOF
 cat > "$T/stubbin/claude" <<'EOF'
 #!/bin/sh
 if [ "$1" = agents ]; then
+  [ -z "${STUB_EAT_STDIN:-}" ] || cat >/dev/null
   [ "$(cat "$STUB_LISTING")" = FAIL ] && exit 1
   cat "$STUB_LISTING"; exit 0
 fi
@@ -119,6 +120,28 @@ echo FAIL > "$T/listing.json"; out=$(FLEET_GATE_POLL=1 PATH="$T/stubbin:$PATH" b
 eq "--wait on a failing listing never opens (exit 2)" "$rc" 2
 load 1.00 2.00 2.00; sessions 5; gate --wait x
 eq "--wait with a bad number: holding" "$rc" 1
+load 1.00 9.00 2.00; sessions 5; gate --wait ""
+eq "--wait with an empty number: holding at once, not a single check" "$rc" 1
+has "and it names the bad value" "$out" "--wait takes a whole number"
+# The numbers move on every poll; the line is printed once per change of what holds the gate.
+load 1.00 9.00 2.00; sessions 5
+( for v in 9.10 9.20 9.30 9.40 9.50 9.60; do sleep 0.5; printf '{ 1.00 %s 2.00 }\n' "$v" > "$T/load"; done ) &
+out=$(FLEET_GATE_POLL=1 PATH="$T/stubbin:$PATH" bash "$GATE" --wait 3 2>&1); rc=$?
+wait
+lines=$(printf '%s\n' "$out" | grep -c '^fleet-gate: 5-min load' || true)
+eq "--wait prints once while only the load NUMBER changes" "$lines" 1
+load 1.00 9.00 2.00; sessions 5
+( sleep 2; sessions 25 ) &
+out=$(FLEET_GATE_POLL=1 PATH="$T/stubbin:$PATH" bash "$GATE" --wait 4 2>&1); rc=$?
+wait
+lines=$(printf '%s\n' "$out" | grep -c '^fleet-gate: 5-min load' || true)
+eq "--wait prints again when the sessions start to hold too" "$lines" 2
+# A leading zero is base 10: bash arithmetic would crash on "08".
+load 1.00 9.00 2.00; sessions 5
+( sleep 2; printf '{ 1.00 3.00 2.00 }\n' > "$T/load" ) &
+out=$(FLEET_GATE_POLL=1 PATH="$T/stubbin:$PATH" bash "$GATE" --wait 08 2>&1); rc=$?
+wait
+eq "--wait 08 is eight seconds, not a bad octal (it opens: exit 0)" "$rc" 0
 
 echo
 echo "=== 5. the two scripts that start sessions stop at a closed gate"
@@ -153,7 +176,49 @@ if [ "$rc" != 0 ]; then pass "wake: the refusal exits non-zero ($rc)"; else fail
 out=$(run_wake --dry-run)
 has "wake: a dry run is not gated" "$out" "dry run: nothing touched"
 
-EXPECTED=46
+# A LIVE target: the gate must hold before promote stops it. The row's pid is a live sleep of this test's own.
+sleep 120 & LIVE=$!
+printf '[{"id":"zz000000","sessionId":"%s","name":"[L0-CC] t","cwd":"%s","status":"idle","pid":%s}]\n' "$ZERO" "$T/cwd" "$LIVE" > "$T/listing.json"
+: > "$T/calls"
+out=$(run_promote)
+has "promote: a LIVE target at a closed gate is refused" "$out" "held by the fleet gate"
+eq  "promote: the live target was NOT stopped (the gate comes before the stop)" "$(cat "$T/calls")" ""
+if kill -0 "$LIVE" 2>/dev/null; then pass "promote: the live target's process is still running"; else fail "promote: the live target's process is still running" "gone"; fi
+kill "$LIVE" 2>/dev/null; wait "$LIVE" 2>/dev/null
+printf '[{"id":"zz000000","sessionId":"%s","name":"[L0-CC] t","cwd":"%s","status":"stopped"}]\n' "$ZERO" "$T/cwd" > "$T/listing.json"
+
+# The sweep: a gate that holds stops it, and it says what it resumed before (none here) and what it did not.
+: > "$T/calls"
+out=$(HOME="$T/home" PATH="$T/stubbin:$PATH" bash "$BIN/wake-session.sh" --all --resume-stopped --by "[C0-CC] claude code" --why x --jobs-dir "$T/jobs" --log "$T/log.md" \
+  --pause-note "$T/pause.md" --agents-dir "$T/agents" --notebook-dir "$T/agents/Agent notebook" --archive-dir "$T/archive" 2>&1)
+has "wake --all: the sweep stops at a closed gate and names where" "$out" "the sweep stopped at zz000000"
+has "wake --all: it says what was resumed before it" "$out" "Resumed and logged before it: none"
+eq  "wake --all: nothing was resumed" "$(cat "$T/calls")" ""
+
+echo
+echo "=== 6. claude/lib/fleet-gate.sh"
+LIBF="$HERE/../../lib/fleet-gate.sh"
+libcheck() {  # libcheck <extra>: rc of fleet_gate_check
+  PATH="$T/stubbin:$PATH" bash -c '. "$1"; fleet_gate_check "$2"' _ "$LIBF" "$1" >/dev/null 2>&1; echo $?
+}
+load 1.00 2.00 2.00; sessions 20
+eq "the lib holds at 20 live sessions with no allowance" "$(libcheck 0)" 1
+eq "the lib opens at 20 with an allowance of one (a live promote target)" "$(libcheck 1)" 0
+sessions 21
+eq "an allowance of one does not open 21" "$(libcheck 1)" 1
+got=$(FLEET_GATE_SESSIONS=abc PATH="$T/stubbin:$PATH" bash -c '. "$1"; fleet_gate_check 1; echo "rc=$?"' _ "$LIBF" 2>&1)
+has "a bad limit with an allowance still holds" "$got" "rc=1"
+# The gate reads no stdin: a loop fed by a heredoc keeps every line even when `claude agents` would eat stdin.
+sessions 5
+got=$(STUB_EAT_STDIN=1 PATH="$T/stubbin:$PATH" bash -c '. "$1"; n=0; while read -r x; do fleet_gate_check; n=$((n + 1)); done <<EOF
+a
+b
+c
+EOF
+echo "$n"' _ "$LIBF" 2>&1)
+eq "the gate does not eat a loop's heredoc" "$got" 3
+
+EXPECTED=62
 [ "$n" = "$EXPECTED" ] || { fails=$((fails + 1)); echo "FAIL  the check count is $n, expected $EXPECTED"; }
 printf '\n%s checks (expected %s), %s failed\n' "$n" "$EXPECTED" "$fails"
 [ "$fails" = 0 ] || exit 1
