@@ -221,14 +221,16 @@ bash -n "$FLEET_GATE_LIB" 2>/dev/null || die "the fleet-gate library at $FLEET_G
 # shellcheck source=../lib/fleet-gate.sh
 . "$FLEET_GATE_LIB" || die "the fleet-gate library at $FLEET_GATE_LIB could not be sourced"
 command -v fleet_gate_check >/dev/null 2>&1 || die "the fleet-gate library at $FLEET_GATE_LIB parsed but defined no fleet_gate_check; refusing"
-# THE SESSION ROSTER (#71): what a session whose job record is gone is read back from. Guarded the same way.
-ROSTER_LIB="$script_dir/../lib/session-roster.sh"
-[ -r "$ROSTER_LIB" ] || die "the session-roster library is missing or unreadable at $ROSTER_LIB"
-bash -n "$ROSTER_LIB" 2>/dev/null || die "the session-roster library at $ROSTER_LIB does not parse; refusing"
-# shellcheck source=../lib/session-roster.sh
-. "$ROSTER_LIB" || die "the session-roster library at $ROSTER_LIB could not be sourced"
-for fn in roster_id_is_full roster_newest_entry_for_id roster_transcript_check roster_agent_disagrees; do
-  command -v "$fn" >/dev/null 2>&1 || die "the session-roster library at $ROSTER_LIB parsed but defined no $fn; refusing"
+# THE SESSION ROSTER (#71) and THE STATUS RULE: what a session whose job record is gone is read back from, and whether its entry was ended while it slept. Guarded the same way.
+for lib in session-status session-roster; do
+  lib_path="$script_dir/../lib/$lib.sh"
+  [ -r "$lib_path" ] || die "the $lib library is missing or unreadable at $lib_path"
+  bash -n "$lib_path" 2>/dev/null || die "the $lib library at $lib_path does not parse; refusing"
+  # shellcheck disable=SC1090
+  . "$lib_path" || die "the $lib library at $lib_path could not be sourced"
+done
+for fn in roster_id_is_full roster_newest_entry_for_id roster_transcript_check roster_agent_disagrees roster_ended_line_for session_status_of notebook_entry_files_of; do
+  command -v "$fn" >/dev/null 2>&1 || die "the session-roster and session-status libraries parsed but defined no $fn; refusing"
 done
 for fn in notebook_roots_of entries_in_root notebook_dir_for archive_dir_for; do
   command -v "$fn" >/dev/null 2>&1 || die "the notebook-roots library at $NOTEBOOK_ROOTS_LIB parsed but defined no $fn; refusing"
@@ -757,17 +759,21 @@ post_rm_resume() {  # uses row_*; $1 = the message
     post_rm_row=$(printf '%s' "$listing" | jq -c --arg s "$post_rm_new" '[.[] | select(.id==$s)] | first // empty')
     if [ -n "$post_rm_row" ]; then
       post_rm_sid=$(printf '%s' "$post_rm_row" | jq -r '.sessionId // ""')
-      if [ "$post_rm_sid" != "$row_session_id" ]; then
+      # A row that has not filled in its sessionId yet is waited for, like one with no pid yet; only a DIFFERENT sessionId is another conversation.
+      if [ -n "$post_rm_sid" ] && [ "$post_rm_sid" != "$row_session_id" ]; then
         woken_unlogged=""
         stop_note="it was stopped by this script"
         claude stop "$post_rm_new" </dev/null >/dev/null 2>&1 || stop_note="it could NOT be stopped; stop $post_rm_new yourself"
         die "the resume of $row_session_id came back as $post_rm_new with sessionId '${post_rm_sid:-none}', which is a different conversation, not this one continuing; $stop_note, and nothing was logged"
       fi
       verify_pid=$(printf '%s' "$post_rm_row" | jq -r '.pid // empty')
-      [ -z "$verify_pid" ] || break
+      [ -z "$verify_pid" ] || [ -z "$post_rm_sid" ] || break
     fi
     waited=$((waited + 1))
-    [ "$waited" -lt 20 ] || die "$post_rm_new did not come up with sessionId $row_session_id within 20 s of the resume; nothing was logged. Resume output: $out"
+    if [ "$waited" -ge 20 ]; then
+      woken_unlogged=""
+      die "$post_rm_new did not come up with sessionId $row_session_id and a pid within 20 s of the resume; nothing was logged. Check \`claude agents --json --all\` for it. Resume output: $out"
+    fi
     sleep 1
   done
   stamp=$(date '+%Y-%m-%dT%H:%M')
@@ -786,13 +792,21 @@ if [ "$all_mode" = 0 ]; then
   read_listing
   row=$(printf '%s' "$listing" | jq -c --arg s "$session" '[.[] | select(.id==$s or .sessionId==$s)] | first // empty') \
     || die "could not parse claude agents --json --all"
-  post_rm=0
+  post_rm=0 post_rm_job_note=""
   if [ -n "$row" ]; then
     load_row "$row"
   else
     roster_id_is_full "$session" || die "no background session with id or sessionId '$session' in claude agents --json --all; if its job record is gone, wake it by its FULL 36-character sessionId, because a short id cannot find its notebook entry or its transcript"
     load_post_rm "$session"
     post_rm=1
+    # THE JOB MAY STILL EXIST. The listing drops rows whose job lives on (settle_stopped says so), and while a job exists its saved options come back only with a FLAGLESS resume; any flag forks a copy (the hand rule in session-roster.sh). So a job state under the derived short id sends this down the ordinary stopped path, flagless, with the entry supplying only the cwd and the name.
+    if [ -f "$JOBS_DIR/$row_id/state.json" ]; then
+      post_rm=0
+      post_rm_job_note="its listing row is gone but its job record is still at $JOBS_DIR/$row_id, so it is an ordinary stopped session and is resumed FLAGLESS; name and cwd are from its notebook entry ${post_rm_entry##*/}"
+      row_agent=$(jq -r '.template // "bg"' "$JOBS_DIR/$row_id/state.json" 2>/dev/null || echo bg)
+      row_rank=$(rank_of_agent "$row_agent")
+      if [ "$row_rank" = 9 ] || [ "$row_agent" = bg ]; then row_rank=$(rank_of_name "$row_name"); fi
+    fi
   fi
 
   [ "$row_name" != "$by" ] || die "refused: '$session' is $by itself; a session does not wake itself"
@@ -817,21 +831,43 @@ if [ "$all_mode" = 0 ]; then
   [ "$dry_run" = 1 ] || check_pause
 
   [ -n "$message" ] || message=$(default_message_for "$row_name")
+  # AN ENTRY ENDED WHILE IT SLEPT is said in the message, so the woken session opens a new entry rather than reopening the closed one (session-roster.sh: every resume path adds this line).
+  roster_ended_line_for "$row_session_id" "$NOTEBOOK_DIR" "$NOTEBOOK_DIR_SET" "$ARCHIVE_DIR" "$ARCHIVE_DIR_SET"
+  [ -z "$roster_ended_line" ] || message="$message $roster_ended_line"
 
   printf 'wake: %s (%s, %s, %s) in %s\n' "$row_name" "$row_id" "$row_agent" "$(word_of_rank "$row_rank")" "$row_cwd"
+  [ -z "$post_rm_job_note" ] || printf '  %s\n' "$post_rm_job_note"
   printf '  by %s: %s\n  reporting line: %s\n' "$by" "$why" "$chain_path"
   [ -z "$chain_doubt" ] || printf '%s' "$chain_doubt" | sed 's/^/  ambiguous: /'
 
   if [ "$post_rm" = 1 ]; then
     printf '  it has NO job record, so it is read from its notebook entry %s\n' "$post_rm_entry"
+    [ -d "$row_cwd" ] || die "refused: the recorded cwd '$row_cwd' no longer exists (a removed worktree, most likely), and the resume must run there; recreate it, or correct the entry's cwd"
     roster_transcript_check "$row_session_id" "$row_cwd" "$PROJECTS_DIR"
+    # A COPY AT THE CWD DOES NOT SETTLE IT when another copy exists too: the check stops at the first, and which one is the conversation is exactly the question two copies raise.
+    if [ "$roster_transcript_state" = here ]; then
+      post_rm_all=""
+      for post_rm_c in "$PROJECTS_DIR"/*/"$row_session_id.jsonl"; do
+        [ -f "$post_rm_c" ] || continue
+        post_rm_all="${post_rm_all:+$post_rm_all }$post_rm_c"
+      done
+      case "$post_rm_all" in *" "*) roster_transcript_state=many; roster_transcript_found="$post_rm_all" ;; esac
+    fi
     case "$roster_transcript_state" in
       here) ;;
       elsewhere) die "refused: the transcript of $row_session_id is not under the recorded cwd '$row_cwd' but under $roster_transcript_found, and a project directory cannot be turned back into a path; resume it by hand from the right directory, or correct the entry's cwd" ;;
       many) die "refused: the transcript of $row_session_id is in more than one place ($roster_transcript_found), and which one is the conversation is not this script's to guess" ;;
       *) die "refused: no transcript of $row_session_id under $PROJECTS_DIR, so a resume would start a NEW session, not continue this one" ;;
     esac
-    post_rm_cmd="(cd $row_cwd && claude --bg --resume $row_session_id$( [ "$row_agent" = claude ] || printf ' --agent %s' "$row_agent") --name \"$row_name\" \"<the message>\")"
+    # A TRANSCRIPT WRITTEN IN THE LAST TWO MINUTES may belong to a session that is running with no job row (one Nelson opened in a terminal): a resume would put a second process on it. Refused, like a live row.
+    post_rm_age=$(( $(date +%s) - $(stat -f %m "$roster_transcript_found" 2>/dev/null || echo 0) ))
+    if [ "$post_rm_age" -lt 120 ]; then
+      printf '  its transcript was written %s s ago, so it may be RUNNING with no job row, and it is NOT resumed: a resume of a running session forks a copy.\n' "$post_rm_age"
+      print_sendmessage "$row_name" "$message"
+      printf '  nothing was touched; no record was written.\n'
+      exit 3
+    fi
+    post_rm_cmd="(cd $(printf '%q' "$row_cwd") && claude --bg --resume $row_session_id$( [ "$row_agent" = claude ] || printf ' --agent %q' "$row_agent") --name $(printf '%q' "$row_name") \"<the message>\")"
     printf '  its transcript is under that cwd (%s), so it resumes there with its flags:\n    %s\n' "$roster_transcript_found" "$post_rm_cmd"
     if [ "$dry_run" = 1 ]; then
       report_pause
