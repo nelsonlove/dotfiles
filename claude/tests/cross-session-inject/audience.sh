@@ -267,13 +267,17 @@ echo "=== 7c. the review's fail-open cases: a slip or an unreadable record shows
   r 06:01 " · for: \`[C1-CC] Plugins\`" "RULE-FOR-BACKTICKED-CASE"
   r 06:02 " · ships: MA (dotfiles)" "RULE-SHIPS-JUNK"
   r 06:03 " · for: [L0-CC] worker" "RULE-FOR-WORKER-AGAIN"
+  r 06:04 " · ships: OBS" "RULE-SHIPS-UNKNOWN-CODE"
 } > "$LOG"
 seed 33333333 "${day}T00:00"; out=$(inject 33333333)
 has   "a for: label the fleet has no record of goes to everyone (a slip)" "$out" "RULE-FOR-UNKNOWN-LABEL"
 has   "a ships: value that is not a code goes to everyone" "$out" "RULE-SHIPS-JUNK"
+has   "a ships: code the ship table does not know (OBS) goes to everyone" "$out" "RULE-SHIPS-UNKNOWN-CODE"
 lacks "a known for: label on another ship still does not reach it" "$out" "RULE-FOR-WORKER-AGAIN"
 seed 11111111 "${day}T00:00"; out=$(inject 11111111)
 has   "a for: label in backticks and another case still matches" "$out" "RULE-FOR-BACKTICKED-CASE"
+seed 22222222 "${day}T00:00"; out=$(inject 22222222)
+has   "an unknown ship code reaches a lieutenant too (a slip is fleet-wide)" "$out" "RULE-SHIPS-UNKNOWN-CODE"
 # The notebook cannot be read: both roots moved away for one run.
 mv "$AG/03.04 Records" "$T/hide-records"; mv "$AG/03.09 Archive" "$T/hide-archive"
 seed 33333333 "${day}T00:00"; out=$(inject 33333333)

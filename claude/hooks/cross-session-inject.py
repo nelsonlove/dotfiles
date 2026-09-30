@@ -128,14 +128,37 @@ def bare(label):
     return BARE.sub("", nl(label)).strip()
 
 
-def ship_of(label):
-    """The ship code, from `ship_of_name` in claude/bin/_fleet-ranks.sh (sourced, never copied); None when there is none."""
-    try:
-        out = subprocess.run(["bash", "-c", '. "$1" >/dev/null 2>&1 || exit 9; ship_of_name "$2"', "_", str(FLEET_RANKS), label or ""],
-                             capture_output=True, text=True, timeout=3).stdout.strip()
-    except Exception:
-        return None
-    return out.upper() or None
+class ShipTable:
+    """Ship codes, from `claude/bin/_fleet-ranks.sh` (sourced, never copied): `ship_of_name` for each label and `KNOWN_SHIPS`, in ONE bash call for a batch of labels, cached, and made only when a ruling needs a ship. The hook runs under a 15-second SessionStart timeout, so no call is made for a start whose rulings carry no `ships:` mark and no rename alias. If the table cannot be read, `known` is None and every ship is None, which the filter turns into showing more."""
+
+    def __init__(self):
+        self.cache = {}
+        self.known = None
+        self.tried = False
+
+    def prime(self, labels):
+        want = [l for l in dict.fromkeys(labels) if l and l not in self.cache]
+        if not want and self.tried:
+            return
+        self.tried = True
+        try:
+            out = subprocess.run(["bash", "-c", '. "$1" >/dev/null 2>&1 || exit 9; shift; printf "%s\\n" "$KNOWN_SHIPS"; for l in "$@"; do printf "%s\\n" "$(ship_of_name "$l")"; done', "_", str(FLEET_RANKS)] + want,
+                                 capture_output=True, text=True, timeout=3)
+        except Exception:
+            out = None
+        lines = out.stdout.split("\n") if out is not None and out.returncode == 0 else []
+        if len(lines) < len(want) + 1:
+            for l in want:
+                self.cache[l] = None
+            return
+        self.known = set(lines[0].upper().split()) or None
+        for l, code in zip(want, lines[1:]):
+            self.cache[l] = code.strip().upper() or None
+
+    def ship(self, label):
+        if label not in self.cache:
+            self.prime([label])
+        return self.cache.get(label)
 
 
 def marks(heading):
@@ -183,7 +206,8 @@ def registry_rows():
 class Aliases:
     """Which labels name one session: union-find over normalised labels, from the registry's `formerNames` and the rename ledger, joined through the sessionId. A chain of renames (A to B, then B to C) lands in one set, because each ledger line of one id joins its label to the rest."""
 
-    def __init__(self, log_entries, rows):
+    def __init__(self, log_entries, rows, table):
+        self.table = table
         self.parent = {}
         self.old_bare = {}  # bare name of a pre-rename file -> {(ship, root label)}
         by_id = {}
@@ -219,14 +243,9 @@ class Aliases:
             sid = str(d.get("sessionId") or "").lower()
             if sid in by_id:
                 self.union(name, by_id[sid][0])
-        # A BARE PRE-RENAME NAME matches only a label on the SAME SHIP as the renamed session, so `[L0-MA] dotfiles` is not taken for a CC session once called `dotfiles`. The ship is read off the label text (the `[X0-SS]` shape) here, not through the table, to keep this cheap; it is the same pattern.
+        # A BARE PRE-RENAME NAME matches only a label on the SAME SHIP as the renamed session, so `[L0-MA] dotfiles` is not taken for a CC session once called `dotfiles`. The ships come from the table, asked only if a bare name ever matches.
         for name, label in olds:
-            self.old_bare.setdefault(name, set()).add((self._ship(label), nl(label)))
-
-    @staticmethod
-    def _ship(label):
-        m = re.match(r"^\[[A-Za-z][0-9]-([A-Za-z]{1,4})\]", (label or "").strip().strip("`'\""))
-        return m.group(1).upper() if m else None
+            self.old_bare.setdefault(name, set()).add((label, nl(label)))
 
     def find(self, x):
         self.parent.setdefault(x, x)
@@ -246,9 +265,13 @@ class Aliases:
         """The set a (normalised) label belongs to: its own set, or, by a bare pre-rename name, the renamed session's set on the same ship."""
         if label in self.parent:
             return self.find(label)
-        for ship, renamed in self.old_bare.get(bare(label), ()):
-            if ship and ship == self._ship(label):
-                return self.find(renamed)
+        hits = self.old_bare.get(bare(label), ())
+        if hits:
+            self.table.prime([label] + [raw for raw, _ in hits])
+            mine = self.table.ship(label)
+            for raw, renamed in hits:
+                if mine and mine == self.table.ship(raw):
+                    return self.find(renamed)
         return label
 
     def labels_of(self, label):
@@ -333,16 +356,20 @@ class Audience:
             name = listing_name(session_id) or ""
         self.name = name
         self.own_raw = [l for l in [name] + former if l]
-        self.ship = ship_of(name) if name else None
+        self.table = ShipTable()
         self._own = None
 
     @property
     def known(self):
         return bool(self.name)
 
+    @property
+    def ship(self):
+        return self.table.ship(self.name) if self.name else None
+
     def aliases(self):
         if self._aliases is None:
-            self._aliases = Aliases(self.entries, self.rows)
+            self._aliases = Aliases(self.entries, self.rows, self.table)
         return self._aliases
 
     def own_roots(self):
@@ -419,9 +446,13 @@ class Audience:
         fors, ships, fleet = marks(heading)
         if fleet or not (fors or ships):
             return True
-        if self.rank < 3 and ships:
-            # A session whose name carries no ship code cannot be matched by `ships:`, so it is shown them: fail toward more reading.
-            if not self.ship or self.ship in ships:
+        if ships:
+            self.table.prime([self.name])
+            # A CODE THE TABLE DOES NOT KNOW (`ships: OBS`) is a slip: shown to everyone, an L0 included, as `fleet` is.
+            if self.table.known is not None and not ships <= self.table.known:
+                return True
+            # A session whose name carries no ship code (or an unreadable table) cannot be matched by `ships:`, so it is shown them: fail toward more reading.
+            if self.rank < 3 and (not self.ship or self.ship in ships):
                 return True
         if fors:
             if self.lines() is False:
