@@ -115,6 +115,7 @@ RENAME_HEAD = re.compile(r"^## \S+ · (.+?) — notebook entry(?: renamed to mat
 RENAME_ID = re.compile(r"\(sessionId ([0-9A-Fa-f-]{36})\)")
 RENAME_OLD = re.compile(r"Renamed `([^`]+)` to `")
 ENTRY_STAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{4}")
+AMBIGUOUS = "\x00ambiguous"  # a root no label can have
 # THE BUDGET. The hook runs under the 15-second SessionStart timeout in settings.json, and a killed hook shows NO rulings. So the notebook read is given 3 seconds, and a read that fails or times out turns `for:` into fail-open (shown), never into "not shown".
 LINES_TIMEOUT = 3
 
@@ -289,6 +290,9 @@ class Aliases:
         if hits:
             self.table.prime([label] + [raw for raw, _ in hits])
             mine = self.table.ship(label)
+            # AMBIGUOUS: the table cannot answer and one bare name was used by more than one renamed session. No set is picked (set order would pick one at random); the label reads as AMBIGUOUS, which `is_me` takes as a match, so the ruling is shown.
+            if len(hits) > 1 and (self.table.unanswered_for(label) or any(self.table.unanswered_for(raw) for raw, _ in hits)):
+                return AMBIGUOUS
             for raw, renamed in hits:
                 theirs = self.table.ship(raw)
                 if mine and mine == theirs:
@@ -403,7 +407,8 @@ class Audience:
         return self._own
 
     def is_me(self, label):
-        return self.aliases().root(nl(label)) in self.own_roots()
+        r = self.aliases().root(nl(label))
+        return r == AMBIGUOUS or r in self.own_roots()
 
     def prepare(self, rulings):
         """ONE CALL to the ship table for the whole start, before any ruling is filtered, and only when a ruling carries a mark: this session's name, every `for:` label, every label the rename ledger holds, and every notebook label that matches a bare pre-rename name. Later lookups hit the cache."""
@@ -438,7 +443,9 @@ class Audience:
                 self.table.prime([l for l, _, _ in rows if l not in a.parent and bare(l) in a.old_bare])
                 self._lines = {}
                 for label, stamp, r in rows:
-                    self._lines.setdefault(a.root(label), []).append((stamp, r))
+                    root = a.root(label)
+                    if root != AMBIGUOUS:  # never pool the rows of sessions the aliases cannot tell apart
+                        self._lines.setdefault(root, []).append((stamp, r))
         return self._lines
 
     def known_label(self, label):

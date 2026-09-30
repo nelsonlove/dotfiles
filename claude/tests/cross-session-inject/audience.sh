@@ -342,6 +342,20 @@ PY2
 )
 has "with the ship table dead, a bare pre-rename name still joins its session (fail open)" "$unit" "JOIN=yes dead=True"
 
+unit=$(HOME="$H" PATH="$T/stubbin:$PATH" python3 - "$HOOK" "$(sid efefefef)" <<'PY2'
+import importlib.util, sys
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("hook", sys.argv[1]); hook = importlib.util.module_from_spec(spec); spec.loader.exec_module(hook)
+if not hasattr(hook, "ShipTable"): print("no-table"); sys.exit()
+ren = "## 2026-09-29T07:0%d · %s — notebook entry renamed to match the session's name\n\nRenamed `Agent session 2026-09-30T0119 dotfiles.md` to `Agent session 2026-09-30T0119 x.md` by `rename-notebook.sh` (sessionId %s): mv."
+entries = [("a", ren % (1, "[L0-CC] dotfiles hooks", "aaaaaaaa-1111-0000-0000-000000000000")), ("b", ren % (2, "[L0-MA] dotfiles brew", "bbbbbbbb-1111-0000-0000-000000000000"))]
+hook.FLEET_RANKS = Path("/nonexistent/_fleet-ranks.sh")
+aud = hook.Audience(sys.argv[2], 1, entries)
+print("AMBIG=%s" % ("shown" if aud.is_me("[L0-CC] dotfiles") else "hidden"))
+PY2
+)
+has "with the table dead, a bare name two renamed sessions shared is ambiguous and shown, not pinned to one" "$unit" "AMBIG=shown"
+
 echo
 echo "=== 8. a session whose own label cannot be told: nothing is filtered"
 job 77777777 lieutenant
