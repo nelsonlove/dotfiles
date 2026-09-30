@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# fleet-gate — the ONE gate before any dispatch, test suite or bulk vault write.
+#
+# Nelson's "a", log 2026-09-30T05:32, on the captain's one-day gate measurement: the 5-MINUTE load must be under 8 AND fewer than 20 sessions must be live, and the gate STOPS the command; it does not only print.
+#
+# Usage:
+#   fleet-gate                 exit 0 when open; else one line on stderr and exit 1
+#   fleet-gate --wait [secs]   poll until the gate opens (exit 0) or the time runs out (exit 2); default 1800 s
+#   fleet-gate && <command>    the way to put it in front of anything
+#
+# The line when it holds:  fleet-gate: 5-min load X (limit 8), N live sessions (limit 20); holding
+#
+# Limits by env: FLEET_GATE_LOAD5 (default 8; a decimal) and FLEET_GATE_SESSIONS (default 20; a whole number). A limit that is not a number closes the gate. FLEET_GATE_POLL sets the --wait poll interval (default 30 s).
+#
+# FAIL CLOSED: when the load or the listing cannot be read or parsed, the gate holds (exit 1, or 2 when --wait runs out) and says which one failed. A gate that opens on an error is the "prints, not stops" failure again.
+#
+# The load is the SECOND number of `sysctl -n vm.loadavg` (which prints `{ 8.54 8.61 6.24 }`). The live sessions are `claude agents --json | jq length`: the sessions that listing shows as active, interactive and background. Numbers are compared in awk, not bc.
+#
+# Exit codes: 0 open; 1 holding (or an error, or a bad argument); 2 --wait ran out.
+set -u
+
+LOAD_LIMIT=${FLEET_GATE_LOAD5:-8}
+SESS_LIMIT=${FLEET_GATE_SESSIONS:-20}
+POLL=${FLEET_GATE_POLL:-30}
+
+say() { printf 'fleet-gate: %s\n' "$*" >&2; }
+
+wait_secs=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --wait)
+      wait_secs=1800
+      if [ $# -gt 1 ] && case "$2" in --*) false ;; *) true ;; esac; then wait_secs="$2"; shift; fi
+      shift ;;
+    -h|--help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) say "unknown argument '$1'; holding"; exit 1 ;;
+  esac
+done
+
+case "$LOAD_LIMIT" in ''|*[!0-9.]*|*.*.*|.) say "FLEET_GATE_LOAD5 is not a number ('$LOAD_LIMIT'); holding"; exit 1 ;; esac
+case "$SESS_LIMIT" in ''|*[!0-9]*) say "FLEET_GATE_SESSIONS is not a whole number ('$SESS_LIMIT'); holding"; exit 1 ;; esac
+case "$POLL" in ''|*[!0-9]*|0) say "FLEET_GATE_POLL is not a whole number of seconds above 0 ('$POLL'); holding"; exit 1 ;; esac
+if [ -n "$wait_secs" ]; then
+  case "$wait_secs" in ''|*[!0-9]*) say "--wait takes a whole number of seconds (got '$wait_secs'); holding"; exit 1 ;; esac
+fi
+
+# check: sets $line to the verdict line and returns 0 (open) or 1 (holding, or an error).
+check() {
+  local raw load5 listing count
+  if ! raw=$(sysctl -n vm.loadavg 2>/dev/null); then
+    line="the load could not be read (sysctl -n vm.loadavg failed); holding"; return 1
+  fi
+  load5=$(printf '%s\n' "$raw" | awk '{ s = $0; gsub(/[{}]/, " ", s); n = split(s, a, " "); if (n >= 3 && a[2] ~ /^[0-9]+(\.[0-9]+)?$/) print a[2] }')
+  if [ -z "$load5" ]; then
+    line="the load line could not be parsed ('$raw'); holding"; return 1
+  fi
+  if ! listing=$(claude agents --json 2>/dev/null); then
+    line="the session listing could not be read (claude agents --json failed); holding"; return 1
+  fi
+  if ! count=$(printf '%s' "$listing" | jq -e 'if type == "array" then length else error("not an array") end' 2>/dev/null); then
+    line="the session listing is not a JSON array; holding"; return 1
+  fi
+  case "$count" in ''|*[!0-9]*) line="the session listing gave no count ('$count'); holding"; return 1 ;; esac
+  if awk -v l="$load5" -v m="$LOAD_LIMIT" -v c="$count" -v s="$SESS_LIMIT" 'BEGIN { exit !((l + 0 < m + 0) && (c + 0 < s + 0)) }'; then
+    line="5-min load $load5 (limit $LOAD_LIMIT), $count live sessions (limit $SESS_LIMIT); open"; return 0
+  fi
+  line="5-min load $load5 (limit $LOAD_LIMIT), $count live sessions (limit $SESS_LIMIT); holding"; return 1
+}
+
+line=""
+if [ -z "$wait_secs" ]; then
+  check && exit 0
+  say "$line"; exit 1
+fi
+
+start=$(date +%s)
+said=""
+while :; do
+  check && exit 0
+  # One line per change, not one per poll.
+  [ "$line" = "$said" ] || { say "$line"; said="$line"; }
+  now=$(date +%s)
+  if [ $((now - start)) -ge "$wait_secs" ]; then
+    say "waited ${wait_secs} s and the gate is still closed: $line"; exit 2
+  fi
+  left=$((wait_secs - (now - start)))
+  if [ "$left" -lt "$POLL" ]; then sleep "$left"; else sleep "$POLL"; fi
+done

@@ -624,6 +624,14 @@ settle_stopped() {  # uses row_id; 0 when no pid comes back (or the row is gone)
   return 0
 }
 
+# THE FLEET GATE (Nelson's "a", log 2026-09-30T05:32): no session is started or resumed while the 5-minute load is 8 or more, or 20 or more sessions are live. `fleet-gate` beside this script decides, and a gate that cannot be run holds. A dry run is not gated.
+FLEET_GATE="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)/fleet-gate"
+fleet_gate_or_die() {
+  local verdict
+  [ -r "$FLEET_GATE" ] || die "the fleet gate is missing at $FLEET_GATE, so nothing is started; nothing was touched"
+  verdict=$(bash "$FLEET_GATE" 2>&1) || die "held by the fleet gate, so nothing is started: ${verdict:-no reason given}. Nothing was touched; run this again when \`fleet-gate\` opens (\`fleet-gate --wait\` waits for it)."
+}
+
 # --- waking a stopped session ----------------------------------------------------------------
 # A flagless resume, from the target's own cwd, verified afterwards: the SAME id must be running
 # and no new id may have appeared, because a new id means the resume forked a copy instead.
@@ -637,6 +645,7 @@ wake_stopped() {  # uses row_*; $1 = the message
     *) die "the listing gives no full sessionId for $row_id (got '$row_session_id'), and a resume needs one; nothing was touched" ;;
   esac
   [ -d "$row_cwd" ] || die "the session's cwd '$row_cwd' does not exist; the resume must run there"
+  fleet_gate_or_die
   # </dev/null so the resume cannot eat the heredoc the --all loop is reading from.
   out=$(cd "$row_cwd" && claude --bg --resume "$row_session_id" "$wake_message" </dev/null 2>&1) || die "claude --bg --resume failed: $out"
   woken_unlogged="$row_id"

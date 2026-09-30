@@ -357,6 +357,15 @@ printf '  ship %s (%s)\n' "$name_ship" "$( [ -n "$ship" ] && printf 'from --ship
 [ -z "$ship_note" ] || printf '  %s\n' "$ship_note"
 if [ "$dry_run" = 1 ]; then printf '  dry run: nothing touched\n'; exit 0; fi
 
+# THE FLEET GATE (Nelson's "a", log 2026-09-30T05:32): no session is started or resumed while the 5-minute load is 8 or more, or 20 or more sessions are live. `fleet-gate` beside this script decides, and a gate that cannot be run holds. A dry run is not gated.
+FLEET_GATE="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)/fleet-gate"
+fleet_gate_or_die() {
+  local verdict
+  [ -r "$FLEET_GATE" ] || die "the fleet gate is missing at $FLEET_GATE, so nothing is started; nothing was touched"
+  verdict=$(bash "$FLEET_GATE" 2>&1) || die "held by the fleet gate, so nothing is started: ${verdict:-no reason given}. Nothing was touched; run this again when \`fleet-gate\` opens (\`fleet-gate --wait\` waits for it)."
+}
+fleet_gate_or_die
+
 # --- stop, and wait until the process is really gone ------------------------------------------
 if [ -n "$old_pid" ]; then
   claude stop "$old_id" >/dev/null 2>&1 || true
