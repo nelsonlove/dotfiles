@@ -19,7 +19,7 @@
 #       [--log <path>] [--pause-note <path>] [--dry-run]
 #
 #   --to     one of: commander, lieutenant-commander, lieutenant-commander-repository,
-#            lieutenant, lieutenant-repository. Never captain: only Nelson makes captains.
+#            lieutenant, lieutenant-repository. Never captain or admiral: only Nelson makes those.
 #   --name   the new display name, in the coded form: the rank code and the ship code together,
 #            e.g. "[C2-CC] dotfiles". The rank code must match --to, and the ship code must be the
 #            promoter's own (see --ship and the FL rule below).
@@ -53,8 +53,8 @@
 # CC, OB, HS, MA and FL, the areas admiral the area ships; DV no caller at all. Within its own ships an A0
 # caller is not held to one ship, since A0 carries no ship code; the new name's ship therefore comes from
 # the TARGET unless --ship says otherwise, and a bare-named target must be given --ship rather than
-# guessed; a ship-coded `[A0-CC]` is not the rear admiral and is refused as a name with no rank code at
-# all; and `--name` never carries A0, because only Nelson makes a rear admiral. `--to captain`
+# guessed; a ship-coded `[A0-CC]` is not an admiral and is refused as a name with no rank code at
+# all; and `--name` never carries A0, because only Nelson makes an admiral. `--to captain`
 # stays refused for everyone, A0 included: only Nelson makes captains.
 #
 # The ship rules (Nelson, 2026-09-26; names carry the ship code after the rank):
@@ -192,6 +192,9 @@ bash -n "$FLEET_RANKS" 2>/dev/null || die "the rank table at $FLEET_RANKS does n
 command -v rank_of_name >/dev/null 2>&1 || die "the rank table at $FLEET_RANKS parsed but defined no rank line; refusing"
 
 [ "$to" != "captain" ] || die "refused: only Nelson makes captains"
+# `rank_of_agent admiral` is -1 since 2026-09-29, so --to admiral is refused here, outright, the way --to captain
+# is, and not by accident further down (review 1 of #80).
+[ "$to" != "admiral" ] || die "refused: only Nelson makes an admiral"
 [ -f "$AGENTS_DIR/$to.md" ] || die "no agent definition at $AGENTS_DIR/$to.md"
 to_rank=$(rank_of_agent "$to");   [ "$to_rank" != 9 ] || die "--to must be a fleet rank, got '$to'"
 by_rank=$(rank_of_caller "$by"); [ "$by_rank" != 9 ] || die "--by must start with a rank code, bare or ship-coded ([C0], [C1], [C2], [L0], [C1-CC], [C2-OB] …), or the bare [A0], which carries no ship code; got '$by'"
@@ -202,7 +205,7 @@ by_rank=$(rank_of_caller "$by"); [ "$by_rank" != 9 ] || die "--by must start wit
 # names the wrong problem and invites a caller to pass one. Nothing was ruled about the verb path promoting
 # anybody, and a rank change nobody can attribute to a session is worse than one refused.
 [ "$by_rank" -ge -1 ] || die "refused: '$by' is the accept verbs' write path; it notifies a session, it does not promote or demote one"
-name_rank=$(rank_of_name "$name"); [ "$name_rank" != -1 ] || die "refused: --name '$name' would make a rear admiral, and only Nelson makes one; A0 is never a --name"
+name_rank=$(rank_of_name "$name"); [ "$name_rank" != -1 ] || die "refused: --name '$name' would make an admiral, and only Nelson makes one; A0 is never a --name"
 [ "$name_rank" = "$to_rank" ] || die "--name '$name' must carry the rank code $(bare_code_of_rank "$to_rank") to match --to $to"
 [ "$to_rank" -gt "$by_rank" ] || die "refused: $by ($(word_of_rank "$by_rank")) may only promote or demote to a rank below its own; $to is not below it"
 
@@ -239,6 +242,9 @@ else
 fi
 
 name_ship=$(ship_of_name "$name")
+# The table reads a ship code in any case (so `[L0-dv]` is DV), but this script WRITES the new name as given, so the code in it must be in capitals (review 2 of #88).
+# Compared with its upper-cased form, not a `[a-z]` pattern, which some locales' collation matches to capitals too.
+[ "$(printf '%s' "$name" | sed -n -E 's/^\[[A-Za-z][0-9]-([A-Za-z]{1,4})\].*/\1/p')" = "$name_ship" ] || die "--name '$name' must carry its ship code in capitals, like \"$(code_of_rank "$to_rank" "$name_ship") …\""
 [ -n "$name_ship" ] || die "--name '$name' must carry the coded form, rank and ship together, like \"$(code_of_rank "$to_rank" "$new_ship") <name>\""
 ship_is_known "$name_ship" || die "--name '$name' carries the ship code '$name_ship', which is not one of: $(unguarded "$KNOWN_SHIPS")"
 # THE ADMIRALS AND THE GUARDED SHIP (areas ruling, log 2026-09-29T03:35): `ship_refusal` in the table is the
@@ -260,7 +266,13 @@ old_pid=$(printf '%s' "$row" | jq -r '.pid // empty')
 
 old_agent=$(jq -r '.template // "bg"' "$JOBS_DIR/$old_id/state.json" 2>/dev/null || echo bg)
 old_rank=$(rank_of_agent "$old_agent")
+# An admiral is matched by its FULL NAME (the table's rule). A session that runs the admiral definition under a
+# name that is not an [A0] name was not made by Nelson, so its rank cannot be read (review 1 of #80).
 [ "$old_rank" != 9 ] && [ "$old_agent" != bg ] || old_rank=$(rank_of_name "$old_name")
+if [ "$old_rank" = -1 ] && ! is_admiral "$old_name"; then
+  # After the name fallback, so it covers both roads to -1: the admiral definition, and an [A0] name with no definition. An admiral is one of the two full names (the table's `is_admiral`); anything else that reads as -1 is refused (reviews 1 and 2 of #88).
+  die "refused: \`$old_name\` reads as an admiral but is not an admiral's name; only Nelson makes an admiral, so its rank cannot be read"
+fi
 [ "$old_rank" != 9 ] || die "cannot tell the target's current rank from its agent ('$old_agent') or its name ('$old_name')"
 [ "$old_rank" -gt "$by_rank" ] || die "refused: $old_name ($(word_of_rank "$old_rank")) is not below $by; a rank changes only ranks below its own"
 [ "$old_rank" -ne "$to_rank" ] || die "$old_name is already a $(word_of_rank "$to_rank")"
