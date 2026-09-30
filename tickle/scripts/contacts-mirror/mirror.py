@@ -20,7 +20,9 @@ import datetime as dt
 import hashlib
 import json
 import os
+import difflib
 import re
+import select
 import subprocess
 import sys
 import uuid
@@ -61,7 +63,8 @@ def short(s: str) -> str:
 
 
 def now_iso() -> str:
-    return dt.datetime.now().astimezone().isoformat(timespec="seconds")
+    """The vault's form for `modified` in this folder: local time, no offset (all 169 notes use it)."""
+    return dt.datetime.now().isoformat(timespec="seconds")
 
 
 def today() -> str:
@@ -83,7 +86,8 @@ def load_config(path: Path) -> dict:
     if cfg["create"] not in ("none",):
         raise Fail(2, f"config 'create' is '{cfg['create']}'; only 'none' exists until the people ship rules who is in the mirror")
     folder = cfg["folder"]
-    if folder.startswith("/") or ".." in Path(folder).parts or folder.startswith("80-89"):
+    parts = [p for p in Path(folder).parts if p not in ("", ".")]
+    if folder.startswith("/") or ".." in parts or not parts or parts[0].startswith("80-89"):
         raise Fail(2, f"config 'folder' must be a vault-relative path outside 80-89: {folder}")
     return cfg
 
@@ -109,10 +113,10 @@ def vcard_date(v) -> Optional[str]:
     return v if VCARD_DATE.match(v) else None
 
 
-def card_keys(card: dict, carry: List[str]) -> Dict[str, str]:
+def card_keys(card: dict, carry: List[str], pat: Optional[re.Pattern] = None) -> Dict[str, str]:
     """The owned keys a card yields, in a stable order, as plain strings. Only keys whose family is in `carry`."""
     out: Dict[str, str] = {}
-    pat = owned_pattern(carry)
+    pat = pat or owned_pattern(carry)
 
     def put(key: str, val) -> None:
         if val is None:
@@ -233,7 +237,7 @@ def current_values(bl: List[Tuple[Optional[str], List[str]]]) -> Dict[str, str]:
     return vals
 
 
-def rewrite(text: str, want: Dict[str, str], owned: re.Pattern, status: Optional[Dict[str, str]],
+def rewrite(text: str, want: Optional[Dict[str, str]], owned: re.Pattern, status: Optional[Dict[str, str]],
             stamp: str) -> Tuple[str, List[str]]:
     """Return (new text, changed keys). Only owned keys, the two status keys and `modified` may change; every other
     frontmatter line and the whole body stay byte for byte. An unchanged owned key keeps its line as it was."""
@@ -245,9 +249,12 @@ def rewrite(text: str, want: Dict[str, str], owned: re.Pattern, status: Optional
     placed = set()
     anchor = None  # index in `out` after which new owned keys go
     for k, ls in bl:
+        if k is not None and owned.match(k) and want is None:
+            out.append((k, ls))  # a note with no card: its owned keys stay exactly as they are
+            continue
         if k is not None and owned.match(k):
             if k in want:
-                if cur.get(k) != want[k] or (k in DATE_KEYS and ls != [f"{k}: {yaml_value(want[k])}"]):
+                if cur.get(k) != want[k] or (k in DATE_KEYS and len(ls) == 1 and ls != [f"{k}: {yaml_value(want[k])}"]):
                     ls = [f"{k}: {yaml_value(want[k])}"]
                     changed.append(k)
                 placed.add(k)
@@ -269,7 +276,7 @@ def rewrite(text: str, want: Dict[str, str], owned: re.Pattern, status: Optional
         out.append((k, ls))
         if k == "aliases" and anchor is None:
             anchor = len(out)
-    new_owned = [(k, [f"{k}: {yaml_value(v)}"]) for k, v in want.items() if k not in placed]
+    new_owned = [(k, [f"{k}: {yaml_value(v)}"]) for k, v in (want or {}).items() if k not in placed]
     if new_owned:
         changed.extend(k for k, _ in new_owned)
         pos = anchor if anchor is not None else len(out)
@@ -327,9 +334,11 @@ class McpStore:
         self.folder = folder
         try:
             self.proc = subprocess.Popen(bridge + ["--vault", vault], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                         stderr=subprocess.PIPE, text=True, bufsize=1)
+                                         stderr=subprocess.DEVNULL)
         except OSError as e:
             raise Fail(0, f"SKIPPED — cannot start the vault-mcp bridge ({e}); Obsidian must be running")
+        self.buf = b""
+        self.timeout = float(os.environ.get("CM_MCP_TIMEOUT", "60"))
         self.n = 0
         try:
             self._call("initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
@@ -340,18 +349,30 @@ class McpStore:
 
     def _send(self, msg: dict) -> None:
         assert self.proc.stdin is not None
-        self.proc.stdin.write(json.dumps(msg) + "\n")
+        self.proc.stdin.write((json.dumps(msg) + "\n").encode("utf-8"))
         self.proc.stdin.flush()
+
+    def _line(self) -> bytes:
+        """One line from the bridge, or Fail after CM_MCP_TIMEOUT seconds with nothing new: a stalled Obsidian must not
+        hang the run until tickle kills it."""
+        assert self.proc.stdout is not None
+        fd = self.proc.stdout.fileno()
+        while b"\n" not in self.buf:
+            ready, _, _ = select.select([fd], [], [], self.timeout)
+            if not ready:
+                raise Fail(2, f"vault-mcp did not answer within {self.timeout:.0f} s")
+            chunk = os.read(fd, 65536)
+            if not chunk:
+                raise Fail(2, "vault-mcp bridge closed")
+            self.buf += chunk
+        line, self.buf = self.buf.split(b"\n", 1)
+        return line
 
     def _call(self, method: str, params: dict) -> dict:
         self.n += 1
         self._send({"jsonrpc": "2.0", "id": self.n, "method": method, "params": params})
-        assert self.proc.stdout is not None
         while True:
-            line = self.proc.stdout.readline()
-            if not line:
-                err = self.proc.stderr.read() if self.proc.stderr else ""
-                raise Fail(2, "vault-mcp bridge closed")
+            line = self._line()
             try:
                 msg = json.loads(line)
             except json.JSONDecodeError:
@@ -437,7 +458,7 @@ def read_cards(cmd: List[str], timeout: int) -> List[dict]:
     except (OSError, subprocess.TimeoutExpired) as e:
         raise Fail(3, f"the reader could not run: {type(e).__name__}")
     if p.returncode != 0:
-        raise Fail(3, f"the reader exited {p.returncode}: {p.stderr.strip()[:200]}")
+        raise Fail(3, f"the reader exited {p.returncode} (its stderr is not logged: it may name a contact)")
     try:
         data = json.loads(p.stdout)
     except json.JSONDecodeError:
@@ -480,7 +501,7 @@ def run(args) -> int:
     matched_ids = set()
     stamp = now_iso()
     plans: List[Tuple[str, str, str, Optional[int], bool]] = []  # (rel, old, new, rev, matched)
-    notes = 0
+    notes = newly_missing = removing = 0
     try:
         # Phase 1: read every note and work out the change. Nothing is written yet.
         for rel in store.list_notes():
@@ -510,32 +531,44 @@ def run(args) -> int:
                 continue
             if card is None:
                 counts["missing"] += 1
+                if not cur.get("contact-status"):
+                    newly_missing += 1
                 status = {"contact-status": "missing-from-contacts",
                           "contact-missing-since": cur.get("contact-missing-since") or today()}
-                want = {k: v for k, v in cur.items() if owned.match(k)}
+                want = None
             else:
                 matched_ids.add(card["id"])
                 status = None
-                want = card_keys(card, carry)
+                try:
+                    want = card_keys(card, carry, owned)
+                except (AttributeError, TypeError, ValueError):
+                    counts["error"] += 1
+                    say(f"card {short(card['id'])}: malformed in the reader's JSON; its note left alone")
+                    continue
             new, changed = rewrite(text, want, owned, status, stamp)
+            if card is not None and any(k not in (want or {}) and owned.match(k) for k in changed):
+                removing += 1
             if not changed:
                 counts["unchanged"] += card is not None
                 continue
             plans.append((rel, text, new, rev, card is not None))
 
-        # The floor: a reader that printed too few cards must not mark the mirror missing.
-        share = counts["missing"] / notes if notes else 0.0
+        # The floors: a reader that printed too few cards, or cards with too few fields, must not empty the mirror.
+        # Notes already marked missing in an earlier run are not counted again, so the floor cannot latch shut.
         limit = float(cfg.get("max_missing_share", 0.2))
-        if notes and share > limit:
-            raise Fail(3, f"{counts['missing']} of {notes} notes have no card ({share:.0%}, limit {limit:.0%}): the reader's "
-                          f"{len(cards)} cards look incomplete; nothing written")
+        if notes and newly_missing / notes > limit:
+            raise Fail(3, f"{newly_missing} of {notes} notes would newly lose their card ({newly_missing / notes:.0%}, "
+                          f"limit {limit:.0%}): the reader's {len(cards)} cards look incomplete; nothing written")
+        rlimit = float(cfg.get("max_removal_share", 0.2))
+        if notes and removing / notes > rlimit:
+            raise Fail(3, f"{removing} of {notes} notes would lose keys ({removing / notes:.0%}, limit {rlimit:.0%}): the "
+                          f"reader's cards look incomplete; nothing written")
 
         # Phase 2: write.
         shown = 0
         for rel, old, new, rev, matched in plans:
             if args.show and shown < args.show:
                 shown += 1
-                import difflib
                 sys.stdout.writelines(difflib.unified_diff(old.splitlines(True), new.splitlines(True),
                                                            f"a/{rel}", f"b/{rel}", n=0))
             if args.plan:

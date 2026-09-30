@@ -140,13 +140,15 @@ class Rewrite(unittest.TestCase):
         self.assertNotIn("EMAIL[HOME]", new)
 
     def test_missing_card_sets_status_only(self):
-        want = {k: v for k, v in mirror.current_values(mirror.blocks(mirror.split_note(ADA)[0])).items() if owned().match(k)}
-        new, changed = mirror.rewrite(ADA, want, owned(), {"contact-status": "missing-from-contacts",
+        note = ADA.replace("VERSION: '4.0'\n", "BDAY:\n  - 1990-01-02\nANNIVERSARY: 2001-02-03\nVERSION: '4.0'\n")
+        new, changed = mirror.rewrite(note, None, owned(), {"contact-status": "missing-from-contacts",
                                                            "contact-missing-since": "2026-10-01"}, self.STAMP)
         self.assertEqual(sorted(changed), ["contact-missing-since", "contact-status"])
         self.assertIn("contact-status: missing-from-contacts\n", new)
         self.assertIn('contact-missing-since: "2026-10-01"\n', new)
         self.assertIn("TEL[CELL]: (555) 010-0100", new)  # owned keys untouched on a missing card
+        self.assertIn("BDAY:\n  - 1990-01-02\n", new)      # a block value, left as it is
+        self.assertIn("ANNIVERSARY: 2001-02-03\n", new)     # not re-quoted on a note with no card
 
     def test_card_back_removes_status(self):
         missing = ADA.replace("photos-faces: 3\n", "photos-faces: 3\ncontact-status: missing-from-contacts\ncontact-missing-since: 2026-09-01\n")
@@ -280,6 +282,53 @@ class Run(unittest.TestCase):
         self.assertIn("EMAIL[HOME]: ada@example.invalid", text)
         self.assertIn('ADR[HOME].POSTAL: "00001"', text)
 
+    def test_id_only_cards_remove_nothing(self):
+        self.cfg.write_text(json.dumps({"reader": ["false"], "folder": FOLDER, "keys": CARRY, "create": "none",
+                                        "max_missing_share": 1.0}))
+        before = {p.name: p.read_text() for p in self.dir.iterdir()}
+        rc, out = self.go([{"id": "AAAA-0001:ABPerson"}, {"id": "BBBB-0002:ABPerson"}])
+        self.assertEqual(rc, 3, out)
+        self.assertIn("would lose keys", out)
+        self.assertEqual(before, {p.name: p.read_text() for p in self.dir.iterdir()})
+
+    def test_floor_ignores_notes_already_missing(self):
+        # Bob was marked missing in an earlier run: he no longer counts toward the floor, so Ada's update goes through.
+        bob = self.dir / "Bob Sample.md"
+        bob.write_text(bob.read_text().replace("photos-faces: 3\n", "photos-faces: 3\ncontact-status: missing-from-contacts\ncontact-missing-since: \"2026-09-01\"\n"))
+        self.cfg.write_text(json.dumps({"reader": ["false"], "folder": FOLDER, "keys": CARRY, "create": "none"}))
+        rc, out = self.go([dict(ADA_CARD, org="Example Co")])
+        self.assertEqual(rc, 0, out)
+        self.assertIn("ORG: Example Co", (self.dir / "Ada Example.md").read_text())
+
+    def test_modified_in_the_vault_form(self):
+        self.go([dict(ADA_CARD, org="Example Co")])
+        line = [l for l in (self.dir / "Ada Example.md").read_text().split("\n") if l.startswith("modified:")][0]
+        self.assertRegex(line, r"^modified: \d{4}-\d\d-\d\dT\d\d:\d\d:\d\d$")
+
+    def test_malformed_card_is_per_note(self):
+        rc, out = self.go([dict(ADA_CARD, tel=["+1 555 0100"]), {"id": "BBBB-0002:ABPerson", "fn": "Bob Sample",
+                           "n": {"given": "Bob", "family": "Sample"}, "tel": [{"label": "mobile", "value": "(555) 010-0100"}],
+                           "email": [{"label": "home", "value": "ada@example.invalid"}], "adr": [{"label": "home", "postal": "00001"}],
+                           "org": "Sample Org"}])
+        self.assertEqual(rc, 2, out)
+        self.assertIn("malformed", out)
+        self.assertIn("ORG: Sample Org", (self.dir / "Bob Sample.md").read_text())
+        self.assertEqual((self.dir / "Ada Example.md").read_text(), ADA)
+
+    def test_reader_stderr_not_logged(self):
+        p = self.tmp / "noisy.sh"
+        p.write_text("#!/bin/sh\necho 'cannot read Ada Example +1 555 0100' >&2\nexit 1\n"); p.chmod(0o755)
+        out = subprocess.run([sys.executable, str(JOB / "mirror.py"), "--config", str(self.cfg), "--target-dir", str(self.tmp),
+                              "--reader", str(p)], capture_output=True, text=True)
+        self.assertEqual(out.returncode, 3)
+        self.assertNotIn("Ada", out.stdout + out.stderr)
+
+    def test_refuses_divorce_folder_spelled_otherwise(self):
+        for f in ("./80-89 Divorce/x", "80-89 Divorce", "./80-89 Divorce"):
+            self.cfg.write_text(json.dumps({"reader": ["false"], "folder": f, "keys": CARRY, "create": "none"}))
+            rc, out = self.go([ADA_CARD])
+            self.assertEqual(rc, 2, f)
+
     def test_bad_reader_output(self):
         p = self.tmp / "bad.json"
         p.write_text("not json")
@@ -410,6 +459,16 @@ class Mcp(unittest.TestCase):
         self.assertNotIn("calls", st)
         self.assertEqual(st["notes"][f"{FOLDER}/Ada Example.md"]["content"], ADA)
 
+    def test_stalled_bridge_times_out(self):
+        stall = self.tmp / "stall.py"
+        stall.write_text("import sys, time\nsys.stdin.readline()\ntime.sleep(30)\n")
+        self.cfg.write_text(json.dumps(dict(json.loads(self.cfg.read_text()), bridge=[sys.executable, str(stall)])))
+        out = subprocess.run([sys.executable, str(JOB / "mirror.py"), "--config", str(self.cfg), "--reader", "cat",
+                              str(self.tmp / "cards.json")], capture_output=True, text=True, timeout=20,
+                             env=dict(os.environ, CM_VAULT_ROOT=str(self.vault), CM_MCP_TIMEOUT="2"))
+        self.assertEqual(out.returncode, 0, out.stderr)  # Obsidian not answering is a skip ...
+        self.assertIn("SKIPPED", out.stdout)             # ... and it comes within the timeout
+
     def test_no_bridge_is_a_skip(self):
         self.cfg.write_text(json.dumps({"reader": ["false"], "folder": FOLDER, "keys": CARRY, "create": "none",
                                         "bridge": [str(self.tmp / "no-such-bridge")]}))
@@ -457,6 +516,20 @@ class Gates(unittest.TestCase):
         self.assertNotIn("SKIPPED", out.stdout)  # the backup is fresh: the run reaches mirror.py
         self.assertEqual(out.returncode, 2)       # which then fails on the missing config
         shutil.rmtree(d)
+
+    def test_equals_form_and_plan_skip_backup_gate(self):
+        for args in (["--target-dir=/nonexistent-cm"], ["--plan"]):
+            rc, out = self.run_sh_args(args, CM_BACKUP_HISTORY="/nonexistent/history.jsonl")
+            self.assertNotIn("backup", out, args)
+
+    def run_sh_args(self, args, **env):
+        pause = Path(tempfile.mkdtemp(prefix="cm-gate-")) / "Pause.md"
+        pause.write_text("---\npaused: false\n---\n")
+        e = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "PAUSE_NOTE": str(pause), "CM_LOAD5": "1.0", "CM_SESSIONS": "3"}
+        e.update(env)
+        out = subprocess.run(["/bin/bash", str(JOB / "run.sh"), *args, "--reader", "true"], capture_output=True, text=True, env=e)
+        shutil.rmtree(pause.parent)
+        return out.returncode, out.stdout + out.stderr
 
     def test_open_gates_reach_the_job(self):
         rc, out = self.run_sh()

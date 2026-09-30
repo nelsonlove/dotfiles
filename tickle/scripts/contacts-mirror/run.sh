@@ -34,18 +34,20 @@ awk -v l="$load5" 'BEGIN{exit !(l >= 8)}' && finish 0 "SKIPPED — the 5-minute 
 [ "$sessions" -lt 20 ] || finish 0 "SKIPPED — $sessions live sessions (20 or more)"
 echo "contacts-mirror: gates: pause clear, load5 $load5, $sessions sessions"
 
-# ---- a fresh backup (skipped for a --target-dir run, which never touches the vault). The backup job commits only when
+# ---- a fresh backup (skipped for a --target-dir or --plan run, which never writes the vault). The backup job commits only when
 # the vault changed, so a quiet vault has old commits: the check is the backup JOB's last successful run, from tickle's
 # own history, within 30 minutes.
-case " $* " in *" --target-dir "*) ;; *)
+vault_write=1
+for a in "$@"; do case "$a" in --target-dir|--target-dir=*|--plan) vault_write=0 ;; esac; done
+if [ "$vault_write" = 1 ]; then
   hist="${CM_BACKUP_HISTORY:-$HOME/Library/Application Support/tickle/runs/obsidian-backup/history.jsonl}"
   last=$(grep '"type":"run"' "$hist" 2>/dev/null | grep '"status":"success"' | tail -1 | /usr/bin/jq -r .ts 2>/dev/null) || last=""
   [ -n "$last" ] || finish 2 "cannot find a successful obsidian-backup run in $hist"
   when=$(date -j -f %Y-%m-%dT%H:%M:%S "${last%??????}" +%s 2>/dev/null) || finish 2 "cannot read the backup run time '$last'"
   age=$(( $(date +%s) - when ))
   [ "$age" -lt 1800 ] || finish 0 "SKIPPED — the last successful vault backup ran $((age / 60)) minutes ago (the obsidian ship asks for a fresh one)"
-esac
+fi
 
-cm_ok=1
 /usr/bin/python3 "$here/mirror.py" "$@"
-exit $?
+rc=$?
+case "$rc" in 0|2|3) cm_ok=1; exit "$rc" ;; *) finish 2 "mirror.py ended with exit $rc (an unexpected error)" ;; esac
