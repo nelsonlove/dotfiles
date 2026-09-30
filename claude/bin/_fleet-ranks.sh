@@ -131,8 +131,8 @@ code_of_rank() {  # $1 = rank, $2 = ship code
 # three ruled 2026-09-26; MA is the macOS ship (captain `[C0-MA] macos`), ruled 2026-09-29 on Nelson's
 # "A, MA". The areas ruling of the same day (log 2026-09-29T03:35) added eight area ships, one per life area:
 # PE 10-19 Personal, PP 20-29 People, HH 30-39 Household, FN 40-49 Financial, ED 50-59 Education & research,
-# WK 60-69 Work, HB 70-79 Hobbies & media, and DV 80-89 Divorce. DV is guarded (its captain starts only
-# when Nelson starts it), so it joined this list only in the same change as its guard, `ship_refusal` below;
+# WK 60-69 Work, HB 70-79 Hobbies & media, and DV 80-89 Divorce. DV is guarded (see GUARDED_SHIPS below:
+# only the areas admiral wakes it, and no script promotes into it), so it joined this list only in the same change as its guard, `ship_refusal` below;
 # a known DV code with no guard would let any honest caller promote a session onto it. The same ruling puts
 # the area ships under a second admiral, `[A0] areas admiral`; the two are told apart by full name below.
 #
@@ -157,12 +157,15 @@ REAR_ADMIRAL="[A0] rear admiral"
 AREAS_ADMIRAL="[A0] areas admiral"
 REAR_ADMIRAL_SHIPS="CC OB HS MA FL"
 AREAS_ADMIRAL_SHIPS="PE PP HH FN ED WK HB DV"
-# DV (80-89 Divorce) is guarded: its captain starts only when Nelson starts it. No script may wake or promote
-# a session on DV or into DV, whoever the caller is, because the only way into DV is Nelson. promote-session.sh
-# and wake-session.sh both enforce it (wake since the follow-up after #71). This binds
-# honest callers of these scripts only: `--by` is self-declared, a SendMessage to a stopped session wakes it
-# with no script, and a bare `claude --bg --name "[C0-DV] …"` starts one with no script. The tripwire hook
-# `claude/hooks/dv-tripwire.sh` watches the bare command line; nothing watches SendMessage.
+# DV (80-89 Divorce) is guarded. Nelson, 2026-09-30: "we can have a divorce captain same as the other areas. that
+# captain should only make writes with my approval is all", then "B. i dont care if the areas admiral wakes the
+# divorce captain, i just want to restrict writes". So DV is started and woken by the areas admiral like any area,
+# and every write into 80-89 Divorce needs his approval each time; no hook here enforces the writes. What stays
+# guarded in these scripts: only `[A0] areas admiral` wakes a session on DV (`ship_refusal … wake`), and no script
+# promotes a session on DV or into DV, whoever asks. This binds honest callers of these scripts only: `--by` is
+# self-declared, a SendMessage to a stopped session wakes it with no script, and a bare `claude --bg --name
+# "[C0-DV] …"` starts one with no script. The tripwire hook `claude/hooks/dv-tripwire.sh` watches the bare command
+# line, and lets it through only for the session registered as the areas admiral; nothing watches SendMessage.
 GUARDED_SHIPS="DV"
 
 # A ship list without the guarded ships, for a sentence that tells a caller what it can reach: a refusal
@@ -183,15 +186,23 @@ ship_is_guarded() {
   case " $GUARDED_SHIPS " in *" $1 "*) return 0 ;; *) return 1 ;; esac
 }
 
-# ship_refusal <by> <by-rank> <ship>: the one sentence both scripts refuse with when <by> may not act on a
-# session of <ship> (empty for a bare-named session), and nothing when it may. It is the SHIP rule only:
+# ship_refusal <by> <by-rank> <ship> [wake|promote]: the one sentence both scripts refuse with when <by> may not
+# act on a session of <ship> (empty for a bare-named session), and nothing when it may. It is the SHIP rule only:
 # the rank rule and the reporting line stay in each script. Called once per ship a change touches, so a
-# promotion checks both the target's ship and the new name's.
+# promotion checks both the target's ship and the new name's. The fourth word is the act, and anything but
+# `wake` is read as a promotion, so a caller that forgets it gets the stricter rule: a guarded ship is open to
+# the areas admiral for a WAKE only (Nelson, 2026-09-30, "B"), and to no one for a promotion.
 ship_refusal() {
-  local by="$1" rank="$2" ship="$3" list
+  local by="$1" rank="$2" ship="$3" act="${4:-promote}" list
   if ship_is_guarded "$ship"; then
-    printf 'refused: ship %s is guarded; no script wakes or promotes a session on it or into it, whoever asks, because only Nelson starts a session there' "$ship"
-    return 0
+    if [ "$act" != wake ]; then
+      printf 'refused: ship %s is guarded; no script promotes a session on it or into it, whoever asks' "$ship"
+      return 0
+    fi
+    if [ "$rank" != -1 ] || [ "$by" != "$AREAS_ADMIRAL" ]; then
+      printf "refused: ship %s is guarded; only '%s' wakes a session on it" "$ship" "$AREAS_ADMIRAL"
+      return 0
+    fi
   fi
   [ "$rank" = -1 ] || return 0
   case "$by" in

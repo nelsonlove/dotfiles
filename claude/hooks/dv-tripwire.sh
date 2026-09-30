@@ -1,10 +1,24 @@
 #!/bin/bash
 # dv-tripwire.sh — PreToolUse[Bash]: refuse a command line that would start or resume a session on ship DV.
 #
-# Nelson's areas ruling (log 2026-09-29T03:35): 80-89 Divorce is guarded, and "its captain starts only when
-# Nelson starts it". The fleet scripts refuse every caller for DV (`ship_refusal` in claude/bin/_fleet-ranks.sh),
-# but a session does not need a script to start one: a bare `claude --bg --name "[C0-DV] …"` does it. This
-# hook is the guard on that bare command line. It refuses:
+# Nelson's areas ruling (log 2026-09-29T03:35) guarded 80-89 Divorce, and on 2026-09-30 he opened it to the areas
+# admiral: "we can have a divorce captain same as the other areas. that captain should only make writes with my
+# approval is all", then "B. i dont care if the areas admiral wakes the divorce captain, i just want to restrict
+# writes". So `[A0] areas admiral` may start and resume a DV session like any area, and every other caller is
+# refused. The fleet scripts hold the same line (`ship_refusal` in claude/bin/_fleet-ranks.sh), but a session does
+# not need a script to start one: a bare `claude --bg --name "[C0-DV] …"` does it. This hook is the guard on that
+# bare command line. Writes into 80-89 Divorce still need Nelson's approval each time; this hook does not see them.
+#
+# THE ONE ALLOWED CALLER. The hook reads `session_id` from its stdin and finds that session in Claude Code's
+# registry, `~/.claude/sessions/*.json`. It lets a DV start or resume through ONLY when every record for that
+# session has `name` exactly `[A0] areas admiral` AND `agent` exactly `admiral`: a name alone can be set by any
+# session with /rename, while the agent definition is set at dispatch. A missing or unreadable registry, no
+# record, or a missing key is refused: for DV the hook fails CLOSED. Measured 2026-09-30: the running areas admiral
+# was started without `--agent admiral` and has `agent: null`, so it is refused until it runs under the admiral
+# definition. The test suite points the hook at a fixture registry with DV_TRIPWIRE_SESSIONS_DIR, which is honoured
+# only under /tmp or the system temp directory (the same leash as `--jobs-dir`); any other value is refused.
+#
+# It refuses:
 #   * `claude … --bg …` or `claude … --resume …` / `-r` whose `--name` (or `-n`, `--name=`) is a `-DV]`
 #     session, in any case; the free-text prompt is not read;
 #   * `claude --resume <id>` / `-r <id>` / `--resume=<id>` where <id> (short or full) is a session whose
@@ -32,7 +46,8 @@ IFS= read -r -d '' PROG <<'PYEOF' || true
 import codecs, fnmatch, json, os, re, shlex, subprocess, sys
 
 try:
-    cmd = json.load(sys.stdin).get("tool_input", {}).get("command", "") or ""
+    event = json.load(sys.stdin)
+    cmd = event.get("tool_input", {}).get("command", "") or ""
 except Exception:
     sys.exit(0)
 # Fast path: no `claude` WORD anywhere, quotes included (a shell's -c string is checked too). A path such as
@@ -67,8 +82,61 @@ def deny(reason):
         "permissionDecisionReason": reason}}))
     sys.exit(0)
 
-REASON = ("refused by the DV tripwire: ship DV (80-89 Divorce) is guarded, and its sessions start only when "
-          "Nelson starts them (areas ruling, 2026-09-29). No agent starts or resumes a DV session.")
+AREAS_ADMIRAL = "[A0] areas admiral"
+REASON = ("refused by the DV tripwire: ship DV (80-89 Divorce) is guarded. Only the session registered as "
+          "'[A0] areas admiral' with agent 'admiral' starts or resumes a DV session (Nelson, 2026-09-30); "
+          "this session is not that one.")
+
+def sessions_dir():
+    # The test-only seam, leashed to temp directories as `--jobs-dir` is. A value outside them is not honoured
+    # and not silently replaced by the real registry: it yields no directory, and so a refusal.
+    seam = os.environ.get("DV_TRIPWIRE_SESSIONS_DIR")
+    if seam is None:
+        return os.path.join(os.path.expanduser("~"), ".claude", "sessions")
+    if not seam:
+        return None   # an empty value is not the working directory (review 2 of #107)
+    try:
+        real = os.path.realpath(seam)
+        roots = {os.path.realpath(r) for r in ("/tmp", "/private/tmp", os.environ.get("TMPDIR") or "/tmp") if r}
+        roots.discard("/")   # a TMPDIR of / would admit every directory (review 2 of #107)
+        if os.path.isdir(real) and any(real == r or real.startswith(r.rstrip("/") + "/") for r in roots):
+            return real
+    except Exception:
+        pass
+    return None
+
+caller_ok = None
+def caller_is_areas_admiral():
+    # True only when the registry says, with both keys, that the CALLING session is the areas admiral. Every
+    # doubt is a no: DV fails closed.
+    global caller_ok
+    if caller_ok is not None:
+        return caller_ok
+    caller_ok = False
+    sid = event.get("session_id") if isinstance(event, dict) else None
+    d = sessions_dir()
+    if not isinstance(sid, str) or not sid or d is None:
+        return caller_ok
+    try:
+        names = [f for f in os.listdir(d) if f.endswith(".json")]
+    except Exception:
+        return caller_ok
+    found = []
+    for f in names:
+        try:
+            with open(os.path.join(d, f)) as fh:
+                rec = json.load(fh)
+        except Exception:
+            continue   # another session's unreadable record says nothing about the caller
+        if isinstance(rec, dict) and rec.get("sessionId") == sid:
+            found.append(rec)
+    caller_ok = bool(found) and all(r.get("name") == AREAS_ADMIRAL and r.get("agent") == "admiral" for r in found)
+    return caller_ok
+
+def deny_dv(reason):
+    # A DV start or resume: through for the areas admiral, refused for everyone else.
+    if not caller_is_areas_admiral():
+        deny(reason)
 
 # Split on newlines and on ; & | ( ) < > ` { } even when they touch a word, so `cd x; claude`, `a&&claude`,
 # `$(claude …)`, a subshell and a heredoc body fed to a shell all come apart into commands (review 1 of #73).
@@ -248,7 +316,7 @@ def check_claude(args):
         elif a.startswith("-n") and not a.startswith("--") and len(a) > 2:
             val = a[2:]
         if val is not None and DV.search(val):
-            deny(REASON)
+            deny_dv(REASON)
         ident = None
         if a.startswith("--resume="):
             ident = a.split("=", 1)[1]
@@ -258,10 +326,10 @@ def check_claude(args):
             ident = a[2:]
         if ident:
             if DV.search(ident):
-                deny(REASON)
+                deny_dv(REASON)
             nm = name_of(ident)
             if DV.search(nm):
-                deny(REASON + f" (Session {ident} is listed as {nm!r}.)")
+                deny_dv(REASON + f" (Session {ident} is listed as {nm!r}.)")
 
 def env_split_string(c):
     # `env -S "…"`, `env -S'…'`, `env --split-string="…"` and `env --split-string "…"` hand a whole command

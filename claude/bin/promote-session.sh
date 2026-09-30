@@ -50,7 +50,7 @@
 # What follows from it here: an A0 caller may promote or demote any rank below a captain and a captain
 # too, because a captain reports to A0. Since the areas ruling (2026-09-29) there are two A0 sessions, told
 # apart by full name, and each reaches only its own ships (`ship_refusal` in the table): the rear admiral
-# CC, OB, HS, MA and FL, the areas admiral the area ships; DV no caller at all. Within its own ships an A0
+# CC, OB, HS, MA and FL, the areas admiral the area ships; a promotion on DV or into DV no caller at all (the areas admiral may WAKE a DV session, not promote one). Within its own ships an A0
 # caller is not held to one ship, since A0 carries no ship code; the new name's ship therefore comes from
 # the TARGET unless --ship says otherwise, and a bare-named target must be given --ship rather than
 # guessed; a ship-coded `[A0-CC]` is not an admiral and is refused as a name with no rank code at
