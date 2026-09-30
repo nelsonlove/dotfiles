@@ -364,8 +364,8 @@ printf '  ship %s (%s)\n' "$name_ship" "$( [ -n "$ship" ] && printf 'from --ship
 [ -z "$ship_note" ] || printf '  %s\n' "$ship_note"
 if [ "$dry_run" = 1 ]; then printf '  dry run: nothing touched\n'; exit 0; fi
 
-# A live target is stopped and then resumed under a new id, so it does not add to the live count: it gets an allowance of one.
-if [ -n "$old_pid" ]; then gate_extra=1; else gate_extra=0; fi
+# A live target is stopped and then resumed under a new id, so it does not add to the live count: it gets an allowance of one. Live means its process runs now (kill -0): a listing row can keep the pid of a process that is gone, and that target's resume DOES add a session.
+if [ -n "$old_pid" ] && kill -0 "$old_pid" 2>/dev/null; then gate_extra=1; else gate_extra=0; fi
 fleet_gate_check "$gate_extra" || die "held by the fleet gate, so nothing is stopped or started: ${FLEET_GATE_VERDICT:-no reason given}. Nothing was touched; run this again when \`fleet-gate\` opens (\`fleet-gate --wait\` waits for it)."
 
 # --- stop, and wait until the process is really gone ------------------------------------------

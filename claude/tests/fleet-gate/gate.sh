@@ -185,6 +185,15 @@ has "promote: a LIVE target at a closed gate is refused" "$out" "held by the fle
 eq  "promote: the live target was NOT stopped (the gate comes before the stop)" "$(cat "$T/calls")" ""
 if kill -0 "$LIVE" 2>/dev/null; then pass "promote: the live target's process is still running"; else fail "promote: the live target's process is still running" "gone"; fi
 kill "$LIVE" 2>/dev/null; wait "$LIVE" 2>/dev/null
+# A STALE pid (its process is gone) earns no allowance: at 20 live sessions the gate holds, although the load is low. $LIVE is dead now.
+load 1.00 2.00 2.00
+{ printf '[{"id":"zz000000","sessionId":"%s","name":"[L0-CC] t","cwd":"%s","status":"idle","pid":%s}' "$ZERO" "$T/cwd" "$LIVE"
+  i=1; while [ "$i" -lt 20 ]; do printf ',{"id":"s%07d"}' "$i"; i=$((i + 1)); done; printf ']\n'; } > "$T/listing.json"
+: > "$T/calls"
+out=$(run_promote)
+has "promote: a target with a stale pid gets no allowance (20 live: held)" "$out" "20 live sessions (limit 20); holding"
+eq  "promote: and nothing was started" "$(cat "$T/calls")" ""
+load 1.00 9.00 2.00
 printf '[{"id":"zz000000","sessionId":"%s","name":"[L0-CC] t","cwd":"%s","status":"stopped"}]\n' "$ZERO" "$T/cwd" > "$T/listing.json"
 
 # The sweep: a gate that holds stops it, and it says what it resumed before (none here) and what it did not.
@@ -218,7 +227,10 @@ EOF
 echo "$n"' _ "$LIBF" 2>&1)
 eq "the gate does not eat a loop's heredoc" "$got" 3
 
-EXPECTED=62
+out=$(bash "$GATE" --help 2>&1)
+case "$out" in *"set -u"*) fail "--help prints the header only" "it printed code" ;; *"FAIL CLOSED"*) pass "--help prints the header only" ;; *) fail "--help prints the header only" "no header" ;; esac
+
+EXPECTED=65
 [ "$n" = "$EXPECTED" ] || { fails=$((fails + 1)); echo "FAIL  the check count is $n, expected $EXPECTED"; }
 printf '\n%s checks (expected %s), %s failed\n' "$n" "$EXPECTED" "$fails"
 [ "$fails" = 0 ] || exit 1
