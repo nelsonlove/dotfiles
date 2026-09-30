@@ -329,6 +329,23 @@ class Run(unittest.TestCase):
             rc, out = self.go([ADA_CARD])
             self.assertEqual(rc, 2, f)
 
+    def test_wrong_typed_field_is_malformed(self):
+        rc, out = self.go([dict(ADA_CARD, fn={"x": 1}), {"id": "BBBB-0002:ABPerson", "tel": [{"value": ["1", "2"]}]}])
+        self.assertEqual(rc, 2, out)
+        self.assertEqual((self.dir / "Ada Example.md").read_text(), ADA)
+        self.assertNotIn("['1'", (self.dir / "Bob Sample.md").read_text())
+
+    def test_non_string_ids_rejected(self):
+        for bad in ({"id": 42}, {"id": "x", "uid": ["u"]}):
+            rc, out = self.go([bad])
+            self.assertEqual(rc, 3, bad)
+
+    def test_empty_target_dir_is_refused(self):
+        out = subprocess.run([sys.executable, str(JOB / "mirror.py"), "--config", str(self.cfg), "--target-dir=",
+                              "--reader", *self.cards([ADA_CARD])], capture_output=True, text=True)
+        self.assertEqual(out.returncode, 2)
+        self.assertIn("--target-dir is empty", out.stderr)
+
     def test_bad_reader_output(self):
         p = self.tmp / "bad.json"
         p.write_text("not json")
@@ -516,6 +533,11 @@ class Gates(unittest.TestCase):
         self.assertNotIn("SKIPPED", out.stdout)  # the backup is fresh: the run reaches mirror.py
         self.assertEqual(out.returncode, 2)       # which then fails on the missing config
         shutil.rmtree(d)
+
+    def test_empty_target_dir_keeps_backup_gate(self):
+        for args in (["--target-dir="], ["--target-dir", ""]):
+            rc, out = self.run_sh_args(args, CM_BACKUP_HISTORY="/nonexistent/history.jsonl")
+            self.assertIn("backup", out, args)
 
     def test_equals_form_and_plan_skip_backup_gate(self):
         for args in (["--target-dir=/nonexistent-cm"], ["--plan"]):

@@ -121,6 +121,8 @@ def card_keys(card: dict, carry: List[str], pat: Optional[re.Pattern] = None) ->
     def put(key: str, val) -> None:
         if val is None:
             return
+        if isinstance(val, bool) or not isinstance(val, (str, int, float)):
+            raise TypeError("a card field is not a plain value")
         # One line only: a line break or other control character inside a value would break the frontmatter.
         v = re.sub(r"[\x00-\x1f\x7f]+", " ", str(val)).strip()
         v = re.sub(r" {2,}", " ", v)
@@ -464,8 +466,9 @@ def read_cards(cmd: List[str], timeout: int) -> List[dict]:
     except json.JSONDecodeError:
         raise Fail(3, "the reader printed something that is not JSON")
     cards = data.get("cards") if isinstance(data, dict) else None
-    if not isinstance(cards, list) or not all(isinstance(c, dict) and c.get("id") for c in cards):
-        raise Fail(3, "the reader's JSON has no 'cards' list of objects with an 'id'")
+    if not isinstance(cards, list) or not all(isinstance(c, dict) and isinstance(c.get("id"), str) and c["id"]
+                                              and isinstance(c.get("uid", ""), str) for c in cards):
+        raise Fail(3, "the reader's JSON has no 'cards' list of objects with a string 'id' (and a string 'uid' if any)")
     if not cards:
         raise Fail(3, "the reader printed no cards; nothing written (an empty Contacts is read as a reader failure)")
     return cards
@@ -492,6 +495,8 @@ def run(args) -> int:
     by_uid = {c["uid"]: c for c in cards if c.get("uid")}
     say(f"reader: {len(cards)} cards")
 
+    if args.target_dir is not None and not args.target_dir.strip():
+        raise Fail(2, "--target-dir is empty")
     if args.target_dir:
         store = DirStore(Path(args.target_dir), folder)
     else:

@@ -38,7 +38,8 @@ echo "contacts-mirror: gates: pause clear, load5 $load5, $sessions sessions"
 # the vault changed, so a quiet vault has old commits: the check is the backup JOB's last successful run, from tickle's
 # own history, within 30 minutes.
 vault_write=1
-for a in "$@"; do case "$a" in --target-dir|--target-dir=*|--plan) vault_write=0 ;; esac; done
+for a in "$@"; do case "$a" in --target-dir=?*|--plan) vault_write=0 ;; esac; done
+prev=""; for a in "$@"; do [ "$prev" = "--target-dir" ] && [ -n "$a" ] && vault_write=0; prev="$a"; done
 if [ "$vault_write" = 1 ]; then
   hist="${CM_BACKUP_HISTORY:-$HOME/Library/Application Support/tickle/runs/obsidian-backup/history.jsonl}"
   last=$(grep '"type":"run"' "$hist" 2>/dev/null | grep '"status":"success"' | tail -1 | /usr/bin/jq -r .ts 2>/dev/null) || last=""
