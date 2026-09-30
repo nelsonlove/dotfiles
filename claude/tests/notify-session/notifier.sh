@@ -37,6 +37,10 @@ trap 'rm -rf "$TMP"' EXIT
 export NOTIFY_NOTICES_DIR="$TMP/notices"
 export NOTIFY_FLEET_LOG="$TMP/log.md"
 export NOTIFY_WAKE_SCRIPT="$TMP/fake-wake.sh"
+# SEALED FROM THE REAL RECORDS since the dedupe and audience were added: the state file and the notebook roots (read for an
+# ended lieutenant's entry) are temp directories, so this suite never reads the fleet's notebook or writes the real state.
+export NOTIFY_STATE_DIR="$TMP/state"
+export NOTIFY_AGENTS_DIR="$TMP/agents"
 : > "$NOTIFY_FLEET_LOG"
 mkdir -p "$NOTIFY_NOTICES_DIR"
 cat > "$NOTIFY_WAKE_SCRIPT" <<'FAKE'
