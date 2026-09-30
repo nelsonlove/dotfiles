@@ -5,7 +5,7 @@
 #
 # The guards, in order. Each one records its reason on stdout (tickle keeps stdout per run):
 #   1. Fleet pause: `_lib/pause-gate.sh weekly-rollups`. 1 = paused, skip (exit 0). Anything else non-zero = failed (exit 2).
-#   2. Load: the 1-minute load average 10 or more = skip (exit 0).
+#   2. The fleet load gate, `~/.claude/bin/fleet-gate` (the 5-minute load under 8 AND fewer than 20 live sessions): holding = skip (exit 0) with its line; any other failure = exit 2.
 #   3. No overwrite: if either rollup for the target week already exists, dispatch nothing (exit 0). This runs first of the vault checks, so a rerun after a good week is always a quiet skip.
 #   4. Live lieutenant: `claude agents --json` lists running sessions. The lieutenant is named for its week (the captain's call, 2026-09-29), so only a session for the SAME week blocks: one whose name starts with `[L0-OB] weekly rollups YYYY-Www` (a /rename that adds to the name still counts) that is busy, or idle but not `state: done`, and started less than 24 hours ago, is at work: dispatch nothing (exit 0). One that is idle and `done` is a finished lieutenant nobody stopped, and one at work for 24 hours or more is stuck; either still blocks a second one, but loudly: queue item "Weekly rollup not started <week>" and exit 5. A listing that fails or cannot be read is exit 2: a check we cannot make is never a pass. This runs before guard 5, so a lieutenant still writing last week's files never causes a false "missed" item. A hand dispatch by the obsidian captain is caught here too, if its lieutenant carries the same name.
 #   5. Previous week: both rollups for the week before the target must exist. If either is missing, ONE queue item "Weekly rollup missed <that week>" is filed for Nelson (never twice), and the run goes on.
@@ -27,7 +27,7 @@
 #
 # The queue item road: written straight to disk, created with noclobber so a second run never overwrites or duplicates it. Not through vault-mcp: a scheduled shell job has no MCP client, and a create-only write needs no `if_rev`.
 #
-# Test seams (environment): WR_VAULT (vault root), WR_LOADAVG (a fake 1-minute load), WR_CLAUDE (the claude binary), WR_DISPATCH_CWD (the dispatch directory), WR_CLAUDE_JSON (the file holding workspace trust), WR_CONFIRM_TRIES and WR_CONFIRM_SLEEP (how long to wait for the dispatched session to appear), WR_LOCK (the lock file), PAUSE_NOTE (passed to pause-gate.sh), and WR_TEST_DAEMON_KEY_PIDS (the pids guard 8 reports as holding the key, in place of the real scan; set, even empty, it REPLACES the scan, so it is for the tests only).
+# Test seams (environment): WR_VAULT (vault root), WR_FLEET_GATE (the fleet gate command), WR_CLAUDE (the claude binary), WR_DISPATCH_CWD (the dispatch directory), WR_CLAUDE_JSON (the file holding workspace trust), WR_DISPATCH_TIMEOUT (seconds allowed for `claude --bg`, default 300), WR_CONFIRM_TRIES and WR_CONFIRM_SLEEP (how long to wait for the dispatched session to appear), WR_LOCK (the lock file), PAUSE_NOTE (passed to pause-gate.sh), and WR_TEST_DAEMON_KEY_PIDS (the pids guard 8 reports as holding the key, in place of the real scan; set, even empty, it REPLACES the scan, so it is for the tests only).
 #
 # Written for /bin/bash 3.2 (macOS): no associative arrays, no mapfile, no ${var,,}.
 
@@ -79,6 +79,17 @@ done
 
 here=$(cd "$(dirname "$0")" && pwd -P) || finish 2 "cannot resolve the script directory"
 PAUSE_GATE="$here/../_lib/pause-gate.sh"
+FLEET_GATE="${WR_FLEET_GATE:-$HOME/.claude/bin/fleet-gate}"
+# The shared libraries in claude/lib/, found by walking up to the repo root as pause-gate.sh does: the frontmatter reader
+# (read_frontmatter, fm_value) and the one `claude --bg` id parser (bg_id).
+root="$here"
+while [ -n "$root" ] && [ ! -e "$root/.git" ]; do [ "$root" != "/" ] || { root=""; break; }; root=$(dirname "$root"); done
+[ -n "$root" ] || finish 2 "cannot find the repo root above $here (for claude/lib/)"
+for lib in pause-flag.sh bg-id.sh; do
+  [ -r "$root/claude/lib/$lib" ] || finish 2 "missing shared library $root/claude/lib/$lib"
+  # shellcheck disable=SC1090
+  . "$root/claude/lib/$lib" || finish 2 "cannot source $root/claude/lib/$lib"
+done
 VAULT="${WR_VAULT:-$HOME/obsidian}"
 CLAUDE="${WR_CLAUDE:-claude}"
 DISPATCH_CWD="${WR_DISPATCH_CWD:-$VAULT}"
@@ -134,32 +145,36 @@ LT_NAME="$LT_BASE $week"
 nb_file() { echo "$NB_DIR/Agent rollup for $1.md"; }
 xs_file() { echo "$XS_DIR/Cross-session rollup for $1.md"; }
 
-is_ours() { grep -Eq '^[[:space:]]+by:[[:space:]]*"?tickle weekly-rollups"?[[:space:]]*$' "$1"; }
+# fm <file> <key>: the key's value, read from the frontmatter only (never the body), through the shared reader.
+# shellcheck disable=SC2154  # flag_state is set by read_frontmatter (claude/lib/pause-flag.sh)
+fm() { read_frontmatter "$1"; [ "$flag_state" = read ] || return 1; fm_value "$2"; }
+is_ours() { [ "$(fm "$1" by)" = "tickle weekly-rollups" ]; }
 uuid7() { /usr/bin/perl -MTime::HiRes=time -e 'my $ms=int(time*1000); my @r=map{int rand 256}1..10; printf "%08x-%04x-7%03x-%04x-%04x%08x\n", $ms>>16, $ms&0xffff, ($r[0]<<4|$r[1]>>4)&0xfff, 0x8000|(($r[2]<<8|$r[3])&0x3fff), $r[4]<<8|$r[5], ($r[6]<<24|$r[7]<<16|$r[8]<<8|$r[9])'; }
 
-is_closed() { grep -Eq '^status:[[:space:]]*"?archived("|/|[[:space:]]*$)' "$1"; }
-# open_not_started <week>: every open "not started" item for the week, the dated "(again …)" ones too, one per line. Items are found anywhere under the queue folder: open items are sometimes swept into dated subfolders.
-open_not_started() {
-  find "$QUEUE_DIR" -type f \( -name "Weekly rollup not started $1.md" -o -name "Weekly rollup not started $1 (again *).md" \) 2>/dev/null \
-    | while IFS= read -r f; do is_closed "$f" || printf '%s\n' "$f"; done
+is_closed() { case "$(fm "$1" status)" in archived|archived/*) return 0 ;; *) return 1 ;; esac; }
+# open_named <name pattern>...: every item under the queue folder (open items are sometimes swept into subfolders) whose file name matches one of the patterns and that is not closed, one per line.
+open_named() {
+  local expr=() first=1
+  for pat in "$@"; do [ "$first" = 1 ] || expr+=(-o); expr+=(-name "$pat"); first=0; done
+  find "$QUEUE_DIR" -type f \( "${expr[@]}" \) 2>/dev/null | while IFS= read -r f; do is_closed "$f" || printf '%s\n' "$f"; done
   return 0
 }
+# open_not_started <week>: every open "not started" item for the week, the dated "(again …)" ones too, one per line. Items are found anywhere under the queue folder: open items are sometimes swept into dated subfolders.
+open_not_started() { open_named "Weekly rollup not started $1.md" "Weekly rollup not started $1 (again *).md"; }
 # asking_not_started <week>: the open "not started" items that still ask (needs is not nothing).
 asking_not_started() {
   open_not_started "$1" | while IFS= read -r f; do
-    grep -Eq '^needs:[[:space:]]*"?nothing"?[[:space:]]*$' "$f" || printf '%s\n' "$f"
+    [ "$(fm "$f" needs)" = nothing ] || printf '%s\n' "$f"
   done
 }
 # filed_anywhere <title>: the item exists in the queue folder or anywhere below it (closed items are swept into `Open items/Archive/…`), so a closed item that was moved is never filed again as if new.
 filed_anywhere() { [ -n "$(find "$QUEUE_DIR" -name "$1.md" -print -quit 2>/dev/null)" ]; }
 # open_items <week>: every open item this job filed for the week, "missed" included.
-open_items() {
-  open_not_started "$1"
-  find "$QUEUE_DIR" -type f -name "Weekly rollup missed $1.md" 2>/dev/null | while IFS= read -r f; do is_closed "$f" || printf '%s\n' "$f"; done
-  return 0
-}
+open_items() { open_named "Weekly rollup not started $1.md" "Weekly rollup not started $1 (again *).md" "Weekly rollup missed $1.md"; }
+# missing_parts <week>: " notebook", " cross-session", both, or nothing. The one place the two rollup files are checked.
+missing_parts() { [ -e "$(nb_file "$1")" ] || printf ' notebook'; [ -e "$(xs_file "$1")" ] || printf ' cross-session'; }
 # complete <week>: both rollups exist.
-complete() { [ -e "$(nb_file "$1")" ] && [ -e "$(xs_file "$1")" ]; }
+complete() { [ -z "$(missing_parts "$1")" ]; }
 
 # respond <file> <needs> <line> — set `needs` and `modified` in the frontmatter, and put <line> at the end of the `## Response` section (before the next `## ` heading, or at the end of the file). Only on this job's own open items: returns 1, changing nothing, if the item is closed (`status: archived/…`; closing is Nelson's click). The new text is written to a hidden temp file in the same folder and moved over the note, so the swap is atomic; if the note changed while it was being rewritten (someone typing in it), the rewrite is dropped rather than written over their edit.
 respond() {
@@ -172,9 +187,9 @@ respond() {
   WR_LN="- $st — $(printf '%s' "$rl" | tr '\n\r' '  ')" \
   awk -v st="$st" -v nd="$rn" '
       BEGIN { ln = ENVIRON["WR_LN"] }
-      BEGIN { fm = 0; inr = 0; done = 0 }
-      fm < 2 && /^---$/ { fm++; print; next }
-      fm == 1 && /^needs:/ { print "needs: " nd; next }
+      BEGIN { fm = 0; inr = 0; done = 0; sawn = 0 }
+      fm < 2 && /^---$/ { if (fm == 1 && !sawn) print "needs: " nd; fm++; print; next }
+      fm == 1 && /^needs:/ { print "needs: " nd; sawn = 1; next }
       fm == 1 && /^modified:/ { print "modified: " st; next }
       fm >= 2 && /^## / { if (inr && !done) { print ln; print ""; done = 1 }; inr = ($0 == "## Response") }
       { print }
@@ -199,7 +214,8 @@ file_queue_item() {
     return 0
   fi
   if [ "$kind" = "not started" ] && [ -z "$suffix" ]; then
-    open1=$(open_not_started "$qw" | head -1)
+    open1=$(open_not_started "$qw" | while IFS= read -r f; do is_ours "$f" && printf '%s\n' "$f"; done | head -1)
+    [ -n "$open1" ] || open1=$(open_not_started "$qw" | head -1)   # none of ours: a foreign one, so respond() files a dated one of ours
     if [ -n "$open1" ]; then
       if [ "$dry" = "1" ]; then say "would add the new cause to queue item: $open1"; return 0; fi
       respond "$open1" ruling "Failed again: $why"
@@ -276,9 +292,7 @@ settle() {
 
 # check_previous — guard 5, also run by guard 3 before it skips, so a missing previous week is never passed over.
 check_previous() {
-  missing=""
-  [ -e "$(nb_file "$prev")" ] || missing="$missing notebook"
-  [ -e "$(xs_file "$prev")" ] || missing="$missing cross-session"
+  missing=$(missing_parts "$prev")
   if [ -n "$missing" ]; then
     say "previous week $prev missing:$missing"
     # Last week's lieutenant, with guard 4's filter: only one at work (busy, or idle and not done) and younger than 24 h holds the "missed" item back. One that is finished, or at work for 24 h or more (stuck), does not: the item is filed and says so. This is where a scheduled run sees last week's stuck lieutenant.
@@ -303,6 +317,14 @@ check_previous() {
   fi
 }
 
+# fetch_agents: the session listing and the clock, for guard 4 and for check_previous. A listing we cannot read is exit 2.
+fetch_agents() {
+  [ -n "${agents:-}" ] && return 0
+  command -v "$CLAUDE" >/dev/null 2>&1 || finish 2 "claude not found on PATH ($PATH)"
+  agents=$(cl agents --json 2>/dev/null) || finish 2 "'claude agents --json' failed; cannot tell which rollup lieutenants are live"
+  now_ms=$(/usr/bin/perl -MTime::HiRes=time -e 'printf "%d", time*1000') || finish 2 "cannot read the clock"
+}
+
 # ---- 1. fleet pause ----
 [ -x "$PAUSE_GATE" ] || finish 2 "pause gate missing or not executable: $PAUSE_GATE"
 "$PAUSE_GATE" "$JOB_ID"
@@ -313,35 +335,34 @@ case "$prc" in
   *) finish 2 "pause gate could not check the flag (exit $prc)" ;;
 esac
 
-# ---- 2. load ----
-if [ -n "${WR_LOADAVG:-}" ]; then load="$WR_LOADAVG"; else
-  load=$(sysctl -n vm.loadavg | awk '{print $2}') || finish 2 "cannot read the load average"
-fi
-printf '%s' "$load" | grep -Eq '^[0-9]+(\.[0-9]+)?$' || finish 2 "load average unreadable: '$load'"
-if awk -v l="$load" 'BEGIN{exit !(l >= 10)}'; then
-  finish 0 "SKIPPED — 1-minute load $load is 10 or more"
-fi
-say "load: $load"
+# ---- 2. the fleet load gate (Nelson's "a", log 2026-09-30T05:32: the 5-minute load under 8 AND fewer than 20 live sessions) ----
+[ -x "$FLEET_GATE" ] || finish 2 "the fleet gate is missing or not executable: $FLEET_GATE"
+gate_msg=$(env -u ANTHROPIC_API_KEY "$FLEET_GATE" 2>&1)
+grc=$?
+case "$grc" in
+  0) say "fleet gate: open" ;;
+  1) finish 0 "SKIPPED — ${gate_msg:-the fleet gate is holding}" ;;
+  *) finish 2 "the fleet gate failed (exit $grc): $gate_msg" ;;
+esac
 
 # ---- 3. no overwrite ----
-exists=""
-[ -e "$(nb_file "$week")" ] && exists="$exists $(nb_file "$week")"
-[ -e "$(xs_file "$week")" ] && exists="$exists $(xs_file "$week")"
-if [ -n "$exists" ]; then
+if [ "$(missing_parts "$week")" != " notebook cross-session" ]; then
+  exists=""
+  [ -e "$(nb_file "$week")" ] && exists="$exists $(nb_file "$week")"
+  [ -e "$(xs_file "$week")" ] && exists="$exists $(xs_file "$week")"
   if complete "$week"; then
     [ "$dry" = "1" ] || settle "$week" complete
   else
     say "only one of the two $week rollups exists (a lieutenant may still be writing); nothing settled, nothing filed — next week's guard 5 reports the week if it stays half-written"
   fi
+  fetch_agents   # so check_previous sees a lieutenant for last week that is still writing
   check_previous
   finish 0 "SKIPPED — $week already has a rollup, nothing overwritten, nothing dispatched:$exists"
 fi
 say "target week $week: no rollup yet"
 
 # ---- 4. live lieutenant ----
-command -v "$CLAUDE" >/dev/null 2>&1 || finish 2 "claude not found on PATH ($PATH)"
-agents=$(cl agents --json 2>/dev/null) || finish 2 "'claude agents --json' failed; cannot tell whether $LT_NAME is live"
-now_ms=$(/usr/bin/perl -MTime::HiRes=time -e 'printf "%d", time*1000') || finish 2 "cannot read the clock"
+fetch_agents
 counts=$(printf '%s' "$agents" | jq -r --arg n "$LT_NAME" --argjson now "$now_ms" '
   [.[] | select((.name // "") | startswith($n))] as $m
   | ($m | map(select(.status == "idle" and .state == "done"))) as $fin
@@ -414,7 +435,7 @@ if [ -n "${WR_TEST_DAEMON_KEY_PIDS+set}" ] && [ -n "${WR_CLAUDE:-}" ]; then keye
 fi
 keyed=$(printf '%s' "$keyed" | sed 's/ *$//')
 
-cmd=(env -u ANTHROPIC_API_KEY /usr/bin/perl -e 'alarm shift; exec @ARGV or exit 127' "${WR_CLAUDE_TIMEOUT:-60}" "$CLAUDE" --bg --agent lieutenant --name "$LT_NAME" -- "$brief")
+cmd=(env -u ANTHROPIC_API_KEY /usr/bin/perl -e 'alarm shift; exec @ARGV or exit 127' "${WR_DISPATCH_TIMEOUT:-300}" "$CLAUDE" --bg --agent lieutenant --name "$LT_NAME" -- "$brief")
 
 if [ "$dry" = "1" ]; then
   say "environment: claude = $(command -v "$CLAUDE"); PATH = $PATH"
@@ -440,14 +461,21 @@ out=$(cd "$DISPATCH_CWD" && "${cmd[@]}" 2>&1)
 drc=$?
 say "dispatch output: $out"
 if [ "$drc" -ne 0 ]; then
+  # A dispatch killed by the alarm (or failing late) may still have registered: guard 4 found none of this name before, and the lock keeps other runs out, so one listed now is ours.
+  late=$(cl agents --json 2>/dev/null | jq -r --arg n "$LT_NAME" '[.[] | select((.name // "") | startswith($n))] | length' 2>/dev/null) || late=0
+  if [ "${late:-0}" -ge 1 ] 2>/dev/null; then
+    say "claude --bg exited $drc, but a session named $LT_NAME is now listed: taking it as started"
+    settle "$week" started
+    finish 0 "dispatched $LT_NAME for $week (claude --bg exited $drc, the session is listed)"
+  fi
   file_queue_item "not started" "$week" "\`claude --bg\` exited $drc, so no lieutenant was started."
   finish 4 "claude --bg exited $drc"
 fi
 
-# COPIED from claude/bin/promote-session.sh (its `backgrounded` parse), the source to keep in step with, until the claude code ship's shared helper in claude/lib/ lands (the captain's call, 2026-09-29). The id `claude --bg` prints; the confirm matches that id, not a name, so a hand dispatch of the same name at the same moment can never confirm this one.
-new_id=$(printf '%s' "$out" | tr -d '\r' | sed -E $'s/\x1b\\[[0-9;?]*[A-Za-z]//g' | awk '/^backgrounded/ {print $3; exit}') || true
+# The id `claude --bg` prints, read by the one shared parser (claude/lib/bg-id.sh, #104); the confirm matches that id, not a name, so a hand dispatch of the same name at the same moment can never confirm this one.
+new_id=$(printf '%s' "$out" | bg_id 2>/dev/null) || new_id=""
 if [ -z "$new_id" ]; then
-  file_queue_item "not started" "$week" "\`claude --bg\` exited 0 but printed no \`backgrounded <id>\` line, so the job cannot confirm a lieutenant started. Output: $out"
+  file_queue_item "not started" "$week" "\`claude --bg\` exited 0 but its output held no session id the shared parser could read, so the job cannot confirm a lieutenant started. Output: $out"
   finish 4 "could not read the new session id from: $out"
 fi
 tries="${WR_CONFIRM_TRIES:-10}"; nap="${WR_CONFIRM_SLEEP:-3}"; seen=0; i=0
