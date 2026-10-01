@@ -47,7 +47,7 @@ intentionally not declared (sensitive or not declarable on macOS).
 | GPG keys | `~/.gnupg/` | manual restore from 1Password | 🚫 by design |
 | Doppler / 1Password / cloud-CLI auth | various `~/.<tool>/` | server-side; per-machine `<cli> login` | 🚫 by design |
 | Tailscale device + ACL | tailscale.com | account-level | ✅ external (server-side) |
-| Cloudflare Access policies (for `obsidian-mcp.nelson.love` etc.) | Cloudflare dashboard | account-level | ✅ external (server-side) |
+| Cloudflare Access policies (for the remote vault endpoint and its sister hostnames; the names are private config under `~/.config/vault-mcp-remote/`, not in this repo) | Cloudflare dashboard | account-level | ✅ external (server-side) |
 
 ## Refresh ritual
 
