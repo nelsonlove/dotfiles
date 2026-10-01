@@ -1,8 +1,5 @@
 #!/bin/bash
-# Tickle job: auto-commit ~/obsidian (the Assent-era vault: live layer, _hold
-# generations, _keep fleet surfaces, the Assent design doc) into an external,
-# local-only backup repo. Bare repo lives OUTSIDE the vault on purpose (a .git
-# inside a vault was tried and reverted twice in prior generations).
+# Tickle job: auto-commit ~/obsidian (the whole vault, the personal areas included since 2026-09-15) into an external, local-only backup repo. Bare repo lives OUTSIDE the vault on purpose (a .git inside a vault was tried and reverted twice in prior generations).
 #
 # Unlike the retired obsidian-new-backup job, a missing target FAILS LOUDLY:
 # the 2026-08-08 system review found the old [[ -d ]] || exit 0 guard turned

@@ -3,15 +3,14 @@ id: obsidian-backup
 name: obsidian Backup (auto-commit, every 10m)
 status: active
 
-# Air-only: ~/obsidian (the Assent-era vault) lives on the MacBook Air; its
-# local-only safety-net repo is ~/obsidian-backup.git. The script trigger
-# gates on hostname so it never runs on other machines. Successor to the
-# retired obsidian-new-backup job (disabled 2026-08-08, target absorbed).
+# Pro-only: the fleet runs on the MacBook Pro, and so does this job, which backs up ~/obsidian into the local-only safety-net repo ~/obsidian-backup.git, and ~/.claude/governor/history into ~/governor-history-backup.git, on the machine it runs on. A missing ~/.claude/governor/history fails the run. The script trigger gates on hostname so it runs on one machine only.
+# Re-gated from the Air to the Pro for the cut-over (Nelson, 2026-09-29: "All A", which keeps this job and retires vault-backup). The cut-over steps are tracked in issue #89.
+# Successor to the retired obsidian-new-backup job (disabled 2026-08-08, target absorbed).
 # Every 10 minutes since 2026-09-29 (Nelson: "now that we have agents handling my stuff, let's increase backup frequency to 10 minutes").
 triggers:
   - type: script
     schedule: "*/10 * * * *"
-    command: ["@config/scripts/_lib/on-host.sh", "Nelsons-MacBook-Air"]
+    command: ["@config/scripts/_lib/on-host.sh", "Nelsons-MacBook-Pro"]
     timeout: 10s
 
 run:
