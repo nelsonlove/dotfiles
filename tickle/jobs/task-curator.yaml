@@ -1,7 +1,10 @@
 version: 1
 id: task-curator
 name: Task Curator (dry run)
-status: active
+status: disabled
+
+# Disabled 2026-09-29 until it is reviewed (Nelson: "All A" on the MacBook Pro move): it runs `claude -p` every morning, and its gate (below, unchanged) names the Pro, where tickle now runs.
+# Also broken whatever the review decides: scripts/task-curator/dryrun.sh defaults SCOPE to ~/obsidian/00-09 System/05 AI agents/05.02 Tasks for 05 AI agents and COMMS_SEND to ~/repos/agent-stack/…/comms-send.sh, and neither path exists (checked 2026-09-29). Fix both before it is turned on again.
 
 # MBP-only: spawns a fleet worker; must not double-run on other hosts.
 triggers:
