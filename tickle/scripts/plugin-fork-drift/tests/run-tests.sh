@@ -11,13 +11,14 @@ new_case() {
   git init -q --bare "$C/up.git"; git init -q -b main "$C/seed"; g "$C/seed" commit -q --allow-empty -m one
   g "$C/seed" remote add origin "$C/up.git"; g "$C/seed" push -q origin main; git -C "$C/up.git" symbolic-ref HEAD refs/heads/main
   git clone -q "$C/up.git" "$C/repos/fork-a"; git -C "$C/repos/fork-a" remote add fork "$C/up.git"; git -C "$C/repos/fork-a" checkout -q -b nl-main
-  printf '#!/bin/bash\nprintf "%%s\\n" "$1" >> "%s/shown"\nexit "$(cat "%s/notice_rc" 2>/dev/null || echo 0)"\n' "$C" "$C" > "$C/stub"; chmod +x "$C/stub"
+  printf '#!/bin/bash\nprintf "%%s|%%s\\n" "$1" "$2" >> "%s/shown"\nexit "$(cat "%s/notice_rc" 2>/dev/null || echo 0)"\n' "$C" "$C" > "$C/stub"; chmod +x "$C/stub"
 }
 go() { OUT=$(env -i HOME="$C" PATH=/usr/bin:/bin REPO_ROOT="$C/repos" VAULT_PLUGINS="$C/plugins" STATE_DIR="$C/state" NOTICE_CMD="$C/stub" NOTICE_STATE_DIR="$C/n" /bin/bash "$RUN" 2>&1); RC=$?; }
 
 new_case; go; check "clean: exit 0" [ "$RC" = 0 ]; check "clean: no notice" [ ! -f "$C/shown" ]
 new_case; g "$C/seed" commit -q --allow-empty -m "upstream fix"; g "$C/seed" push -q origin main; go
 check "behind: exit 0" [ "$RC" = 0 ]; check "behind: notice" grep -qF 'plugin forks: 1 need attention' "$C/shown"
+check "behind: the notice names the fork" grep -qF 'Behind or off-convention: fork-a' "$C/n/plugin-fork-drift/latest-notice.md"
 check "behind: full text kept" grep -qF 'fork-a (ahead 0): 1 behind' "$C/n/plugin-fork-drift/latest-notice.md"
 check "behind: state recorded" [ -s "$C/state/fork-a.rev" ]
 go; check "same rev: no second notice" [ "$(wc -l < "$C/shown" | tr -d ' ')" = 1 ]

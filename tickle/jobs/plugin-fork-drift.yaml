@@ -8,7 +8,7 @@ status: active
 # 4 behind, meta-bind 4 behind including a CodeMirror perf fix, tag-wrangler 1 behind, and
 # execute-code on a detached HEAD — none of it visible anywhere until someone fetched by hand.
 #
-# This DETECTS and shows a plain notice once a day (a macOS notification, the full text in ~/.local/state/plugin-fork-drift/latest-notice.md); it never pulls, rebases, or rebuilds.
+# This DETECTS and shows a plain notice once a day (a macOS notification, the full text in ${XDG_STATE_HOME:-~/.local/state}/plugin-fork-drift/latest-notice.md); it never pulls, rebases, or rebuilds.
 # Rebasing a fork can conflict (tag-wrangler did, on manifest.json and versions.json), so
 # applying an update stays a deliberate manual step, same rationale as vault-mcp-remote-update.
 #

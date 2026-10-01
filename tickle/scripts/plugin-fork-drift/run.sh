@@ -41,7 +41,7 @@ NOTICE="$(cd "$(dirname "$0")/../_lib" && pwd -P)/notice.sh"
 
 REPO_ROOT="${REPO_ROOT:-$HOME/repos/system}"
 VAULT_PLUGINS="${VAULT_PLUGINS:-$HOME/obsidian/.obsidian/plugins}"
-STATE_DIR="${STATE_DIR:-$HOME/.local/state/plugin-fork-drift}"
+STATE_DIR="${STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/plugin-fork-drift}"
 CONVENTION_BRANCH="${CONVENTION_BRANCH:-nl-main}"
 
 # Host gating is by capability, not by hostname. This job is only meaningful on the
@@ -167,7 +167,7 @@ if [[ ${#lines[@]} -eq 0 ]]; then
 fi
 
 body="$(printf '%s\n' "${lines[@]}")"
-MSG="Forked Obsidian plugins need attention:
+MSG="$(IFS=,; names=(); for k in "${notify_keys[@]}"; do names+=("${k%%|*}"); done; echo "Behind or off-convention: ${names[*]}")
 
 $body
 
