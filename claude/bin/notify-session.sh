@@ -31,7 +31,9 @@
 #
 # WHAT IT DOES, in order:
 #   1. resolves the note to an ABSOLUTE path, because the record carries it and a relative path means
-#      something different depending on where the verb was run from;
+#      something different depending on where the verb was run from; a relative path is tried under the vault
+#      root first (`NOTIFY_VAULT_DIR`, default `~/obsidian`; never for a path with `..`), then from the working
+#      directory;
 #   2. reads the FIRST `session:` entry from the note's frontmatter (a list or a scalar), through the shared block reader in
 #      `claude/lib/pause-flag.sh`; a free-text value and an ended lieutenant take the roads in THE DEDUPE AND THE AUDIENCE;
 #   3. resolves that display NAME to a live sessionId through `claude agents --json --all`, refusing a
@@ -41,7 +43,11 @@
 #   5. if that session is STOPPED, wakes it with `--by "human:nelson"`;
 #   6. if no session matches the name, notifies the CAPTAIN of the ship the note belongs to, the same way,
 #      and the captain dispatches — this script NEVER dispatches;
-#   7. writes one cross-session log entry per act, in RULING form: his words and the act they caused.
+#   7. writes one cross-session log entry per act, in RULING form: his words and the act they caused;
+#   8. if it must refuse AFTER its arguments are valid (no note, no frontmatter, no listing, a wrong uid), tells
+#      `[A0] rear admiral` by a notice (woken if stopped; once per failure), or, when the listing names no rear
+#      admiral, appends the failure to the Agent friction log (`NOTIFY_FRICTION_LOG`), then exits 2 — because
+#      the caller discards stderr, and on 2026-10-01 a revision request reached nobody that way.
 #
 # TWO CALLS WERE RULED BEFORE IT WAS BUILT, both in the queue note "Rule the two calls in the verified-item
 # notifier before it is built", ruled 2026-09-27 by `[A0] rear admiral` inside Nelson's "get it built":
@@ -84,7 +90,9 @@
 # it was — a captain the caller named, or the default because none was given.
 #
 # WHAT IT NEVER DOES: dispatch a session; invoke an accept verb (it is told that one happened, which is the
-# opposite); write to the vault except the one cross-session log entry; or fail a verb. `--dry-run` prints
+# opposite); write to the vault except the one cross-session log entry, or, on the failure road of step 8 when no
+# rear admiral can be addressed, one Agent friction log entry (a wake it asks for writes `wake-session.sh`'s own wake record,
+# as every wake does); or fail a verb. `--dry-run` prints
 # every act it would take and touches nothing, which is how its battery runs.
 #
 # THE DEDUPE AND THE AUDIENCE, added on Nelson's "a" (all four picks), 2026-09-30, on `01.65 Operator's console/Tell the
@@ -158,8 +166,18 @@ LOCK_TRIES="${NOTIFY_LOCK_TRIES:-300}"   # 300 x 0.05 s = 15 s; the battery shor
 # The notebook roots, for an ended lieutenant's entry: `<agents>/03.04 Records/Agent notebook` and `<agents>/03.09 Archive/Agent
 # notebook`, through `claude/lib/notebook-roots.sh`. `NOTIFY_AGENTS_DIR` moves both, for the battery.
 AGENTS_DIR="${NOTIFY_AGENTS_DIR:-$HOME/obsidian/00-09 System/03 Agents}"
+# The vault root, for a vault-relative `--note`. `NOTIFY_VAULT_DIR` moves it, for the battery.
+VAULT_DIR="${NOTIFY_VAULT_DIR:-$HOME/obsidian}"
 
-die() { printf '%s: %s\n' "$PROG" "$*" >&2; exit 2; }
+# ONE `die`, and a flag that makes it loud. Quiet while the arguments are checked (a caller's misuse is the caller's bug, and
+# must not page an admiral on every click); loud from the line that sets `loud=1`, below, once every argument is valid. See
+# FROM HERE ON A FAILURE IS LOUD.
+loud=0
+die() {
+  [ "$loud" = 1 ] && tell_failure "$*"
+  printf '%s: %s%s\n' "$PROG" "$*" "${tf_told:+; $tf_told}" >&2
+  exit 2
+}
 
 note="" event="" at="" words="" captain="" dry_run=0 uid="" signal="" signal_given=0
 while [ $# -gt 0 ]; do
@@ -242,6 +260,84 @@ if [ -n "$uid" ]; then
   esac
 fi
 
+# FROM HERE ON A FAILURE IS LOUD, not a line on stderr, which every caller discards. On 2026-10-01 at 16:17 the Request
+# revision verb called this script twice with a vault-relative path, both calls died with "no note at", and the only trace
+# was `verb-calls.log`: Nelson asked for a revision and no session heard of it. Every argument is valid by this line, so any
+# later refusal (no note, no frontmatter, no listing, a wrong uid, a missing library) means an act of his reached nobody.
+# `die` now tells the rear admiral: a notice on its file and a wake if it is stopped. ONCE PER FAILURE, keyed in the same
+# state file as the alerts (`$SENT`): the key is a hash of the event, the note as the caller gave it, the uid, the alert key
+# and the reason, so two roads reporting one failure (the verb and the listener) give one notice, even after the rear admiral
+# has read and cleared the first. If the listing names no rear admiral, or its notice cannot be written, the failure goes to
+# the Agent friction log, which needs no listing. A dry run only prints what it would do.
+#
+# THE WAKE IS `--by "human:nelson"`, as the alert wake is, because only that identity may wake an admiral, and the act that
+# failed was his click. So the notice says first that it is NOT a ruling, which the injecting hook's preamble would suggest.
+FRICTION_LOG="${NOTIFY_FRICTION_LOG:-$AGENTS_DIR/03.04 Records/Agent friction log.md}"
+note_given="$note"
+tf_told=""
+tell_failure() {  # $1 = the failure; sets tf_told
+  loud=0   # once: a failure inside this function must not call it again
+  # ONE LINE: the words are flattened, so a notice stays one bullet and a `## ` in his words cannot open a fake friction-log entry.
+  tf_words=$(printf '%s' "$words" | tr '\r\n' '  ' | sed -E 's/[[:space:]]+/ /g')
+  tf_reason=$(printf '%s' "$1" | tr '\r\n' '  ')
+  tf_msg="NOT A RULING: a script failure after his click. notify-session could not deliver a \`$event\` alert for \`$note_given\`: $tf_reason (uid ${uid:-none}; his words: $tf_words). Nobody else was told; find the note and tell its filer."
+  if [ "$dry_run" = 1 ]; then printf 'DRY RUN would tell %s: %s\n' "$REAR_ADMIRAL" "$tf_msg"; tf_told="a dry run, so nobody was told"; return 0; fi
+  # THE FAILURE KEY covers the whole act (event, note as given, uid, stamp, signal, words) and the reason with the resolved
+  # path put back to the note as given, so the working directory never splits one failure into two. No hash, no key: a
+  # missing `shasum` must not collapse every failure into one key that suppresses them all, so it reports without a dedupe.
+  tf_hash=$(printf '%s\n' "$event" "$note_given" "$uid" "$at" "$signal" "$words" "${1//"$note"/"$note_given"}" | shasum -a 256 2>/dev/null | cut -c1-64)
+  tf_key=""; [ "${#tf_hash}" = 64 ] && tf_key="fail|$tf_hash"
+  # UNDER A LOCK, so two roads failing at the same moment cannot both pass the check before either records the key.
+  tf_lock=0
+  if [ -n "$tf_key" ] && mkdir -p "$STATE_DIR" 2>/dev/null; then
+    for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+      if mkdir "$LOCK.fail" 2>/dev/null; then tf_lock=1; break; fi
+      sleep 0.05
+    done
+  fi
+  if [ -n "$tf_key" ] && [ -f "$SENT" ] && grep -qF "\"key\":\"$tf_key\"" "$SENT" 2>/dev/null; then
+    [ "$tf_lock" = 0 ] || rmdir "$LOCK.fail" 2>/dev/null
+    tf_told="this failure was already reported"; return 0
+  fi
+  tf_why="the session listing names no usable \`$REAR_ADMIRAL\`"
+  tf_row=""
+  # The listing is not asked again when the failure being reported IS that the listing could not be read.
+  [ "${listing_failed:-0}" = 1 ] || tf_row=$(claude agents --json --all 2>/dev/null \
+    | jq -r --arg n "$REAR_ADMIRAL" '[.[] | select(.name == $n)] | last // empty | [(.sessionId // ""), (.status // "stopped")] | @tsv' 2>/dev/null) || tf_row=""
+  tf_sid=$(printf '%s' "$tf_row" | cut -f1)
+  tf_status=$(printf '%s' "$tf_row" | cut -f2)
+  tf_done=0
+  case "$tf_sid" in
+    ????????-????-????-????-????????????)
+      if mkdir -p "$NOTICES_DIR" 2>/dev/null && printf -- '- %s\n' "$tf_msg" >> "$NOTICES_DIR/$tf_sid.md" 2>/dev/null; then
+        tf_done=1
+        case "$tf_status" in
+          busy|idle) tf_told="the rear admiral was told" ;;
+          *) if [ -x "$WAKE" ] && "$WAKE" --session "$tf_sid" --by "human:nelson" --why "notify-session failed: $1" \
+                 --message "$tf_msg" >/dev/null 2>&1; then tf_told="the rear admiral was told and woken"
+             else tf_told="the rear admiral was told, but it is stopped and the wake was refused"; fi ;;
+        esac
+      else
+        tf_why="the notice for \`$REAR_ADMIRAL\` could not be written to $NOTICES_DIR"
+      fi ;;
+  esac
+  if [ "$tf_done" = 0 ]; then
+    if printf '\n## %s · notify-session\n\n%s Not delivered to the rear admiral: %s.\n' \
+         "$(date '+%Y-%m-%dT%H:%M')" "$tf_msg" "$tf_why" >> "$FRICTION_LOG" 2>/dev/null; then
+      tf_done=1; tf_told="$tf_why, so the failure is in the Agent friction log"
+    else
+      tf_told="NOBODY could be told: $tf_why, and the friction log could not be written"
+    fi
+  fi
+  if [ "$tf_done" = 1 ] && [ -n "$tf_key" ]; then
+    printf '{"key":"%s","event":"%s","failure":true,"sent":"%s"}\n' \
+      "$tf_key" "$event" "$(date '+%Y-%m-%dT%H:%M:%S%z')" >> "$SENT" 2>/dev/null || true
+  fi
+  [ "$tf_lock" = 0 ] || rmdir "$LOCK.fail" 2>/dev/null
+  return 0
+}
+loud=1
+
 already_sent() {  # is the key in the state file?
   [ -n "$key" ] && [ -f "$SENT" ] && grep -qF "\"key\":\"$key\"" "$SENT" 2>/dev/null
 }
@@ -251,7 +347,19 @@ if already_sent; then
   exit 0
 fi
 
-[ -e "$note" ] || die "no note at '$note'"
+# A VAULT-RELATIVE PATH IS RESOLVED AGAINST THE VAULT ROOT FIRST. The verbs pass the note's path as Obsidian knows it
+# (`00-09 System/…`), and this script runs from wherever the caller stands, which is not always the vault; a second tree with
+# the same layout (`~/obsidian-mobile`, a backup checkout) must not win just because the caller stood in it. So a relative path
+# is tried under the vault root first and from the working directory second. A path with a `..` segment is never joined to
+# the vault root, so it cannot climb out of it; a leading `~/` is the home directory, as a shell would read it.
+case "$note" in
+  "~/"*) note="$HOME/${note#"~/"}" ;;
+esac
+case "$note" in
+  /*|..|../*|*/../*|*/..) ;;
+  *) [ -e "$VAULT_DIR/$note" ] && note="$VAULT_DIR/$note" ;;
+esac
+[ -e "$note" ] || die "no note at '$note' (a relative path is tried under $VAULT_DIR, then from the working directory)"
 # THE PATH IS RESOLVED BEFORE ANYTHING READS IT. The ship map matches on leading path segments, so a relative
 # path fell through every arm and went to the rear admiral — and the verb's working directory is the vault
 # root often enough for that to be the common case, not a corner. The record keeps the resolved path too: a
@@ -280,7 +388,7 @@ read_frontmatter "$note"
 if [ -n "$uid" ]; then
   note_uid=$(fm_value uid)
   if [ -n "$note_uid" ] && [ "$note_uid" != "$uid" ]; then
-    die "--uid '$uid' is not the note's own uid '$note_uid'; refusing rather than keying the wrong note"
+    loud=0; die "--uid '$uid' is not the note's own uid '$note_uid'; refusing rather than keying the wrong note"
   fi
 fi
 
@@ -348,7 +456,7 @@ fi
 command -v jq >/dev/null 2>&1     || die "jq is required"
 command -v claude >/dev/null 2>&1 || die "the claude CLI is required"
 listing=$(claude agents --json --all 2>/dev/null) || listing=""
-[ -n "$listing" ] || die "the session listing could not be read, so no notice can be addressed"
+[ -n "$listing" ] || { listing_failed=1; die "the session listing could not be read, so no notice can be addressed"; }
 
 # A FULL sessionId OR NOTHING. `wake-session.sh` refuses a short or empty id because `--resume ""` starts a
 # NEW session rather than continuing one, and a notice written under an empty id lands at `<dir>/.md`, which
