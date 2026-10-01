@@ -299,6 +299,29 @@ in_log "no match: the captain the caller named is told"   "[C0-CC] claude code"
 in_log "no match: the record says who named it"          "named by the caller"
 in_log "no match: the record says the captain dispatches" "the captain dispatches, this script does not"
 
+# A VAULT-RELATIVE PATH IS FOUND UNDER THE VAULT ROOT — the 2026-10-01 bug: the Request revision verb passed
+# `00-09 System/…/<note>.md`, the script ran from elsewhere, and it died with "no note at". Run from a directory
+# where the relative path does NOT exist, so only the vault-root road can find it.
+export NOTIFY_VAULT_DIR="$TMP/vault"
+mkdir -p "$NOTIFY_VAULT_DIR/00-09 System/01 Sub dir" "$TMP/elsewhere"
+REL="00-09 System/01 Sub dir/vault relative.md"
+printf -- '---\ntype: Task\nsession: "[L0-CC] running one"\nstatus: verified\n---\n' > "$NOTIFY_VAULT_DIR/$REL"
+stub_listing "[{\"id\":\"aaa1\",\"sessionId\":\"$SID_A\",\"name\":\"[L0-CC] running one\",\"status\":\"idle\"}]"
+: > "$NOTIFY_NOTICES_DIR/$SID_A.md"
+out=$(cd "$TMP/elsewhere" && run_stubbed "$REL")
+if [ -s "$NOTIFY_NOTICES_DIR/$SID_A.md" ]; then pass "a vault-relative path: the note is found and its filer told"
+else fail "a vault-relative path: the note is found and its filer told" "$out"; fi
+
+# A NOTE THAT CANNOT BE FOUND IS LOUD: the rear admiral gets a notice, not just a line on stderr.
+stub_listing "[{\"id\":\"cap1\",\"sessionId\":\"$CAPSID\",\"name\":\"[A0] rear admiral\",\"status\":\"idle\"}]"
+: > "$NOTIFY_NOTICES_DIR/$CAPSID.md"
+out=$(cd "$TMP/elsewhere" && run_stubbed "00-09 System/no such note.md")
+rc=$?
+if [ "$rc" != 0 ]; then pass "a missing note: the script still fails"; else fail "a missing note: the script still fails" "exit 0"; fi
+if grep -q 'no note at' "$NOTIFY_NOTICES_DIR/$CAPSID.md" 2>/dev/null; then pass "a missing note: the rear admiral gets a notice"
+else fail "a missing note: the rear admiral gets a notice" "$out"; fi
+unset NOTIFY_VAULT_DIR
+
 # A CAPTAIN THAT IS NOT IN THE LISTING falls back to the floating default — finding 7. The old script logged
 # "nobody was told" and never tried the fallback, although a captain with no row cannot be woken either.
 stub_listing "[{\"id\":\"flo1\",\"sessionId\":\"$FLOATSID\",\"name\":\"[L0-FL] the floating one\",\"status\":\"idle\"}]"

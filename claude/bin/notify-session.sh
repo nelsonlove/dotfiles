@@ -158,6 +158,8 @@ LOCK_TRIES="${NOTIFY_LOCK_TRIES:-300}"   # 300 x 0.05 s = 15 s; the battery shor
 # The notebook roots, for an ended lieutenant's entry: `<agents>/03.04 Records/Agent notebook` and `<agents>/03.09 Archive/Agent
 # notebook`, through `claude/lib/notebook-roots.sh`. `NOTIFY_AGENTS_DIR` moves both, for the battery.
 AGENTS_DIR="${NOTIFY_AGENTS_DIR:-$HOME/obsidian/00-09 System/03 Agents}"
+# The vault root, for a vault-relative `--note`. `NOTIFY_VAULT_DIR` moves it, for the battery.
+VAULT_DIR="${NOTIFY_VAULT_DIR:-$HOME/obsidian}"
 
 die() { printf '%s: %s\n' "$PROG" "$*" >&2; exit 2; }
 
@@ -251,7 +253,32 @@ if already_sent; then
   exit 0
 fi
 
-[ -e "$note" ] || die "no note at '$note'"
+# A FAILURE HERE IS LOUD, not a line in a log nobody reads. On 2026-10-01 the Request revision verb called this script twice
+# with a vault-relative path, both calls died with "no note at", and the only trace was `verb-calls.log`: Nelson asked for a
+# revision and no session heard of it. So a note that cannot be found tells the rear admiral by a notice, then dies.
+die_loud() {  # $1 = the failure
+  dl_msg="notify-session could not deliver a \`$event\` alert: $1 (uid ${uid:-none}; his words: ${words:-none}). Nobody else was told; find the note and tell its filer."
+  if [ "$dry_run" = 1 ]; then printf 'DRY RUN would tell %s: %s\n' "$REAR_ADMIRAL" "$dl_msg"; die "$1"; fi
+  dl_sid=$(claude agents --json --all 2>/dev/null | jq -r --arg n "$REAR_ADMIRAL" '[.[] | select(.name == $n) | .sessionId] | last // empty' 2>/dev/null) || dl_sid=""
+  case "$dl_sid" in
+    ????????-????-????-????-????????????)
+      if mkdir -p "$NOTICES_DIR" 2>/dev/null && printf -- '- %s\n' "$dl_msg" >> "$NOTICES_DIR/$dl_sid.md" 2>/dev/null; then
+        die "$1; the rear admiral was told"
+      fi ;;
+  esac
+  die "$1; the rear admiral could not be told either"
+}
+
+# A VAULT-RELATIVE PATH IS RESOLVED AGAINST THE VAULT ROOT. The verbs pass the note's path as Obsidian knows it
+# (`00-09 System/…`), and this script runs from wherever the caller stands, which is not always the vault. A path that
+# exists from the working directory keeps that meaning; only one that does not is tried under the vault.
+if [ ! -e "$note" ]; then
+  case "$note" in
+    /*) ;;
+    *) [ -e "$VAULT_DIR/$note" ] && note="$VAULT_DIR/$note" ;;
+  esac
+fi
+[ -e "$note" ] || die_loud "no note at '$note' (also tried under $VAULT_DIR)"
 # THE PATH IS RESOLVED BEFORE ANYTHING READS IT. The ship map matches on leading path segments, so a relative
 # path fell through every arm and went to the rear admiral — and the verb's working directory is the vault
 # root often enough for that to be the common case, not a corner. The record keeps the resolved path too: a
