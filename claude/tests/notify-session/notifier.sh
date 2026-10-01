@@ -353,6 +353,11 @@ mkdir -p "$TMP/elsewhere/deep"
 out=$(cd "$TMP/elsewhere/deep" && run_stubbed "00-09 System/no such note.md")
 if [ ! -s "$NOTIFY_NOTICES_DIR/$CAPSID.md" ]; then pass "a missing note: a repeat after the notice was cleared adds nothing"
 else fail "a missing note: a repeat after the notice was cleared adds nothing" "a second notice was written"; fi
+# A NEW ACT on the same missing note (a new --at) is a new failure, and is reported again.
+: > "$NOTIFY_NOTICES_DIR/$CAPSID.md"
+out=$(cd "$TMP/elsewhere" && PATH="$STUBBIN:$PATH" "$NOTIFY" --note "00-09 System/no such note.md" --event verified --at 2026-10-02T09:00 --words "again" 2>&1)
+if grep -q 'no note at' "$NOTIFY_NOTICES_DIR/$CAPSID.md" 2>/dev/null; then pass "a missing note: a new act (new --at) is reported again"
+else fail "a missing note: a new act (new --at) is reported again" "$out"; fi
 # WORDS WITH A BLANK LINE are carried, not used as a pattern, so another pending notice cannot swallow the failure.
 printf -- '- an unrelated pending notice\n' > "$NOTIFY_NOTICES_DIR/$CAPSID.md"
 out=$(cd "$TMP/elsewhere" && PATH="$STUBBIN:$PATH" "$NOTIFY" --note "00-09 System/blank words note.md" --event verified --at 2026-09-27T14:05 --words "$(printf 'first paragraph\n\nsecond paragraph')" 2>&1)

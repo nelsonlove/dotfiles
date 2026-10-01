@@ -91,7 +91,8 @@
 #
 # WHAT IT NEVER DOES: dispatch a session; invoke an accept verb (it is told that one happened, which is the
 # opposite); write to the vault except the one cross-session log entry, or, on the failure road of step 8 when no
-# rear admiral can be addressed, one Agent friction log entry; or fail a verb. `--dry-run` prints
+# rear admiral can be addressed, one Agent friction log entry (a wake it asks for writes `wake-session.sh`'s own wake record,
+# as every wake does); or fail a verb. `--dry-run` prints
 # every act it would take and touches nothing, which is how its battery runs.
 #
 # THE DEDUPE AND THE AUDIENCE, added on Nelson's "a" (all four picks), 2026-09-30, on `01.65 Operator's console/Tell the
@@ -276,14 +277,32 @@ note_given="$note"
 tf_told=""
 tell_failure() {  # $1 = the failure; sets tf_told
   loud=0   # once: a failure inside this function must not call it again
-  tf_msg="NOT A RULING: a script failure after his click. notify-session could not deliver a \`$event\` alert for \`$note_given\`: $1 (uid ${uid:-none}; his words: $words). Nobody else was told; find the note and tell its filer."
+  # ONE LINE: the words are flattened, so a notice stays one bullet and a `## ` in his words cannot open a fake friction-log entry.
+  tf_words=$(printf '%s' "$words" | tr '\r\n' '  ' | sed -E 's/[[:space:]]+/ /g')
+  tf_reason=$(printf '%s' "$1" | tr '\r\n' '  ')
+  tf_msg="NOT A RULING: a script failure after his click. notify-session could not deliver a \`$event\` alert for \`$note_given\`: $tf_reason (uid ${uid:-none}; his words: $tf_words). Nobody else was told; find the note and tell its filer."
   if [ "$dry_run" = 1 ]; then printf 'DRY RUN would tell %s: %s\n' "$REAR_ADMIRAL" "$tf_msg"; tf_told="a dry run, so nobody was told"; return 0; fi
-  tf_key="fail|$(printf '%s\n' "$event" "$note_given" "$uid" "$key" "$1" | shasum -a 256 2>/dev/null | cut -c1-64)"
-  if [ -f "$SENT" ] && grep -qF "\"key\":\"$tf_key\"" "$SENT" 2>/dev/null; then
+  # THE FAILURE KEY covers the whole act (event, note as given, uid, stamp, signal, words) and the reason with the resolved
+  # path put back to the note as given, so the working directory never splits one failure into two. No hash, no key: a
+  # missing `shasum` must not collapse every failure into one key that suppresses them all, so it reports without a dedupe.
+  tf_hash=$(printf '%s\n' "$event" "$note_given" "$uid" "$at" "$signal" "$words" "${1//"$note"/"$note_given"}" | shasum -a 256 2>/dev/null | cut -c1-64)
+  tf_key=""; [ "${#tf_hash}" = 64 ] && tf_key="fail|$tf_hash"
+  # UNDER A LOCK, so two roads failing at the same moment cannot both pass the check before either records the key.
+  tf_lock=0
+  if [ -n "$tf_key" ] && mkdir -p "$STATE_DIR" 2>/dev/null; then
+    for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+      if mkdir "$LOCK.fail" 2>/dev/null; then tf_lock=1; break; fi
+      sleep 0.05
+    done
+  fi
+  if [ -n "$tf_key" ] && [ -f "$SENT" ] && grep -qF "\"key\":\"$tf_key\"" "$SENT" 2>/dev/null; then
+    [ "$tf_lock" = 0 ] || rmdir "$LOCK.fail" 2>/dev/null
     tf_told="this failure was already reported"; return 0
   fi
   tf_why="the session listing names no usable \`$REAR_ADMIRAL\`"
-  tf_row=$(claude agents --json --all 2>/dev/null \
+  tf_row=""
+  # The listing is not asked again when the failure being reported IS that the listing could not be read.
+  [ "${listing_failed:-0}" = 1 ] || tf_row=$(claude agents --json --all 2>/dev/null \
     | jq -r --arg n "$REAR_ADMIRAL" '[.[] | select(.name == $n)] | last // empty | [(.sessionId // ""), (.status // "stopped")] | @tsv' 2>/dev/null) || tf_row=""
   tf_sid=$(printf '%s' "$tf_row" | cut -f1)
   tf_status=$(printf '%s' "$tf_row" | cut -f2)
@@ -310,10 +329,12 @@ tell_failure() {  # $1 = the failure; sets tf_told
       tf_told="NOBODY could be told: $tf_why, and the friction log could not be written"
     fi
   fi
-  if [ "$tf_done" = 1 ]; then
-    mkdir -p "$STATE_DIR" 2>/dev/null && printf '{"key":"%s","event":"%s","failure":true,"sent":"%s"}\n' \
+  if [ "$tf_done" = 1 ] && [ -n "$tf_key" ]; then
+    printf '{"key":"%s","event":"%s","failure":true,"sent":"%s"}\n' \
       "$tf_key" "$event" "$(date '+%Y-%m-%dT%H:%M:%S%z')" >> "$SENT" 2>/dev/null || true
   fi
+  [ "$tf_lock" = 0 ] || rmdir "$LOCK.fail" 2>/dev/null
+  return 0
 }
 loud=1
 
@@ -367,7 +388,7 @@ read_frontmatter "$note"
 if [ -n "$uid" ]; then
   note_uid=$(fm_value uid)
   if [ -n "$note_uid" ] && [ "$note_uid" != "$uid" ]; then
-    die "--uid '$uid' is not the note's own uid '$note_uid'; refusing rather than keying the wrong note"
+    loud=0; die "--uid '$uid' is not the note's own uid '$note_uid'; refusing rather than keying the wrong note"
   fi
 fi
 
@@ -435,7 +456,7 @@ fi
 command -v jq >/dev/null 2>&1     || die "jq is required"
 command -v claude >/dev/null 2>&1 || die "the claude CLI is required"
 listing=$(claude agents --json --all 2>/dev/null) || listing=""
-[ -n "$listing" ] || die "the session listing could not be read, so no notice can be addressed"
+[ -n "$listing" ] || { listing_failed=1; die "the session listing could not be read, so no notice can be addressed"; }
 
 # A FULL sessionId OR NOTHING. `wake-session.sh` refuses a short or empty id because `--resume ""` starts a
 # NEW session rather than continuing one, and a notice written under an empty id lands at `<dir>/.md`, which
