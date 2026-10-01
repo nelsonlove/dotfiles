@@ -24,7 +24,7 @@ if [[ ! -r "$HOST_FILE" ]]; then host_problem="$HOST_FILE is missing; create it 
 else host="$(head -n 1 "$HOST_FILE" | tr -d '[:space:]')"; [[ -n "$host" ]] || host_problem="$HOST_FILE is empty; put the endpoint's public hostname on its first line"; fi
 finish() {   # exit for every path after the check: a host problem turns a good run into a loud failure
   if [[ -n "$host_problem" ]]; then
-    "$NOTICE" vault-mcp-remote "vault-mcp-remote-update: private config missing" "$host_problem" || true
+    "$NOTICE" vault-mcp-remote-config "vault-mcp-remote-update: private config missing" "$host_problem" || true   # its own id, so it never replaces the drift notice
     fail "$host_problem"
   fi
   exit 0
@@ -51,7 +51,9 @@ git fetch --quiet origin main || fail "git fetch failed in $REPO — cannot chec
 n="$(git rev-list --count HEAD..origin/main)"
 if [[ "$n" -eq 0 ]]; then
   echo "$(stamp) vault-mcp proxy ($REPO) not behind origin/main — no notice"
-  [[ -f "$STATE_FILE" ]] && /usr/bin/trash "$STATE_FILE" 2>/dev/null   # clear so a future drift always gives notice again
+  if [[ -f "$STATE_FILE" ]] && ! /usr/bin/trash "$STATE_FILE" 2>/dev/null; then   # clear so a future drift always gives notice again
+    : > "$STATE_FILE" || echo "$(stamp) WARNING: could not clear $STATE_FILE" >&2
+  fi
   finish
 fi
 

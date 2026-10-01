@@ -36,6 +36,7 @@ new_case; ahead "two"; /usr/bin/trash "$C/cfg/public-hostname"; go
 check "no host file: exit 1" [ "$RC" = 1 ]; check "no host file: says which file" has "public-hostname is missing"
 check "no host file: the drift check still ran" grep -qF '1 behind' "$C/shown"
 check "no host file: a notice about the config" grep -qF 'private config missing' "$C/shown"
+check "no host file: the drift text is kept" grep -qF 'To update:' "$C/nstate/vault-mcp-remote/latest-notice.md"
 new_case; : > "$C/cfg/public-hostname"; go
 check "empty host file: exit 1" [ "$RC" = 1 ]
 new_case; mkplist "exec node /nonexistent/old-repo/packages/server/dist/front.js" "$C/agent.plist"; go
