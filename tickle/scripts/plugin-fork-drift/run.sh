@@ -9,7 +9,7 @@
 # meta-bind 4 behind (including a CodeMirror performance fix), tag-wrangler 1 behind,
 # and execute-code sitting on a detached HEAD. None of that was visible anywhere.
 #
-# This job restores the human gate. It fetches, reports, and pings the comms relay. It
+# This job restores the human gate. It fetches, reports, and shows a plain notice (_lib/notice.sh). It
 # never pulls, never rebases, never rebuilds, never touches the working tree. Rebasing a
 # fork can conflict (it did, in tag-wrangler, on manifest.json and versions.json), so it
 # stays a deliberate manual step.
@@ -36,31 +36,13 @@
 # an upstream nobody intends to track again.
 set -euo pipefail
 
-# ~/.local/bin is load-bearing: comms-send.sh (#!/bin/zsh) execs `pickle`, which lives
-# there. Matches comms-ping/ping.sh and vault-mcp-remote-update/run.sh.
-export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+NOTICE="$(cd "$(dirname "$0")/../_lib" && pwd -P)/notice.sh"
 
 REPO_ROOT="${REPO_ROOT:-$HOME/repos/system}"
 VAULT_PLUGINS="${VAULT_PLUGINS:-$HOME/obsidian/.obsidian/plugins}"
 STATE_DIR="${STATE_DIR:-$HOME/.local/state/plugin-fork-drift}"
 CONVENTION_BRANCH="${CONVENTION_BRANCH:-nl-main}"
-
-# comms-send moved when the repo tree was reorganised into ~/repos/system/. The sibling
-# jobs (vault-mcp-remote-update, task-curator) still hardcode the pre-move
-# ~/repos/agent-stack path, which does not exist on this machine — they are host-gated to
-# the MBP, so whether that path resolves there is unverified from here. Rather than assume
-# either layout, try the known candidates in order and fail loudly if none resolve.
-resolve_comms_send() {
-  if [[ -n "${COMMS_SEND:-}" ]]; then printf '%s\n' "$COMMS_SEND"; return 0; fi
-  local c
-  for c in \
-    "$HOME/repos/system/agent-stack/plugins/agent-approvals/skills/comms-send/comms-send.sh" \
-    "$HOME/repos/agent-stack/plugins/agent-approvals/skills/comms-send/comms-send.sh"
-  do
-    [[ -x "$c" ]] && { printf '%s\n' "$c"; return 0; }
-  done
-  return 1
-}
 
 # Host gating is by capability, not by hostname. This job is only meaningful on the
 # machine that actually holds both the vault and the checkouts, and that machine changes
@@ -195,21 +177,16 @@ Nothing was changed. To update one:
   # rebuild, then tag: git tag -a v<version> -m '<version>'
 A rebase rewrites nl-main, so pushing to the fork needs --force-with-lease."
 
-if ! COMMS="$(resolve_comms_send)"; then
-  echo "comms-send not found in any known location — notice not delivered" >&2
-  exit 1
-fi
-
-# Record state only on successful delivery, so a failed ping retries next run instead of
-# being marked as done and swallowed.
-if "$COMMS" --title "plugin forks: ${#lines[@]} need attention" --from plugin-fork-drift --message "$MSG" >/dev/null; then
+# A plain notice in place of the retired Pickle relay (Nelson's "A then", 2026-10-01). Record state only on a shown
+# notice, so a failed one retries next run instead of being marked as done and swallowed.
+if "$NOTICE" plugin-fork-drift "plugin forks: ${#lines[@]} need attention" "$MSG"; then
   mkdir -p "$STATE_DIR"
   for k in "${notify_keys[@]}"; do
     printf '%s\n' "${k#*|}" > "$STATE_DIR/${k%%|*}.rev"
   done
-  echo "notified via comms-send ($COMMS) and recorded ${#notify_keys[@]} rev(s)"
+  echo "notice shown and ${#notify_keys[@]} rev(s) recorded"
 else
-  echo "comms-send delivery failed — will retry next run" >&2
+  echo "the notice could not be shown — will retry next run" >&2
   exit 1
 fi
 
