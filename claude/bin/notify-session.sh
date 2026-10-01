@@ -31,7 +31,9 @@
 #
 # WHAT IT DOES, in order:
 #   1. resolves the note to an ABSOLUTE path, because the record carries it and a relative path means
-#      something different depending on where the verb was run from;
+#      something different depending on where the verb was run from; a relative path is tried under the vault
+#      root first (`NOTIFY_VAULT_DIR`, default `~/obsidian`; never for a path with `..`), then from the working
+#      directory;
 #   2. reads the FIRST `session:` entry from the note's frontmatter (a list or a scalar), through the shared block reader in
 #      `claude/lib/pause-flag.sh`; a free-text value and an ended lieutenant take the roads in THE DEDUPE AND THE AUDIENCE;
 #   3. resolves that display NAME to a live sessionId through `claude agents --json --all`, refusing a
@@ -41,7 +43,11 @@
 #   5. if that session is STOPPED, wakes it with `--by "human:nelson"`;
 #   6. if no session matches the name, notifies the CAPTAIN of the ship the note belongs to, the same way,
 #      and the captain dispatches — this script NEVER dispatches;
-#   7. writes one cross-session log entry per act, in RULING form: his words and the act they caused.
+#   7. writes one cross-session log entry per act, in RULING form: his words and the act they caused;
+#   8. if it must refuse AFTER its arguments are valid (no note, no frontmatter, no listing, a wrong uid), tells
+#      `[A0] rear admiral` by a notice (woken if stopped; once per failure), or, when the listing names no rear
+#      admiral, appends the failure to the Agent friction log (`NOTIFY_FRICTION_LOG`), then exits 2 — because
+#      the caller discards stderr, and on 2026-10-01 a revision request reached nobody that way.
 #
 # TWO CALLS WERE RULED BEFORE IT WAS BUILT, both in the queue note "Rule the two calls in the verified-item
 # notifier before it is built", ruled 2026-09-27 by `[A0] rear admiral` inside Nelson's "get it built":
@@ -209,6 +215,52 @@ if [ -n "$at" ]; then
 fi
 [ -n "$words" ] || words="(no words given)"
 
+# FROM HERE ON A FAILURE IS LOUD, not a line on stderr, which every caller discards. On 2026-10-01 at 16:17 the Request
+# revision verb called this script twice with a vault-relative path, both calls died with "no note at", and the only trace
+# was `verb-calls.log`: Nelson asked for a revision and no session heard of it. The arguments are valid by this point, so any
+# later refusal (no note, no frontmatter, no listing, a wrong uid, a missing library) means an act of his reached nobody.
+# `die` now tells the rear admiral: a notice on its file and a wake if it is stopped, once per failure (a repeat call that
+# finds the same line in the file adds nothing). If the listing cannot be read or names no rear admiral, the failure goes to
+# the Agent friction log, which needs no listing. A dry run only prints what it would do.
+FRICTION_LOG="${NOTIFY_FRICTION_LOG:-$AGENTS_DIR/03.04 Records/Agent friction log.md}"
+loud_done=0
+tf_told=""
+tell_failure() {  # $1 = the failure; sets tf_told
+  [ "$loud_done" = 0 ] || return 0
+  loud_done=1
+  tf_msg="notify-session could not deliver a \`$event\` alert for \`$note\`: $1 (uid ${uid:-none}; his words: $words). Nobody else was told; find the note and tell its filer."
+  if [ "$dry_run" = 1 ]; then printf 'DRY RUN would tell %s: %s\n' "$REAR_ADMIRAL" "$tf_msg"; tf_told="a dry run, so nobody was told"; return 0; fi
+  tf_row=$(claude agents --json --all 2>/dev/null \
+    | jq -r --arg n "$REAR_ADMIRAL" '[.[] | select(.name == $n)] | last // empty | [(.sessionId // ""), (.status // "stopped")] | @tsv' 2>/dev/null) || tf_row=""
+  tf_sid=$(printf '%s' "$tf_row" | cut -f1)
+  tf_status=$(printf '%s' "$tf_row" | cut -f2)
+  case "$tf_sid" in
+    ????????-????-????-????-????????????)
+      tf_file="$NOTICES_DIR/$tf_sid.md"
+      if grep -qF -- "- $tf_msg" "$tf_file" 2>/dev/null; then tf_told="the rear admiral already holds this notice"; return 0; fi
+      if mkdir -p "$NOTICES_DIR" 2>/dev/null && printf -- '- %s\n' "$tf_msg" >> "$tf_file" 2>/dev/null; then
+        case "$tf_status" in
+          busy|idle) tf_told="the rear admiral was told" ;;
+          *) if [ -x "$WAKE" ] && "$WAKE" --session "$tf_sid" --by "human:nelson" --why "notify-session failed: $1" \
+                 --message "$tf_msg" >/dev/null 2>&1; then tf_told="the rear admiral was told and woken"
+             else tf_told="the rear admiral was told, but it is stopped and the wake was refused"; fi ;;
+        esac
+        return 0
+      fi ;;
+  esac
+  if printf '\n## %s · notify-session\n\n%s The rear admiral could not be addressed from the session listing.\n' \
+       "$(date '+%Y-%m-%dT%H:%M')" "$tf_msg" >> "$FRICTION_LOG" 2>/dev/null; then
+    tf_told="the rear admiral could not be addressed, so the failure is in the Agent friction log"
+  else
+    tf_told="NOBODY could be told: no rear admiral in the listing and the friction log could not be written"
+  fi
+}
+die() {
+  tell_failure "$*"
+  printf '%s: %s%s\n' "$PROG" "$*" "${tf_told:+; $tf_told}" >&2
+  exit 2
+}
+
 # THE UID AND THE SIGNAL. A `uid` holds only the characters a uid has, because it goes into the key verbatim.
 if [ -n "$uid" ]; then
   case "$uid" in
@@ -253,32 +305,19 @@ if already_sent; then
   exit 0
 fi
 
-# A FAILURE HERE IS LOUD, not a line in a log nobody reads. On 2026-10-01 the Request revision verb called this script twice
-# with a vault-relative path, both calls died with "no note at", and the only trace was `verb-calls.log`: Nelson asked for a
-# revision and no session heard of it. So a note that cannot be found tells the rear admiral by a notice, then dies.
-die_loud() {  # $1 = the failure
-  dl_msg="notify-session could not deliver a \`$event\` alert: $1 (uid ${uid:-none}; his words: ${words:-none}). Nobody else was told; find the note and tell its filer."
-  if [ "$dry_run" = 1 ]; then printf 'DRY RUN would tell %s: %s\n' "$REAR_ADMIRAL" "$dl_msg"; die "$1"; fi
-  dl_sid=$(claude agents --json --all 2>/dev/null | jq -r --arg n "$REAR_ADMIRAL" '[.[] | select(.name == $n) | .sessionId] | last // empty' 2>/dev/null) || dl_sid=""
-  case "$dl_sid" in
-    ????????-????-????-????-????????????)
-      if mkdir -p "$NOTICES_DIR" 2>/dev/null && printf -- '- %s\n' "$dl_msg" >> "$NOTICES_DIR/$dl_sid.md" 2>/dev/null; then
-        die "$1; the rear admiral was told"
-      fi ;;
-  esac
-  die "$1; the rear admiral could not be told either"
-}
-
-# A VAULT-RELATIVE PATH IS RESOLVED AGAINST THE VAULT ROOT. The verbs pass the note's path as Obsidian knows it
-# (`00-09 System/…`), and this script runs from wherever the caller stands, which is not always the vault. A path that
-# exists from the working directory keeps that meaning; only one that does not is tried under the vault.
-if [ ! -e "$note" ]; then
-  case "$note" in
-    /*) ;;
-    *) [ -e "$VAULT_DIR/$note" ] && note="$VAULT_DIR/$note" ;;
-  esac
-fi
-[ -e "$note" ] || die_loud "no note at '$note' (also tried under $VAULT_DIR)"
+# A VAULT-RELATIVE PATH IS RESOLVED AGAINST THE VAULT ROOT FIRST. The verbs pass the note's path as Obsidian knows it
+# (`00-09 System/…`), and this script runs from wherever the caller stands, which is not always the vault; a second tree with
+# the same layout (`~/obsidian-mobile`, a backup checkout) must not win just because the caller stood in it. So a relative path
+# is tried under the vault root first and from the working directory second. A path with a `..` segment is never joined to
+# the vault root, so it cannot climb out of it; a leading `~/` is the home directory, as a shell would read it.
+case "$note" in
+  "~/"*) note="$HOME/${note#"~/"}" ;;
+esac
+case "$note" in
+  /*|..|../*|*/../*|*/..) ;;
+  *) [ -e "$VAULT_DIR/$note" ] && note="$VAULT_DIR/$note" ;;
+esac
+[ -e "$note" ] || die "no note at '$note' (a relative path is tried under $VAULT_DIR, then from $(pwd -P))"
 # THE PATH IS RESOLVED BEFORE ANYTHING READS IT. The ship map matches on leading path segments, so a relative
 # path fell through every arm and went to the rear admiral — and the verb's working directory is the vault
 # root often enough for that to be the common case, not a corner. The record keeps the resolved path too: a

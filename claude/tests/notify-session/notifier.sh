@@ -41,6 +41,9 @@ export NOTIFY_WAKE_SCRIPT="$TMP/fake-wake.sh"
 # ended lieutenant's entry) are temp directories, so this suite never reads the fleet's notebook or writes the real state.
 export NOTIFY_STATE_DIR="$TMP/state"
 export NOTIFY_AGENTS_DIR="$TMP/agents"
+# The failure road (a notice to the rear admiral, else the friction log) and the vault root are sealed too.
+export NOTIFY_FRICTION_LOG="$TMP/friction.md"
+export NOTIFY_VAULT_DIR="$TMP/vault"
 : > "$NOTIFY_FLEET_LOG"
 mkdir -p "$NOTIFY_NOTICES_DIR"
 cat > "$NOTIFY_WAKE_SCRIPT" <<'FAKE'
@@ -302,17 +305,37 @@ in_log "no match: the record says the captain dispatches" "the captain dispatche
 # A VAULT-RELATIVE PATH IS FOUND UNDER THE VAULT ROOT — the 2026-10-01 bug: the Request revision verb passed
 # `00-09 System/…/<note>.md`, the script ran from elsewhere, and it died with "no note at". Run from a directory
 # where the relative path does NOT exist, so only the vault-root road can find it.
-export NOTIFY_VAULT_DIR="$TMP/vault"
 mkdir -p "$NOTIFY_VAULT_DIR/00-09 System/01 Sub dir" "$TMP/elsewhere"
 REL="00-09 System/01 Sub dir/vault relative.md"
 printf -- '---\ntype: Task\nsession: "[L0-CC] running one"\nstatus: verified\n---\n' > "$NOTIFY_VAULT_DIR/$REL"
-stub_listing "[{\"id\":\"aaa1\",\"sessionId\":\"$SID_A\",\"name\":\"[L0-CC] running one\",\"status\":\"idle\"}]"
+stub_listing "[{\"id\":\"aaa1\",\"sessionId\":\"$SID_A\",\"name\":\"[L0-CC] running one\",\"status\":\"idle\"},{\"id\":\"bbb1\",\"sessionId\":\"$SID_B\",\"name\":\"[L0-CC] decoy\",\"status\":\"idle\"}]"
 : > "$NOTIFY_NOTICES_DIR/$SID_A.md"
 out=$(cd "$TMP/elsewhere" && run_stubbed "$REL")
 if [ -s "$NOTIFY_NOTICES_DIR/$SID_A.md" ]; then pass "a vault-relative path: the note is found and its filer told"
 else fail "a vault-relative path: the note is found and its filer told" "$out"; fi
 
-# A NOTE THAT CANNOT BE FOUND IS LOUD: the rear admiral gets a notice, not just a line on stderr.
+# THE VAULT WINS over a copy of the same tree under the working directory (a second vault, a backup checkout).
+mkdir -p "$TMP/elsewhere/00-09 System/01 Sub dir"
+printf -- '---\ntype: Task\nsession: "[L0-CC] decoy"\nstatus: verified\n---\n' > "$TMP/elsewhere/$REL"
+: > "$NOTIFY_NOTICES_DIR/$SID_A.md"; : > "$NOTIFY_NOTICES_DIR/$SID_B.md"
+out=$(cd "$TMP/elsewhere" && run_stubbed "$REL" --uid vault-wins)
+if [ -s "$NOTIFY_NOTICES_DIR/$SID_A.md" ] && [ ! -s "$NOTIFY_NOTICES_DIR/$SID_B.md" ]; then pass "a vault-relative path: the vault copy wins over the working directory's"
+else fail "a vault-relative path: the vault copy wins over the working directory's" "$out"; fi
+
+# A `..` PATH IS NEVER JOINED TO THE VAULT ROOT, so it cannot climb out of it.
+mkdir -p "$TMP/outside"
+printf -- '---\ntype: Task\nsession: "[L0-CC] running one"\nstatus: verified\n---\n' > "$TMP/outside/climb.md"
+# Run from a directory where `../outside` does NOT exist, so only a join to the vault root ($TMP/vault/../outside) could
+# find the note; the script must refuse instead, and the filer must hear nothing.
+mkdir -p "$TMP/elsewhere/deep"
+: > "$NOTIFY_NOTICES_DIR/$SID_A.md"
+stub_listing "[{\"id\":\"aaa1\",\"sessionId\":\"$SID_A\",\"name\":\"[L0-CC] running one\",\"status\":\"idle\"}]"
+out=$(cd "$TMP/elsewhere/deep" && run_stubbed "../outside/climb.md" 2>&1)
+rc=$?
+if [ "$rc" != 0 ] && [ ! -s "$NOTIFY_NOTICES_DIR/$SID_A.md" ]; then pass "a '..' path is not joined to the vault root"
+else fail "a '..' path is not joined to the vault root" "rc=$rc $out"; fi
+
+# A NOTE THAT CANNOT BE FOUND IS LOUD: the rear admiral gets a notice, not just a line on stderr — once.
 stub_listing "[{\"id\":\"cap1\",\"sessionId\":\"$CAPSID\",\"name\":\"[A0] rear admiral\",\"status\":\"idle\"}]"
 : > "$NOTIFY_NOTICES_DIR/$CAPSID.md"
 out=$(cd "$TMP/elsewhere" && run_stubbed "00-09 System/no such note.md")
@@ -320,7 +343,32 @@ rc=$?
 if [ "$rc" != 0 ]; then pass "a missing note: the script still fails"; else fail "a missing note: the script still fails" "exit 0"; fi
 if grep -q 'no note at' "$NOTIFY_NOTICES_DIR/$CAPSID.md" 2>/dev/null; then pass "a missing note: the rear admiral gets a notice"
 else fail "a missing note: the rear admiral gets a notice" "$out"; fi
-unset NOTIFY_VAULT_DIR
+out=$(cd "$TMP/elsewhere" && run_stubbed "00-09 System/no such note.md")
+if [ "$(grep -c 'no note at' "$NOTIFY_NOTICES_DIR/$CAPSID.md")" = 1 ]; then pass "a missing note: a repeat call adds no second notice"
+else fail "a missing note: a repeat call adds no second notice" "$(grep -c 'no note at' "$NOTIFY_NOTICES_DIR/$CAPSID.md") notices"; fi
+
+# A STOPPED REAR ADMIRAL IS WOKEN for a failure, as for any notice.
+stub_listing "[{\"id\":\"cap1\",\"sessionId\":\"$CAPSID\",\"name\":\"[A0] rear admiral\",\"status\":null}]"
+: > "$TMP/wake-calls.log"
+out=$(cd "$TMP/elsewhere" && run_stubbed "00-09 System/another missing note.md")
+if grep -q -- "--session $CAPSID" "$TMP/wake-calls.log" 2>/dev/null; then pass "a missing note: a stopped rear admiral is woken"
+else fail "a missing note: a stopped rear admiral is woken" "$out"; fi
+
+# NO REAR ADMIRAL IN THE LISTING: the failure goes to the friction log, which needs no listing.
+stub_listing "[]"
+: > "$NOTIFY_FRICTION_LOG"
+out=$(cd "$TMP/elsewhere" && run_stubbed "00-09 System/a third missing note.md")
+if grep -q 'a third missing note' "$NOTIFY_FRICTION_LOG" 2>/dev/null; then pass "a missing note, no rear admiral: the friction log gets it"
+else fail "a missing note, no rear admiral: the friction log gets it" "$out"; fi
+
+# A DRY RUN writes no notice and no friction entry; it only prints.
+stub_listing "[{\"id\":\"cap1\",\"sessionId\":\"$CAPSID\",\"name\":\"[A0] rear admiral\",\"status\":\"idle\"}]"
+: > "$NOTIFY_NOTICES_DIR/$CAPSID.md"; : > "$NOTIFY_FRICTION_LOG"
+out=$(cd "$TMP/elsewhere" && run_stubbed "00-09 System/dry missing note.md" --dry-run)
+if [ ! -s "$NOTIFY_NOTICES_DIR/$CAPSID.md" ] && [ ! -s "$NOTIFY_FRICTION_LOG" ]; then pass "a missing note, dry run: nothing is written"
+else fail "a missing note, dry run: nothing is written" "a file was written"; fi
+case "$out" in *"DRY RUN would tell"*) pass "a missing note, dry run: it prints what it would do" ;; *) fail "a missing note, dry run: it prints what it would do" "$out" ;; esac
+
 
 # A CAPTAIN THAT IS NOT IN THE LISTING falls back to the floating default — finding 7. The old script logged
 # "nobody was told" and never tried the fallback, although a captain with no row cannot be woken either.
