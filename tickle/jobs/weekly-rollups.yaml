@@ -14,4 +14,4 @@ triggers:
 
 run:
   command: ["@config/scripts/weekly-rollups/run.sh"]
-  timeout: 15m   # above the worst case: 60 s per claude call, 12 calls, 27 s of confirm naps
+  timeout: 15m   # above the worst case: gate 60 s, listing 60 s, dispatch 180 s, 10 confirm listings of 20 s, 27 s of naps (527 s)

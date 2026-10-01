@@ -48,16 +48,21 @@ case "$1" in
   --bg)
     pwd > "$S/bg_cwd"
     shift; while [ "$#" -gt 1 ]; do shift; done; printf '%s' "$1" > "$S/bg_prompt"
-    case "$(cat "$S/bg_registers")" in
+    # A failed dispatch registers nothing, unless the case says it registered late (the alarm killed the CLI after the session started).
+    reg=$(cat "$S/bg_registers"); [ "$(cat "$S/bg_rc")" = 0 ] || [ -f "$S/late" ] || reg=none
+    case "$reg" in
       1) echo '[{"id":"deadbeef","name":"[L0-OB] weekly rollups 2026-W40","pid":1,"status":"busy","state":"working"}]' > "$S/agents.json" ;;
       other) echo '[{"id":"cafef00d","name":"[L0-OB] weekly rollups 2026-W40","pid":2,"status":"busy","state":"working"}]' > "$S/agents.json" ;;
     esac
-    if [ "$(cat "$S/bg_registers")" = noid ]; then printf 'started\n\033[31msecond line\033[0m\n'; else echo "backgrounded session deadbeef"; fi
+    if [ "$(cat "$S/bg_registers")" = noid ]; then printf 'started\n\033[31msecond line\033[0m\n'; else printf 'backgrounded \302\267 \033[36mdeadbeef\033[39m \302\267 [L0-OB] weekly rollups 2026-W40\n'; fi
     exit "$(cat "$S/bg_rc")" ;;
 esac
 exit 0
 STUB
   chmod +x "$S/claude"
+  echo 0 > "$S/gate_rc"
+  echo "" > "$S/gate_line"
+  printf 'fleet_gate_check() { local rc; rc=$(cat "%s/gate_rc"); FLEET_GATE_VERDICT=$(cat "%s/gate_line"); return "$rc"; }\n' "$S" "$S" > "$S/fleet-gate.sh"
 }
 
 # go [args...]: run the job in a launchd-like environment. Sets OUT and RC.
@@ -65,7 +70,7 @@ go() {
   OUT=$(env -i HOME="$C" USER=nelson LOGNAME=nelson PATH=/usr/bin:/bin:/usr/sbin:/sbin TMPDIR=/tmp \
         ANTHROPIC_API_KEY=sk-test-should-be-unset \
         WR_VAULT="$V" WR_CLAUDE="$S/claude" WR_DISPATCH_CWD="$C/dotfiles" WR_CLAUDE_JSON="$C/claude.json" \
-        WR_LOADAVG="${LOAD:-1.00}" WR_LOCK="${LOCKPATH:-$C/lock/run.lock}" WR_TEST_DAEMON_KEY_PIDS="${KEYED:-}" WR_CLAUDE_TIMEOUT="${WR_CLAUDE_TIMEOUT:-60}" WR_CONFIRM_TRIES=2 WR_CONFIRM_SLEEP=0 PAUSE_NOTE="$C/Pause.md" \
+        WR_FLEET_GATE_LIB="$S/fleet-gate.sh" WR_LOCK="${LOCKPATH:-$C/lock/run.lock}" WR_TEST_DAEMON_KEY_PIDS="${KEYED:-}" WR_CLAUDE_TIMEOUT="${WR_CLAUDE_TIMEOUT:-60}" WR_CONFIRM_TRIES=2 WR_CONFIRM_SLEEP=0 PAUSE_NOTE="$C/Pause.md" \
         /bin/bash "$RUN" "$@" 2>&1)
   RC=$?
 }
@@ -120,10 +125,12 @@ new_case; printf 'no frontmatter\n' > "$C/Pause.md"; go --week 2026-W40
 check "pause bad: exit 2" [ "$RC" = 2 ]; check "pause bad: no dispatch" not_dispatched
 
 # 5. Load gate: 10.00 skips, 9.99 runs.
-new_case; LOAD=10.00 go --week 2026-W40
-check "load 10: exit 0" [ "$RC" = 0 ]; check "load 10: reason" out_has "load 10.00 is 10 or more"; check "load 10: no dispatch" not_dispatched
-new_case; LOAD=9.99 go --week 2026-W40
-check "load 9.99: dispatched" dispatched
+new_case; echo 1 > "$S/gate_rc"; echo "fleet-gate: 5-min load 9.1 (limit 8), 3 live sessions (limit 20); holding" > "$S/gate_line"; go --week 2026-W40
+check "gate holding: exit 0" [ "$RC" = 0 ]; check "gate holding: its line" out_has "5-min load 9.1 (limit 8)"; check "gate holding: no dispatch" not_dispatched
+new_case; echo 1 > "$S/gate_rc"; echo "fleet-gate: the session listing could not be read (claude agents --json failed); holding" > "$S/gate_line"; go --week 2026-W40
+check "gate cannot check: exit 2" [ "$RC" = 2 ]; check "gate cannot check: no dispatch" not_dispatched; check "gate cannot check: says so" out_has "could not check"
+new_case; go --week 2026-W40
+check "gate open: dispatched" dispatched
 
 # 6. Previous week missing: ONE queue item, dispatch goes on; a second run files no second item.
 new_case; /usr/bin/trash "$XS/Cross-session rollup for 2026-W39.md"; go --week 2026-W40
@@ -233,7 +240,7 @@ check "untrusted: exit 2" [ "$RC" = 2 ]; check "untrusted: no dispatch" not_disp
 new_case; echo other > "$S/bg_registers"; go --week 2026-W40
 check "other id: exit 4" [ "$RC" = 4 ]
 new_case; echo noid > "$S/bg_registers"; go --week 2026-W40
-check "no id: exit 4" [ "$RC" = 4 ]; check "no id: queue item" grep -qF 'backgrounded <id>' "$Q/Weekly rollup not started 2026-W40.md"
+check "no id: exit 4" [ "$RC" = 4 ]; check "no id: queue item" grep -qF 'no session id the shared parser could read' "$Q/Weekly rollup not started 2026-W40.md"
 
 # 10f. Guard 3 settles an open "not started" item once the week's rollups exist.
 new_case; echo 1 > "$S/bg_rc"; go --week 2026-W40; : > "$NB/Agent rollup for 2026-W40.md"; : > "$XS/Cross-session rollup for 2026-W40.md"; go --week 2026-W40
@@ -260,7 +267,7 @@ check "lock unusable: exit 2" [ "$RC" = 2 ]; check "lock unusable: says so" out_
 # 10j. A multi-line cause is recorded on one line; the item keeps its file mode.
 new_case; echo noid > "$S/bg_registers"; go --week 2026-W40; chmod 644 "$Q/Weekly rollup not started 2026-W40.md"
 echo '[]' > "$S/agents.json"; go --week 2026-W40
-check "multi-line cause: recorded" grep -qF 'Output: started second line' "$Q/Weekly rollup not started 2026-W40.md"
+check "multi-line cause: recorded" grep -qF 'started second line' "$Q/Weekly rollup not started 2026-W40.md"
 check "mode kept" [ "$(stat -f %Lp "$Q/Weekly rollup not started 2026-W40.md")" = 644 ]
 
 # 10k. Guard 5 settles last week's open item once last week's rollups exist; a dated item is settled too.
@@ -343,6 +350,45 @@ new_case; echo 1 > "$S/bg_rc"; go --week 2026-W40
 sed -i '' 's|^status: draft/proposed$|status: archived|' "$Q/Weekly rollup not started 2026-W40.md"
 cp "$Q/Weekly rollup not started 2026-W40.md" "$C/bare.bak"; echo '[]' > "$S/agents.json"; go --week 2026-W40
 check "bare archived: untouched" cmp -s "$C/bare.bak" "$Q/Weekly rollup not started 2026-W40.md"; check "bare archived: dated item" [ "$(dated_count)" = 1 ]
+
+# 10x. A dispatch that fails after the session registered (the alarm) is taken as started, not "not started".
+new_case; echo 142 > "$S/bg_rc"; : > "$S/late"; go --week 2026-W40
+check "late: exit 0" [ "$RC" = 0 ]; check "late: said so" out_has "taken as started"; check "late: no item" [ "$(queue_count)" = 0 ]
+# A dispatch killed by the alarm (it printed deadbeef) while a HAND dispatch of the same name is listed as cafef00d: never confirmed by name.
+new_case; echo 142 > "$S/bg_rc"; : > "$S/late"; echo other > "$S/bg_registers"; go --week 2026-W40
+check "hand race: exit 4" [ "$RC" = 4 ]; check "hand race: not started filed" grep -qF 'printed session deadbeef' "$Q/Weekly rollup not started 2026-W40.md"
+# A failed dispatch that printed no id: the item carries the parser's reason.
+new_case; echo 1 > "$S/bg_rc"; echo noid > "$S/bg_registers"; go --week 2026-W40
+check "no id after a failure: exit 4" [ "$RC" = 4 ]
+check "no id after a failure: parser's reason" grep -qF 'no id in the claude --bg output' "$Q/Weekly rollup not started 2026-W40.md"
+
+# 10aa. A complete week reruns without the session listing (no claude call on the quiet skip).
+new_case; : > "$NB/Agent rollup for 2026-W40.md"; : > "$XS/Cross-session rollup for 2026-W40.md"; echo 1 > "$S/agents_rc"; go --week 2026-W40
+check "quiet skip: exit 0" [ "$RC" = 0 ]; check "quiet skip: no listing" bash -c "! grep -q '^agents' '$S/calls' 2>/dev/null"
+
+# 10bb. A CRLF item is still settled.
+new_case; echo 1 > "$S/bg_rc"; go --week 2026-W40; f="$Q/Weekly rollup not started 2026-W40.md"; sed -i '' 's/$/\r/' "$f"
+echo 0 > "$S/bg_rc"; echo '[]' > "$S/agents.json"; go --week 2026-W40
+check "crlf: settled" grep -qx 'needs: nothing' "$f"
+
+# 10y. Frontmatter only: body text never makes an item ours, closed, or settled.
+new_case; echo 1 > "$S/bg_rc"; go --week 2026-W40
+printf '\nstatus: archived/done\nneeds: nothing\n' >> "$Q/Weekly rollup not started 2026-W40.md"
+echo 2 > "$S/bg_rc"; echo '[]' > "$S/agents.json"; go --week 2026-W40
+check "body status ignored: still open, cause added" grep -qF 'Failed again: `claude --bg` exited 2' "$Q/Weekly rollup not started 2026-W40.md"
+check "body status ignored: no dated item" [ "$(dated_count)" = 0 ]
+new_case; printf -- '---\ntitle: x\nstatus: draft/proposed\nneeds: ruling\n---\n\n## Response\n\n  by: "tickle weekly-rollups"\n' > "$Q/Weekly rollup not started 2026-W40.md"
+cp "$Q/Weekly rollup not started 2026-W40.md" "$C/theirs2.bak"; echo 1 > "$S/bg_rc"; go --week 2026-W40
+check "body by: not ours" cmp -s "$C/theirs2.bak" "$Q/Weekly rollup not started 2026-W40.md"
+
+# 10z. A missing needs key is added; our own dated item wins over a foreign open item.
+new_case; echo 1 > "$S/bg_rc"; go --week 2026-W40; sed -i '' '/^needs:/d' "$Q/Weekly rollup not started 2026-W40.md"
+echo 0 > "$S/bg_rc"; echo '[]' > "$S/agents.json"; go --week 2026-W40
+check "needs added" grep -qx 'needs: nothing' "$Q/Weekly rollup not started 2026-W40.md"
+new_case; printf -- '---\ntitle: x\nstatus: draft/proposed\nneeds: ruling\n---\n\n## Response\n' > "$Q/Weekly rollup not started 2026-W40.md"
+echo 1 > "$S/bg_rc"; go --week 2026-W40; echo 3 > "$S/bg_rc"; echo '[]' > "$S/agents.json"; go --week 2026-W40
+check "own dated item takes the cause" grep -qF 'exited 3' "$Q/Weekly rollup not started 2026-W40 (again $(date +%Y-%m-%d)).md"
+check "still one dated item" [ "$(dated_count)" = 1 ]
 
 # 11. Week arithmetic and bad input.
 new_case; go --dry-run --week 2027-W01
