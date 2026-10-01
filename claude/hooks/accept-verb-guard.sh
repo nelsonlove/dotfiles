@@ -101,7 +101,7 @@
 #
 # NO ALLOW-LIST AND NO ID LIST, because the question was measured rather than guessed. A read-only survey
 # found thirteen real call sites and not one is a session's tool call: a scheduled tickle job
-# (tickle/scripts/vault-skills-export/export.sh:21), seven Alfred workflow scripts and an AppleScript
+# (tickle/scripts/vault-skills-export/export.sh:21 at f06c3d8; retired by #113, and already a no-op: it called `vault-skills:export`, but the plugin is `vaultmcp-skills`), seven Alfred workflow scripts and an AppleScript
 # action fired at a hotkey, the decision panel's `executeChoice` driven by a meta-bind button Nelson
 # clicks, and a self-test command inside Obsidian. Every one is a schedule, a hotkey or Nelson clicking,
 # and none passes through any PreToolUse hook, which sees only a session's tool calls. Three surfaces exist
