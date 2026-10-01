@@ -346,6 +346,18 @@ else fail "a missing note: the rear admiral gets a notice" "$out"; fi
 out=$(cd "$TMP/elsewhere" && run_stubbed "00-09 System/no such note.md")
 if [ "$(grep -c 'no note at' "$NOTIFY_NOTICES_DIR/$CAPSID.md")" = 1 ]; then pass "a missing note: a repeat call adds no second notice"
 else fail "a missing note: a repeat call adds no second notice" "$(grep -c 'no note at' "$NOTIFY_NOTICES_DIR/$CAPSID.md") notices"; fi
+# AND AFTER THE REAR ADMIRAL HAS READ AND CLEARED IT (the hook deletes the file), a repeat from another directory still adds
+# nothing: the key lives in the state file, not in the notice.
+: > "$NOTIFY_NOTICES_DIR/$CAPSID.md"
+mkdir -p "$TMP/elsewhere/deep"
+out=$(cd "$TMP/elsewhere/deep" && run_stubbed "00-09 System/no such note.md")
+if [ ! -s "$NOTIFY_NOTICES_DIR/$CAPSID.md" ]; then pass "a missing note: a repeat after the notice was cleared adds nothing"
+else fail "a missing note: a repeat after the notice was cleared adds nothing" "a second notice was written"; fi
+# WORDS WITH A BLANK LINE are carried, not used as a pattern, so another pending notice cannot swallow the failure.
+printf -- '- an unrelated pending notice\n' > "$NOTIFY_NOTICES_DIR/$CAPSID.md"
+out=$(cd "$TMP/elsewhere" && PATH="$STUBBIN:$PATH" "$NOTIFY" --note "00-09 System/blank words note.md" --event verified --at 2026-09-27T14:05 --words "$(printf 'first paragraph\n\nsecond paragraph')" 2>&1)
+if grep -q 'blank words note' "$NOTIFY_NOTICES_DIR/$CAPSID.md" 2>/dev/null; then pass "a missing note: words with a blank line do not swallow the failure"
+else fail "a missing note: words with a blank line do not swallow the failure" "$out"; fi
 
 # A STOPPED REAR ADMIRAL IS WOKEN for a failure, as for any notice.
 stub_listing "[{\"id\":\"cap1\",\"sessionId\":\"$CAPSID\",\"name\":\"[A0] rear admiral\",\"status\":null}]"

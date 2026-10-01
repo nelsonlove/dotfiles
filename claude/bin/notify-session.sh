@@ -90,7 +90,8 @@
 # it was — a captain the caller named, or the default because none was given.
 #
 # WHAT IT NEVER DOES: dispatch a session; invoke an accept verb (it is told that one happened, which is the
-# opposite); write to the vault except the one cross-session log entry; or fail a verb. `--dry-run` prints
+# opposite); write to the vault except the one cross-session log entry, or, on the failure road of step 8 when no
+# rear admiral can be addressed, one Agent friction log entry; or fail a verb. `--dry-run` prints
 # every act it would take and touches nothing, which is how its battery runs.
 #
 # THE DEDUPE AND THE AUDIENCE, added on Nelson's "a" (all four picks), 2026-09-30, on `01.65 Operator's console/Tell the
@@ -167,7 +168,15 @@ AGENTS_DIR="${NOTIFY_AGENTS_DIR:-$HOME/obsidian/00-09 System/03 Agents}"
 # The vault root, for a vault-relative `--note`. `NOTIFY_VAULT_DIR` moves it, for the battery.
 VAULT_DIR="${NOTIFY_VAULT_DIR:-$HOME/obsidian}"
 
-die() { printf '%s: %s\n' "$PROG" "$*" >&2; exit 2; }
+# ONE `die`, and a flag that makes it loud. Quiet while the arguments are checked (a caller's misuse is the caller's bug, and
+# must not page an admiral on every click); loud from the line that sets `loud=1`, below, once every argument is valid. See
+# FROM HERE ON A FAILURE IS LOUD.
+loud=0
+die() {
+  [ "$loud" = 1 ] && tell_failure "$*"
+  printf '%s: %s%s\n' "$PROG" "$*" "${tf_told:+; $tf_told}" >&2
+  exit 2
+}
 
 note="" event="" at="" words="" captain="" dry_run=0 uid="" signal="" signal_given=0
 while [ $# -gt 0 ]; do
@@ -215,52 +224,6 @@ if [ -n "$at" ]; then
 fi
 [ -n "$words" ] || words="(no words given)"
 
-# FROM HERE ON A FAILURE IS LOUD, not a line on stderr, which every caller discards. On 2026-10-01 at 16:17 the Request
-# revision verb called this script twice with a vault-relative path, both calls died with "no note at", and the only trace
-# was `verb-calls.log`: Nelson asked for a revision and no session heard of it. The arguments are valid by this point, so any
-# later refusal (no note, no frontmatter, no listing, a wrong uid, a missing library) means an act of his reached nobody.
-# `die` now tells the rear admiral: a notice on its file and a wake if it is stopped, once per failure (a repeat call that
-# finds the same line in the file adds nothing). If the listing cannot be read or names no rear admiral, the failure goes to
-# the Agent friction log, which needs no listing. A dry run only prints what it would do.
-FRICTION_LOG="${NOTIFY_FRICTION_LOG:-$AGENTS_DIR/03.04 Records/Agent friction log.md}"
-loud_done=0
-tf_told=""
-tell_failure() {  # $1 = the failure; sets tf_told
-  [ "$loud_done" = 0 ] || return 0
-  loud_done=1
-  tf_msg="notify-session could not deliver a \`$event\` alert for \`$note\`: $1 (uid ${uid:-none}; his words: $words). Nobody else was told; find the note and tell its filer."
-  if [ "$dry_run" = 1 ]; then printf 'DRY RUN would tell %s: %s\n' "$REAR_ADMIRAL" "$tf_msg"; tf_told="a dry run, so nobody was told"; return 0; fi
-  tf_row=$(claude agents --json --all 2>/dev/null \
-    | jq -r --arg n "$REAR_ADMIRAL" '[.[] | select(.name == $n)] | last // empty | [(.sessionId // ""), (.status // "stopped")] | @tsv' 2>/dev/null) || tf_row=""
-  tf_sid=$(printf '%s' "$tf_row" | cut -f1)
-  tf_status=$(printf '%s' "$tf_row" | cut -f2)
-  case "$tf_sid" in
-    ????????-????-????-????-????????????)
-      tf_file="$NOTICES_DIR/$tf_sid.md"
-      if grep -qF -- "- $tf_msg" "$tf_file" 2>/dev/null; then tf_told="the rear admiral already holds this notice"; return 0; fi
-      if mkdir -p "$NOTICES_DIR" 2>/dev/null && printf -- '- %s\n' "$tf_msg" >> "$tf_file" 2>/dev/null; then
-        case "$tf_status" in
-          busy|idle) tf_told="the rear admiral was told" ;;
-          *) if [ -x "$WAKE" ] && "$WAKE" --session "$tf_sid" --by "human:nelson" --why "notify-session failed: $1" \
-                 --message "$tf_msg" >/dev/null 2>&1; then tf_told="the rear admiral was told and woken"
-             else tf_told="the rear admiral was told, but it is stopped and the wake was refused"; fi ;;
-        esac
-        return 0
-      fi ;;
-  esac
-  if printf '\n## %s · notify-session\n\n%s The rear admiral could not be addressed from the session listing.\n' \
-       "$(date '+%Y-%m-%dT%H:%M')" "$tf_msg" >> "$FRICTION_LOG" 2>/dev/null; then
-    tf_told="the rear admiral could not be addressed, so the failure is in the Agent friction log"
-  else
-    tf_told="NOBODY could be told: no rear admiral in the listing and the friction log could not be written"
-  fi
-}
-die() {
-  tell_failure "$*"
-  printf '%s: %s%s\n' "$PROG" "$*" "${tf_told:+; $tf_told}" >&2
-  exit 2
-}
-
 # THE UID AND THE SIGNAL. A `uid` holds only the characters a uid has, because it goes into the key verbatim.
 if [ -n "$uid" ]; then
   case "$uid" in
@@ -296,6 +259,64 @@ if [ -n "$uid" ]; then
   esac
 fi
 
+# FROM HERE ON A FAILURE IS LOUD, not a line on stderr, which every caller discards. On 2026-10-01 at 16:17 the Request
+# revision verb called this script twice with a vault-relative path, both calls died with "no note at", and the only trace
+# was `verb-calls.log`: Nelson asked for a revision and no session heard of it. Every argument is valid by this line, so any
+# later refusal (no note, no frontmatter, no listing, a wrong uid, a missing library) means an act of his reached nobody.
+# `die` now tells the rear admiral: a notice on its file and a wake if it is stopped. ONCE PER FAILURE, keyed in the same
+# state file as the alerts (`$SENT`): the key is a hash of the event, the note as the caller gave it, the uid, the alert key
+# and the reason, so two roads reporting one failure (the verb and the listener) give one notice, even after the rear admiral
+# has read and cleared the first. If the listing names no rear admiral, or its notice cannot be written, the failure goes to
+# the Agent friction log, which needs no listing. A dry run only prints what it would do.
+#
+# THE WAKE IS `--by "human:nelson"`, as the alert wake is, because only that identity may wake an admiral, and the act that
+# failed was his click. So the notice says first that it is NOT a ruling, which the injecting hook's preamble would suggest.
+FRICTION_LOG="${NOTIFY_FRICTION_LOG:-$AGENTS_DIR/03.04 Records/Agent friction log.md}"
+note_given="$note"
+tf_told=""
+tell_failure() {  # $1 = the failure; sets tf_told
+  loud=0   # once: a failure inside this function must not call it again
+  tf_msg="NOT A RULING: a script failure after his click. notify-session could not deliver a \`$event\` alert for \`$note_given\`: $1 (uid ${uid:-none}; his words: $words). Nobody else was told; find the note and tell its filer."
+  if [ "$dry_run" = 1 ]; then printf 'DRY RUN would tell %s: %s\n' "$REAR_ADMIRAL" "$tf_msg"; tf_told="a dry run, so nobody was told"; return 0; fi
+  tf_key="fail|$(printf '%s\n' "$event" "$note_given" "$uid" "$key" "$1" | shasum -a 256 2>/dev/null | cut -c1-64)"
+  if [ -f "$SENT" ] && grep -qF "\"key\":\"$tf_key\"" "$SENT" 2>/dev/null; then
+    tf_told="this failure was already reported"; return 0
+  fi
+  tf_why="the session listing names no usable \`$REAR_ADMIRAL\`"
+  tf_row=$(claude agents --json --all 2>/dev/null \
+    | jq -r --arg n "$REAR_ADMIRAL" '[.[] | select(.name == $n)] | last // empty | [(.sessionId // ""), (.status // "stopped")] | @tsv' 2>/dev/null) || tf_row=""
+  tf_sid=$(printf '%s' "$tf_row" | cut -f1)
+  tf_status=$(printf '%s' "$tf_row" | cut -f2)
+  tf_done=0
+  case "$tf_sid" in
+    ????????-????-????-????-????????????)
+      if mkdir -p "$NOTICES_DIR" 2>/dev/null && printf -- '- %s\n' "$tf_msg" >> "$NOTICES_DIR/$tf_sid.md" 2>/dev/null; then
+        tf_done=1
+        case "$tf_status" in
+          busy|idle) tf_told="the rear admiral was told" ;;
+          *) if [ -x "$WAKE" ] && "$WAKE" --session "$tf_sid" --by "human:nelson" --why "notify-session failed: $1" \
+                 --message "$tf_msg" >/dev/null 2>&1; then tf_told="the rear admiral was told and woken"
+             else tf_told="the rear admiral was told, but it is stopped and the wake was refused"; fi ;;
+        esac
+      else
+        tf_why="the notice for \`$REAR_ADMIRAL\` could not be written to $NOTICES_DIR"
+      fi ;;
+  esac
+  if [ "$tf_done" = 0 ]; then
+    if printf '\n## %s · notify-session\n\n%s Not delivered to the rear admiral: %s.\n' \
+         "$(date '+%Y-%m-%dT%H:%M')" "$tf_msg" "$tf_why" >> "$FRICTION_LOG" 2>/dev/null; then
+      tf_done=1; tf_told="$tf_why, so the failure is in the Agent friction log"
+    else
+      tf_told="NOBODY could be told: $tf_why, and the friction log could not be written"
+    fi
+  fi
+  if [ "$tf_done" = 1 ]; then
+    mkdir -p "$STATE_DIR" 2>/dev/null && printf '{"key":"%s","event":"%s","failure":true,"sent":"%s"}\n' \
+      "$tf_key" "$event" "$(date '+%Y-%m-%dT%H:%M:%S%z')" >> "$SENT" 2>/dev/null || true
+  fi
+}
+loud=1
+
 already_sent() {  # is the key in the state file?
   [ -n "$key" ] && [ -f "$SENT" ] && grep -qF "\"key\":\"$key\"" "$SENT" 2>/dev/null
 }
@@ -317,7 +338,7 @@ case "$note" in
   /*|..|../*|*/../*|*/..) ;;
   *) [ -e "$VAULT_DIR/$note" ] && note="$VAULT_DIR/$note" ;;
 esac
-[ -e "$note" ] || die "no note at '$note' (a relative path is tried under $VAULT_DIR, then from $(pwd -P))"
+[ -e "$note" ] || die "no note at '$note' (a relative path is tried under $VAULT_DIR, then from the working directory)"
 # THE PATH IS RESOLVED BEFORE ANYTHING READS IT. The ship map matches on leading path segments, so a relative
 # path fell through every arm and went to the rear admiral — and the verb's working directory is the vault
 # root often enough for that to be the common case, not a corner. The record keeps the resolved path too: a
