@@ -7,7 +7,8 @@
 # line is one whole entry: its `## ` heading and its body, with the entry's newlines joined by " ⏎ ". So the
 # event IS the entry, and a session reads it without running anything.
 #
-# THE MONITOR COMMAND a session uses (Monitor lasts at most 30 minutes; re-arm it with the SAME command when
+# THE MONITOR COMMAND, the follow form (since Nelson's "A" of 2026-10-01 the fleet arms no Monitor on the log and runs
+# THE ONCE FORM below instead; this form stays for a session told to follow). A Monitor lasts at most 30 minutes; re-arm it with the SAME command when
 # it expires, and --state makes the new run print what arrived in between):
 #
 #     Monitor({ command: "bash ~/.claude/bin/xlog-follow.sh --state ~/.local/state/xlog-follow/$CLAUDE_CODE_SESSION_ID",
@@ -31,21 +32,40 @@
 #     it starts (stat, tail, head, cksum, sleep, mv) ends before the next tick. It exits on SIGTERM, SIGINT and
 #     SIGHUP, and when its output pipe is closed.
 #
-# USAGE   xlog-follow.sh [--log <path>] [--state <file>]
+# THE ONCE FORM a session runs on start, on a wake and hourly, now that no Monitor is armed on the log (Nelson,
+# 2026-10-01: "A"). It prints the entries since the saved place, saves the new place, and EXITS 0:
+#
+#     bash ~/.claude/bin/xlog-follow.sh --once --state ~/.local/state/xlog-follow/$CLAUDE_CODE_SESSION_ID
+#
+#   Without --once the script follows forever, so the "run it once" form without it left followers that never
+#   exited (four orphans killed on 2026-10-02, one 15 hours old). With --once:
+#   * The entries since the saved place are printed, one line each, and the LAST one too: at the end of the file
+#     an entry counts as complete (appends are whole, by the fleet's atomic-append rule), so nothing waits 3 s.
+#   * With NO saved place yet (a first run, or a new state file), it prints one line saying so, saves the end of
+#     the log as the place, and prints no entries: read the log from your notebook's last-read stamp that once.
+#   * The notices below (a gap over 16 KB, a log rewritten since the last run) are printed as in the follow form,
+#     and the end is saved as the place.
+#   * If the log is cut or rewritten while it is read, it prints one notice, does not move the saved place, and
+#     exits 0; run it again.
+#   * --once needs --state: with no place to save, a once run could only ever print nothing.
+#
+# USAGE   xlog-follow.sh [--log <path>] [--state <file>] [--once]
 #         --log is for tests; the default is the fleet log, found by name under ~/obsidian exactly the way
 #         claude/hooks/cross-session-inject.py finds it. --state is where a run saves its place for the next one.
+#         --once reads what is new, saves the place and exits (see THE ONCE FORM above).
 #
 # Plain bash (3.2 is enough), with the BSD tools of macOS or the GNU ones; the `stat` form is picked once.
 
 set -u
 LC_ALL=C; export LC_ALL   # byte counts, not characters: the offsets below are bytes
 
-log=""; state=""
+log=""; state=""; once=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --log) [ $# -ge 2 ] || { echo "xlog-follow: --log needs a path" >&2; exit 2; }; log="$2"; shift 2 ;;
     --state) [ $# -ge 2 ] || { echo "xlog-follow: --state needs a path" >&2; exit 2; }; state="$2"; shift 2 ;;
-    -h|--help) sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --once) once=1; shift ;;
+    -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;;
     *) echo "xlog-follow: unknown argument '$1'" >&2; exit 2 ;;
   esac
 done
@@ -57,6 +77,7 @@ if [ -z "$log" ]; then
   log=$(find "$HOME/obsidian" -name CROSS-SESSION.md -not -path '*/.trash/*' 2>/dev/null | sort | head -n 1)
 fi
 [ -n "$log" ] && [ -f "$log" ] || { echo "xlog-follow: no cross-session log found" >&2; exit 1; }
+[ "$once" = 0 ] || [ -n "$state" ] || { echo "xlog-follow: --once needs --state <file>: with no place to save, it could only print nothing" >&2; exit 2; }
 
 trap 'save_state; exit 0' TERM INT HUP
 trap 'save_state; exit 0' PIPE
@@ -123,13 +144,29 @@ if [ -n "$state" ] && [ -f "$state" ]; then
     # what was there, so say so rather than start at the end in silence (review 2 of #77).
     notice "the log changed since the last run (rewritten or replaced), so entries that came in between cannot be printed"
   fi
+elif [ "$once" = 1 ]; then
+  notice "no saved place in $state yet, so the end of the log is saved as the place and no entries are printed"
 fi
 save_state
 
+# --once: one tick, at once, then the pending entry is flushed and the run ends (see THE ONCE FORM above).
+finish_once() {
+  if is_entry "$buf"; then emit "$buf"; fi
+  buf=""; save_state; exit 0
+}
+
 while :; do
-  sleep 1
+  [ "$once" = 1 ] || sleep 1
   st=$(fstat "$log")
-  if [ -z "$st" ]; then continue; fi          # missing for a moment, as during an atomic save
+  if [ -z "$st" ]; then
+    # missing for a moment, as during an atomic save; a once run waits for it a second at a time, at most 5
+    if [ "$once" = 1 ]; then
+      once_missing=$(( ${once_missing:-0} + 1 ))
+      [ "$once_missing" -le 5 ] || { notice "the log is missing, so nothing was read and the saved place is kept"; exit 0; }
+      sleep 1
+    fi
+    continue
+  fi
   read -r n_inode n_size n_mtime <<< "$st"
 
   if [ "$settle" -gt 0 ]; then
@@ -154,6 +191,11 @@ while :; do
   if [ "$resync" = 1 ]; then
     # A pending entry was appended before this change; print it rather than lose it (review 1 of #77).
     if is_entry "$buf"; then emit "$buf"; fi
+    if [ "$once" = 1 ]; then
+      # Not saved: the place before this run still fits nothing now, and the next run says so itself.
+      notice "the log was cut or rewritten while it was read, so the saved place is kept; run this again"
+      exit 0
+    fi
     buf=""; inode=$n_inode; offset=$n_size; mtime=$n_mtime; settle=2; resumed=0
     continue
   fi
@@ -182,6 +224,7 @@ while :; do
         notice "$(( n_size - offset )) bytes arrived at once, too many to be appends"
       fi
       buf=""; offset=$n_size; fp=$(fingerprint "$log" "$offset"); last_new=$SECONDS; save_state
+      [ "$once" = 0 ] || finish_once
       continue
     fi
     buf="$buf$chunk"
@@ -213,6 +256,7 @@ while :; do
     done
     save_state   # printed entries are saved as printed (review 3 of #77: a kill -9 printed one twice)
   fi
+  [ "$once" = 0 ] || finish_once
 
   # Quiet for 3 seconds: the pending entry is complete.
   if [ -n "$buf" ] && [ $(( SECONDS - last_new )) -ge 3 ]; then
