@@ -1,0 +1,34 @@
+name: claude/tests
+
+# Every claude/tests suite that needs no live session, no vault, no machine state and no wall-clock timing, on every pull request and every push to main that touches claude/ or a path those suites read (the tickle pause gate). The list, and the reason each other file is left out, is in claude/tests/run-standalone.sh, which fails if a file is accounted for nowhere.
+#
+# macOS, and /bin/bash 3.2 first on PATH: the scripts run on this Mac, where /bin/bash is 3.2, and the runner image puts a Homebrew bash 5 first, which would hide a bash-4-only construct.
+on:
+  pull_request:
+    paths: [claude/**, tickle/scripts/_lib/**, .github/workflows/claude-tests.yml]
+  push:
+    branches: [main]
+    paths: [claude/**, tickle/scripts/_lib/**, .github/workflows/claude-tests.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  standalone:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: /bin/bash 3.2 first on PATH, and the tools the suites need
+        run: |
+          mkdir -p "$RUNNER_TEMP/bash32"
+          ln -sf /bin/bash "$RUNNER_TEMP/bash32/bash"
+          echo "$RUNNER_TEMP/bash32" >> "$GITHUB_PATH"
+          command -v jq >/dev/null || brew install jq
+      - name: Check the shell
+        run: |
+          command -v bash
+          bash -c 'echo "$BASH_VERSION"' | grep -q '^3\.2' || { echo "bash is not 3.2"; exit 1; }
+          jq --version; python3 --version
+      - name: claude/tests, standalone suites
+        run: bash claude/tests/run-standalone.sh
