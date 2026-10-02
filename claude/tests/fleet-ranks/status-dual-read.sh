@@ -19,7 +19,7 @@
 # session dispatched, no `claude` command, and the two scripts are pointed at the temp notebook with their own
 # test flags.
 #
-# THE FIRST CASE IS THE REAL NOTEBOOK, read-only, under `bash -euo pipefail` — the options `rename-notebook.sh`
+# THE FIRST CASE IS THE REAL POPULATION (the notebook and, since 2026-09-29, the archive), read-only, under `bash -euo pipefail` — the options `rename-notebook.sh`
 # actually runs under. It is first because it is the case that did not exist when this suite passed 48 checks
 # over a library that could not survive its own population, and both of #65's fatal defects die in it. A suite
 # that only ever meets its own fixtures is a test of the fixtures.
@@ -61,45 +61,68 @@ entry() {
   printf '%s' "$f"
 }
 
-echo "=== 1. THE REAL NOTEBOOK, under the callers own shell options"
+echo "=== 1. THE REAL POPULATION (the notebook and the archive), under the callers own shell options"
 # THIS IS THE FIRST CASE ON PURPOSE. It is the case that did not exist when this suite passed 48 checks over a
 # library that could not survive its own notebook — #65's review found two FATAL defects that both die here in
 # the first second: a bare `status: draft` on seven live entries read as a session claim (which refused the
 # renamer for every session), and a `grep` that exits 1 on a missing key aborting a `set -euo pipefail` caller
-# mid-loop. Fixtures cannot find either. The population can, and it costs one pass over 517 files.
+# mid-loop. Fixtures cannot find either. The population can, and it costs one pass over it (517 files on 2026-09-27, all in the notebook then; the notebook and the archive since the move of 2026-09-29).
 #
 # READ-ONLY, and it asserts two things: that the run SURVIVES — a non-zero exit means some real entry aborts a
-# caller — and that no live entry reads as a `conflict`, because one conflict refuses the renamer for everybody.
+# caller — and that no entry reads as a `conflict`, because one conflict refuses the renamer for everybody.
 strict_state() {  # the library under the callers own options
   bash -euo pipefail -c '. "$1" && session_status_of "$2" && printf "%s" "$sess_state"' _ "$LIB" "$1" 2>/dev/null
 }
-REAL_NB="$HOME/obsidian/00-09 System/03 Agents/03.04 Records/Agent notebook"
-if [ -d "$REAL_NB" ]; then
-  # READ-ONLY, and the population that matters: every entry in the live notebook, in one strict shell. What is
-  # asserted is that the run SURVIVES — a non-zero exit means some real entry aborts a caller — and that no
-  # entry reads as a conflict, because a single conflict refuses the renamer for every session.
+# THE POPULATION, since 2026-09-29, when ended entries began to move from the notebook to the archive's notebook (the notebook alone fell from 517 entries to 71, below this section's bound). Two readers matter, so the section reads the UNION of what each reads (review 1 of #90):
+#   * the renamer, `rename-notebook.sh`, the strict caller this section guards: every file under the notebook, at any depth, with a `session:` key (its own `grep -rl`, run here with /usr/bin/grep so the shell's grep wrapper cannot change the answer);
+#   * the wake: `<root>/YYYY-MM/Agent session *.md` under both roots, through `claude/lib/notebook-roots.sh`, whose functions also give the two default paths.
+# The list goes to the strict shell on stdin, never as arguments, so a growing archive cannot hit the argument limit.
+ROOTS_LIB="$ROOT/claude/lib/notebook-roots.sh"
+AGENTS="$HOME/obsidian/00-09 System/03 Agents"
+roots_ok=1
+if [ -r "$ROOTS_LIB" ] && bash -n "$ROOTS_LIB" 2>/dev/null; then
+  # shellcheck source=../../lib/notebook-roots.sh
+  . "$ROOTS_LIB" || roots_ok=0
+  for fn in notebook_dir_for archive_dir_for entries_in_root notebook_entry_files_of; do command -v "$fn" >/dev/null 2>&1 || roots_ok=0; done
+else
+  roots_ok=0
+fi
+if [ "$roots_ok" = 0 ]; then
+  fail "the roots library loads and defines what it promises" "$ROOTS_LIB is missing, does not parse, or lacks a function; section 1 cannot choose its population"
+  REAL_NB=""; REAL_ARCH=""
+else
+  REAL_NB=$(notebook_dir_for "$AGENTS" "" 0 1)
+  REAL_ARCH=$(archive_dir_for "$AGENTS" "" 0)
+fi
+if [ "$roots_ok" = 1 ] && { [ -d "$REAL_NB" ] || [ -d "$REAL_ARCH" ]; }; then
+  { [ -d "$REAL_NB" ] && /usr/bin/grep -rl -E "^[[:space:]]*session[[:space:]]*:" "$REAL_NB" 2>/dev/null
+    notebook_entry_files_of "$REAL_NB" 1 "$REAL_ARCH" 1
+  } | sort -u > "$TMP/population"
+  nb_n=$(/usr/bin/grep -c -F "$REAL_NB/" "$TMP/population" || true)
+  arch_n=$(/usr/bin/grep -c -F "$REAL_ARCH/" "$TMP/population" || true)
+  printf '      population: %s files in the notebook (the renamer reads these), %s in the archive\n' "$nb_n" "$arch_n"
+  # READ-ONLY, in one strict shell, the options the renamer runs under. What is asserted is that the run SURVIVES (a non-zero exit means some real entry aborts a caller) and that no entry reads as a conflict, because a single conflict refuses the renamer for every session.
   real_out=$(bash -euo pipefail -c '
     . "$1" || exit 9
-    shift
-    for f in "$@"; do session_status_of "$f"; printf "%s\n" "$sess_state"; done
-  ' _ "$LIB" "$REAL_NB"/*/*.md 2>/dev/null)
+    while IFS= read -r f; do session_status_of "$f"; printf "%s\n" "$sess_state"; done
+  ' _ "$LIB" < "$TMP/population" 2>/dev/null)
   real_rc=$?
-  eq "the live notebook does not abort a strict caller" "$real_rc" 0
-  # THE POPULATION MUST NOT BE EMPTY, or the conflict check below passes by reading nothing: `grep -c` over one
-  # empty line is 0, which is indistinguishable from a clean notebook. A count is asserted here — and only here
-  # — because zero entries means this section measured NOTHING while claiming both fatal defects die in it.
+  eq "the notebook and the archive do not abort a strict caller" "$real_rc" 0
+  # THE POPULATION MUST NOT BE EMPTY, or the conflict check below passes by reading nothing: `grep -c` over one empty line is 0, which is indistinguishable from a clean population. Counts are asserted here, and only here, because zero entries means this section measured NOTHING while claiming both fatal defects die in it. The total must be real, and so must the notebook's own part, which is what the renamer reads.
   live_n=$(printf '%s\n' "$real_out" | grep -c . || true)
   if [ "$live_n" -gt 100 ]; then pass "the population is real ($live_n entries read)"
   else fail "the population is real" "only $live_n entries were read; this section proves nothing at that size"; fi
-  eq "no live entry reads as a conflict" "$(printf '%s\n' "$real_out" | grep -c '^conflict$' || true)" 0
-  printf '      live census: %s entries — %s\n' \
-    "$(printf '%s\n' "$real_out" | grep -c . || true)" \
+  # An empty notebook is a legitimate state since ended entries move to the archive, so it is a COUNTED skip, never a failure and never forgotten (review 2 of #90).
+  if [ "$nb_n" -gt 0 ]; then pass "the notebook itself is read ($nb_n files)"
+  else n=$((n + 1)); skips=$((skips + 1)); printf 'SKIP  %-58s no file under %s has a session: key; the renamer'"'"'s own population is empty, so it went untested\n' "the notebook itself is read" "$REAL_NB"; fi
+  eq "no entry reads as a conflict" "$(printf '%s\n' "$real_out" | grep -c '^conflict$' || true)" 0
+  printf '      census: %s entries — %s\n' \
+    "$live_n" \
     "$(printf '%s\n' "$real_out" | sort | uniq -c | tr '\n' ' ' | sed -E 's/[[:space:]]+/ /g')"
-else
-  # COUNTED, so a machine without the vault cannot run this suite green while missing the only section that
-  # meets the real population. A skip that nothing counts is a hole with a label on it.
+elif [ "$roots_ok" = 1 ]; then
+  # COUNTED, so a machine without the vault cannot run this suite green while missing the only section that meets the real population. A skip that nothing counts is a hole with a label on it.
   n=$((n + 1)); skips=$((skips + 1))
-  printf 'SKIP  %-58s the notebook is not at %s\n' "the real-notebook population case" "$REAL_NB"
+  printf 'SKIP  %-58s neither root exists (%s, %s)\n' "the real population case" "$REAL_NB" "$REAL_ARCH"
 fi
 
 echo "=== 2. the library: every key in every state, and both keys together"
