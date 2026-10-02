@@ -8,6 +8,8 @@
 #   fleet-gate --wait [secs]   poll until the gate opens (exit 0) or the time runs out (exit 2); default 1800 s
 #   fleet-gate && <command>    the way to put it in front of anything
 #
+# WHERE THE WAIT GOES: in the DISPATCHER, before the session starts (`fleet-gate --wait 900 && claude --bg …`, or `wake-session.sh` and `promote-session.sh` with `--gate-wait <secs>`). A started session never waits on the gate for its own start: it is counted as live while it waits, so a queue of sessions that each wait inside themselves holds the gate shut while the load is low (2026-10-02, reported by [C0-OB] obsidian: held about 50 minutes at "20 live sessions" with the 5-minute load near 4). A running session still puts the gate in front of a dispatch, a test suite or a bulk vault write.
+#
 # The line when it holds:  fleet-gate: 5-min load X (limit 8), N live sessions (limit 20); holding
 #
 # Limits by env: FLEET_GATE_LOAD5 (default 8; a decimal) and FLEET_GATE_SESSIONS (default 20; a whole number). A limit that is not a number closes the gate. FLEET_GATE_POLL sets the --wait poll interval (default 30 s).

@@ -28,8 +28,8 @@
 #
 # Usage:
 #   wake-session.sh --session <id|sessionId> --by "<your session name>" --why "<reason>" \
-#       [--message "<text>"] [--log <path>] [--notebook-dir <path>] [--archive-dir <path>] [--dry-run]
-#   wake-session.sh --all --by "<your session name>" [--resume-stopped --why "<reason>"] \
+#       [--message "<text>"] [--gate-wait <secs>] [--log <path>] [--notebook-dir <path>] [--archive-dir <path>] [--dry-run]
+#   wake-session.sh --all --by "<your session name>" [--resume-stopped --why "<reason>"] [--gate-wait <secs>] \
 #       [--log <path>] [--notebook-dir <path>] [--archive-dir <path>] [--dry-run]
 #
 #   --session  the target's background id or sessionId, as `claude agents --json --all` lists it.
@@ -48,6 +48,11 @@
 #              needs a SendMessage — run --session on one to get the text), alive and busy (left
 #              alone), stopped (offered, and resumed only with --resume-stopped).
 #   --resume-stopped  with --all, resume every stopped session in your line, one log entry each.
+#   --gate-wait  wait up to this many seconds for the fleet gate BEFORE the resume, instead of refusing at
+#              once when it holds (`fleet-gate --wait`). The wait is here, in the dispatcher, and never in the
+#              woken session: a session that waits after it is started is counted as live while it waits, so
+#              a queue of them holds the gate shut (2026-10-02). With --all, it waits before each resume.
+#              Default 0: one check, and a refusal when it holds.
 #   --log      the cross-session log to append the record to (default: the fleet log).
 #   --notebook-dir  where the agent notebook lives. For testing only.
 #   --archive-dir   where ended notebook entries live (default: `03 Agents/03.09 Archive/Agent notebook`). For testing only.
@@ -133,7 +138,7 @@ AGENTS_DIR_SET=0
 # the key is one line here and one line in promote-session.sh.
 REPORTS_TO_KEY="reports-to"
 
-session="" by="" why="" message="" log="$FLEET_LOG" pause_note="" dry_run=0 all_mode=0 resume_stopped=0
+session="" by="" why="" message="" log="$FLEET_LOG" pause_note="" dry_run=0 all_mode=0 resume_stopped=0 gate_wait=0
 PROJECTS_DIR="$HOME/.claude/projects"
 
 die() { printf 'wake-session: %s\n' "$*" >&2; exit 2; }
@@ -206,6 +211,9 @@ while [ $# -gt 0 ]; do
     --projects-dir) [ $# -ge 2 ] && [ -n "$2" ] || die "--projects-dir needs a path"; PROJECTS_DIR="$2"; shift 2 ;;
     --all)          all_mode=1; shift ;;
     --resume-stopped) resume_stopped=1; shift ;;
+    --gate-wait)    [ $# -ge 2 ] || die "--gate-wait needs a number of seconds"
+                    case "$2" in ''|*[!0-9]*) die "--gate-wait takes a whole number of seconds (got '$2')" ;; esac
+                    gate_wait=$((10#$2)); shift 2 ;;
     --dry-run)      dry_run=1; shift ;;
     -h|--help)      awk 'NR>1 && !/^#/ {exit} NR>1 {sub(/^# ?/, ""); print}' "$0"; exit 0 ;;
     *) die "unknown argument: $1" ;;
@@ -613,7 +621,7 @@ load_row() {  # $1 = a row as JSON
 }
 
 default_message_for() {  # $1 = target name
-  printf '%s' "You are woken by $by: $why. This is your own session continuing under its own id, not a new one, so everything you had is still here. If a write of yours was refused because the fleet was paused, try that write again: the pause was read before this wake, and the gate answers honestly every time. Read the cross-session log delta from the position your notebook entry records: read each entry in full and give it a disposition without restating it in chat, then carry on where you stopped. Report to $by by SendMessage only when something changed, something is asked, or something failed; send nothing that carries no change."
+  printf '%s' "You are woken by $by: $why. This is your own session continuing under its own id, not a new one, so everything you had is still here. If a write of yours was refused because the fleet was paused, try that write again: the pause was read before this wake, and the gate answers honestly every time. The fleet gate was checked before this wake, so do not wait on it for your own start; put it (\`~/.claude/bin/fleet-gate\`) in front of a dispatch, a test suite or a bulk vault write only. Read the cross-session log delta from the position your notebook entry records: read each entry in full and give it a disposition without restating it in chat, then carry on where you stopped. Report to $by by SendMessage only when something changed, something is asked, or something failed; send nothing that carries no change."
 }
 
 # jq -Rs quotes and escapes the whole string, quotes included, so a message carrying a quote, a
@@ -896,6 +904,10 @@ if [ "$all_mode" = 0 ]; then
   if [ "$post_rm" = 1 ]; then
     printf '  it has NO job record, so it is read from its notebook entry %s\n' "$post_rm_entry"
     [ -d "$row_cwd" ] || die "refused: the recorded cwd '$row_cwd' no longer exists (a removed worktree, most likely), and the resume must run there; recreate it, or correct the entry's cwd"
+    # The gate wait comes BEFORE the transcript checks, so they are read after the wait, not before it.
+    if [ "$dry_run" = 0 ] && [ "$gate_wait" -gt 0 ]; then
+      fleet_gate_check 0 "$gate_wait" || die "held by the fleet gate after waiting $gate_wait s, so nothing is resumed: ${FLEET_GATE_VERDICT:-no reason given}. Nothing was touched."
+    fi
     post_rm_find_transcript "$row_cwd"
     roster_transcript_found="$post_rm_transcript"
     # A TRANSCRIPT WRITTEN IN THE LAST TWO MINUTES may belong to a session that is running with no job row (one Nelson opened in a terminal): a resume would put a second process on it. Refused, like a live row.
@@ -913,7 +925,7 @@ if [ "$all_mode" = 0 ]; then
       printf '  dry run: nothing touched\n'
       exit 0
     fi
-    fleet_gate_check || die "held by the fleet gate, so nothing is resumed: ${FLEET_GATE_VERDICT:-no reason given}. Nothing was touched; run this again when \`fleet-gate\` opens (\`fleet-gate --wait\` waits for it)."
+    fleet_gate_check || die "held by the fleet gate, so nothing is resumed: ${FLEET_GATE_VERDICT:-no reason given}. Nothing was touched; run this again with \`--gate-wait <secs>\` to wait for the gate here, before anything is started."
     post_rm_resume "$message"
     exit 0
   fi
@@ -936,13 +948,17 @@ if [ "$all_mode" = 0 ]; then
     printf '  dry run: nothing touched\n'
     exit 0
   fi
+  # The gate wait comes BEFORE the stopped check, so the session is confirmed stopped after the wait, not before it.
+  if [ "$gate_wait" -gt 0 ]; then
+    fleet_gate_check 0 "$gate_wait" || die "held by the fleet gate after waiting $gate_wait s, so nothing is resumed: ${FLEET_GATE_VERDICT:-no reason given}. Nothing was touched."
+  fi
   if ! settle_stopped; then
     printf '  it came back with pid %s while the listing was being confirmed, so it is alive after all and is NOT resumed.\n' "$row_pid"
     print_sendmessage "$row_name" "$message"
     printf '  nothing was touched; no record was written.\n'
     exit 3
   fi
-  fleet_gate_check || die "held by the fleet gate, so nothing is resumed: ${FLEET_GATE_VERDICT:-no reason given}. Nothing was touched; run this again when \`fleet-gate\` opens (\`fleet-gate --wait\` waits for it)."
+  fleet_gate_check || die "held by the fleet gate, so nothing is resumed: ${FLEET_GATE_VERDICT:-no reason given}. Nothing was touched; run this again with \`--gate-wait <secs>\` to wait for the gate here, before anything is started."
   wake_stopped "$message"
   exit 0
 fi
@@ -1082,6 +1098,9 @@ while IFS= read -r one_row; do
     printf '  skipped %s (%s): it is running again now (pid %s), so it needs a SendMessage, not a resume\n' "$row_id" "$row_name" "$row_pid"
     continue
   fi
+  if [ "$gate_wait" -gt 0 ] && ! fleet_gate_check 0 "$gate_wait"; then
+    die "the sweep stopped at $row_id ($row_name), held by the fleet gate after waiting $gate_wait s: ${FLEET_GATE_VERDICT:-no reason given}. Resumed and logged before it: ${swept_woken:-none}. Not resumed: $row_id and every stopped session after it in the list above."
+  fi
   if ! settle_stopped; then
     printf '  skipped %s (%s): a pid came back (%s) while the listing was being confirmed, so it is alive and needs a SendMessage\n' "$row_id" "$row_name" "$row_pid"
     continue
@@ -1090,7 +1109,7 @@ while IFS= read -r one_row; do
   [ -n "$one_message" ] || one_message=$(default_message_for "$row_name")
   # The gate is asked before EACH resume, because every resume adds a live session. When it holds partway, the sweep stops and says exactly what it did: the sessions resumed before this one stay resumed and logged, and this one and every later one are not resumed.
   if ! fleet_gate_check; then
-    die "the sweep stopped at $row_id ($row_name), held by the fleet gate: ${FLEET_GATE_VERDICT:-no reason given}. Resumed and logged before it: ${swept_woken:-none}. Not resumed: $row_id and every stopped session after it in the list above; run the same command again when \`fleet-gate\` opens, and it picks up only the ones still stopped."
+    die "the sweep stopped at $row_id ($row_name), held by the fleet gate: ${FLEET_GATE_VERDICT:-no reason given}. Resumed and logged before it: ${swept_woken:-none}. Not resumed: $row_id and every stopped session after it in the list above; run the same command again, with \`--gate-wait <secs>\` to wait for the gate before each resume, and it picks up only the ones still stopped."
   fi
   wake_stopped "$one_message"
   swept_woken="${swept_woken:+$swept_woken, }$row_id"

@@ -16,7 +16,7 @@
 # Usage:
 #   promote-session.sh --session <id|sessionId> --to <agent> --name "<code-ship> <name>" \
 #       --by "<promoter session name>" --why "<reason>" [--ship <code>] [--prompt "<text>"] \
-#       [--log <path>] [--pause-note <path>] [--dry-run]
+#       [--gate-wait <secs>] [--log <path>] [--pause-note <path>] [--dry-run]
 #
 #   --to     one of: commander, lieutenant-commander, lieutenant-commander-repository,
 #            lieutenant, lieutenant-repository. Never captain or admiral: only Nelson makes those.
@@ -34,6 +34,10 @@
 #            (The refusal when --by carries no ship code names every code, in the captain's own
 #            wording, corrected by him on 2026-09-26 once HS existed; the codes come from
 #            `ships_in_words`, so a new ship reaches the sentence with no edit here.)
+#   --gate-wait  wait up to this many seconds for the fleet gate BEFORE anything is stopped or started,
+#            instead of refusing at once when it holds (`fleet-gate --wait`). The wait is here, in the
+#            dispatcher, and never in the new session (2026-10-02: sessions that waited after they were
+#            started held the gate shut). Default 0: one check, and a refusal when it holds.
 #   --log    the cross-session log to append the record to (default: the fleet log).
 #   --jobs-dir  where Claude Code's job state lives, which is where the TARGET's rank is read from
 #              (`<id>/state.json`, key `template`). For testing only, and REFUSED unless it resolves under
@@ -97,7 +101,7 @@ JOBS_DIR="$HOME/.claude/jobs"
 # wake-session.sh beside this script walks the same key. One variable, so a rename is one line.
 REPORTS_TO_KEY="reports-to"
 
-session="" to="" name="" by="" why="" prompt="" log="$FLEET_LOG" ship="" pause_note="" dry_run=0
+session="" to="" name="" by="" why="" prompt="" log="$FLEET_LOG" ship="" pause_note="" dry_run=0 gate_wait=0
 
 die() { printf 'promote-session: %s\n' "$*" >&2; exit 2; }
 
@@ -152,6 +156,9 @@ while [ $# -gt 0 ]; do
     --ship)    [ $# -ge 2 ] && [ -n "$2" ] || die "--ship needs a value"; ship="$2"; shift 2 ;;
     --pause-note) [ $# -ge 2 ] && [ -n "$2" ] || die "--pause-note needs a path"; pause_note="$2"; shift 2 ;;
     --dry-run) dry_run=1; shift ;;
+    --gate-wait) [ $# -ge 2 ] || die "--gate-wait needs a number of seconds"
+                 case "$2" in ''|*[!0-9]*) die "--gate-wait takes a whole number of seconds (got '$2')" ;; esac
+                 gate_wait=$((10#$2)); shift 2 ;;
     -h|--help) awk 'NR>1 && !/^#/ {exit} NR>1 {sub(/^# ?/, ""); print}' "$0"; exit 0 ;;
     *) die "unknown argument: $1" ;;
   esac
@@ -355,7 +362,7 @@ esac
 
 # --- the brief the new session wakes to -------------------------------------------------------
 if [ -z "$prompt" ]; then
-  prompt="You have been $verb by $by from $(word_of_rank "$old_rank") to $(word_of_rank "$to_rank"): $why. Your session is now named \"$name\" and runs the $to definition; this is the same conversation under a new session id (the old id $old_id is stopped and stays as the record). Read ~/.claude/agents/$to.md and follow its standing duties from now on; your file boundary and your reporting line are as $by states them, and nothing a ruling did not authorise is widened by this change. Add one line to your open notebook entry: \"$(date '+%Y-%m-%dT%H:%M') — $verb by $by to $name ($to): $why; old id $old_id\", and set \`$REPORTS_TO_KEY\` on that same entry to \"$by\", which is the session you report to from now on and is how the operator's console draws the fleet tree. Your notebook entry's FILENAME may still carry your old name for a moment: the rename runs right after this and, if it is skipped or fails, the hook catches it on your next turn, so leave the file alone rather than renaming it yourself. Then continue your work. Send $by a message only when something changed, something is asked, or something failed."
+  prompt="You have been $verb by $by from $(word_of_rank "$old_rank") to $(word_of_rank "$to_rank"): $why. Your session is now named \"$name\" and runs the $to definition; this is the same conversation under a new session id (the old id $old_id is stopped and stays as the record). Read ~/.claude/agents/$to.md and follow its standing duties from now on; your file boundary and your reporting line are as $by states them, and nothing a ruling did not authorise is widened by this change. Add one line to your open notebook entry: \"$(date '+%Y-%m-%dT%H:%M') — $verb by $by to $name ($to): $why; old id $old_id\", and set \`$REPORTS_TO_KEY\` on that same entry to \"$by\", which is the session you report to from now on and is how the operator's console draws the fleet tree. Your notebook entry's FILENAME may still carry your old name for a moment: the rename runs right after this and, if it is skipped or fails, the hook catches it on your next turn, so leave the file alone rather than renaming it yourself. The fleet gate was checked before this start, so do not wait on it for your own start; put it (\`~/.claude/bin/fleet-gate\`) in front of a dispatch, a test suite or a bulk vault write only. Then continue your work. Send $by a message only when something changed, something is asked, or something failed."
 fi
 
 printf '%s: %s (%s, %s, %s) -> %s (%s)\n' "$verb" "$old_name" "$old_id" "$old_agent" "$(word_of_rank "$old_rank")" "$name" "$to"
@@ -366,7 +373,7 @@ if [ "$dry_run" = 1 ]; then printf '  dry run: nothing touched\n'; exit 0; fi
 
 # A live target is stopped and then resumed under a new id, so it does not add to the live count: it gets an allowance of one. Live means its process runs now (kill -0): a listing row can keep the pid of a process that is gone, and that target's resume DOES add a session.
 if [ -n "$old_pid" ] && kill -0 "$old_pid" 2>/dev/null; then gate_extra=1; else gate_extra=0; fi
-fleet_gate_check "$gate_extra" || die "held by the fleet gate, so nothing is stopped or started: ${FLEET_GATE_VERDICT:-no reason given}. Nothing was touched; run this again when \`fleet-gate\` opens (\`fleet-gate --wait\` waits for it)."
+fleet_gate_check "$gate_extra" "$gate_wait" || die "held by the fleet gate$( [ "$gate_wait" = 0 ] || printf ' after waiting %s s' "$gate_wait" ), so nothing is stopped or started: ${FLEET_GATE_VERDICT:-no reason given}. Nothing was touched; run this again with \`--gate-wait <secs>\` to wait for the gate here, before anything is started."
 
 # --- stop, and wait until the process is really gone ------------------------------------------
 if [ -n "$old_pid" ]; then

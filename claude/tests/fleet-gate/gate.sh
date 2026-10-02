@@ -227,10 +227,55 @@ EOF
 echo "$n"' _ "$LIBF" 2>&1)
 eq "the gate does not eat a loop's heredoc" "$got" 3
 
+echo
+echo "=== 7. the wait goes in the dispatcher, before the start (2026-10-02: sessions that waited inside themselves held the gate shut)"
+# opens_in <secs>: the load falls under the limit after that many seconds, as a dispatcher's wait would see it.
+opens_in() { load 1.00 9.00 2.00; ( sleep "$1"; load 1.00 2.00 2.00 ) & OPENER=$!; }
+sessions 5
+opens_in 2
+got=$(FLEET_GATE_POLL=1 PATH="$T/stubbin:$PATH" bash -c '. "$1"; fleet_gate_check 0 15; echo "rc=$?"' _ "$LIBF" 2>&1); wait "$OPENER"
+has "lib: a wait opens when the gate opens" "$got" "rc=0"
+has "lib: and it says once that it waits before anything is started" "$got" "waiting up to 15 s for the gate before anything is started"
+load 1.00 9.00 2.00
+got=$(FLEET_GATE_POLL=1 PATH="$T/stubbin:$PATH" bash -c '. "$1"; fleet_gate_check 0 2; echo "rc=$?"; echo "v=$FLEET_GATE_VERDICT"' _ "$LIBF" 2>&1)
+has "lib: a wait that runs out holds (exit 2)" "$got" "rc=2"
+has "lib: and the verdict says it waited" "$got" "waited 2 s and the gate is still closed"
+got=$(PATH="$T/stubbin:$PATH" bash -c '. "$1"; fleet_gate_check 0 x; echo "rc=$?"; echo "v=$FLEET_GATE_VERDICT"' _ "$LIBF" 2>&1)
+has "lib: a wait that is not a number holds" "$got" "rc=1"
+has "lib: and says why" "$got" "not a whole number of seconds"
+
+printf '[{"id":"zz000000","sessionId":"%s","name":"[L0-CC] t","cwd":"%s","status":"stopped"}]\n' "$ZERO" "$T/cwd" > "$T/listing.json"
+load 1.00 9.00 2.00; : > "$T/calls"
+out=$(FLEET_GATE_POLL=1 run_wake --gate-wait 2); rc=$?
+has "wake --gate-wait: a gate that stays closed is refused after the wait" "$out" "held by the fleet gate after waiting 2 s"
+eq  "wake --gate-wait: nothing was resumed" "$(cat "$T/calls")" ""
+out=$(run_wake --gate-wait soon); rc=$?
+has "wake --gate-wait: a value that is not a number is refused" "$out" "--gate-wait takes a whole number of seconds"
+: > "$T/calls"; opens_in 2
+out=$(FLEET_GATE_POLL=1 run_wake --gate-wait 20); wait "$OPENER"
+has "wake --gate-wait: the resume runs once the gate opens" "$(cat "$T/calls")" "--bg --resume $ZERO"
+has "wake: the default brief tells the woken session not to wait on the gate for its own start" "$(cat "$T/calls")" "do not wait on it for your own start"
+load 1.00 9.00 2.00; : > "$T/calls"
+out=$(FLEET_GATE_POLL=1 run_promote --gate-wait 2); rc=$?
+has "promote --gate-wait: a gate that stays closed is refused after the wait" "$out" "held by the fleet gate after waiting 2 s"
+eq  "promote --gate-wait: nothing was stopped or started" "$(cat "$T/calls")" ""
+out=$(run_promote --gate-wait -1); rc=$?
+has "promote --gate-wait: a value that is not a number is refused" "$out" "--gate-wait takes a whole number of seconds"
+: > "$T/calls"; opens_in 2
+out=$(FLEET_GATE_POLL=1 run_promote --gate-wait 20); wait "$OPENER"
+has "promote --gate-wait: the start runs once the gate opens" "$(cat "$T/calls")" "--bg --resume $ZERO --agent lieutenant-commander"
+has "promote: the brief tells the new session not to wait on the gate for its own start" "$(cat "$T/calls")" "do not wait on it for your own start"
+load 1.00 9.00 2.00; : > "$T/calls"
+out=$(HOME="$T/home" FLEET_GATE_POLL=1 PATH="$T/stubbin:$PATH" bash "$BIN/wake-session.sh" --all --resume-stopped --gate-wait 2 --by "[C0-CC] claude code" --why x --jobs-dir "$T/jobs" --log "$T/log.md" \
+  --pause-note "$T/pause.md" --agents-dir "$T/agents" --notebook-dir "$T/agents/Agent notebook" --archive-dir "$T/archive" 2>&1)
+has "wake --all --gate-wait: the sweep stops after the wait and names where" "$out" "held by the fleet gate after waiting 2 s"
+eq  "wake --all --gate-wait: nothing was resumed" "$(cat "$T/calls")" ""
+echo
+
 out=$(bash "$GATE" --help 2>&1)
 case "$out" in *"set -u"*) fail "--help prints the header only" "it printed code" ;; *"FAIL CLOSED"*) pass "--help prints the header only" ;; *) fail "--help prints the header only" "no header" ;; esac
 
-EXPECTED=65
+EXPECTED=83
 [ "$n" = "$EXPECTED" ] || { fails=$((fails + 1)); echo "FAIL  the check count is $n, expected $EXPECTED"; }
 printf '\n%s checks (expected %s), %s failed\n' "$n" "$EXPECTED" "$fails"
 [ "$fails" = 0 ] || exit 1
